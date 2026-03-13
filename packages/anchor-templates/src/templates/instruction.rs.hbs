@@ -1,0 +1,30 @@
+use anchor_lang::prelude::*;
+{{#each stateImports}}
+use crate::state::{{this}};
+{{/each}}
+{{#if hasErrors}}
+use crate::errors::{{errorEnum}};
+{{/if}}
+{{#each eventImports}}
+use crate::events::{{this}};
+{{/each}}
+
+pub fn handler(ctx: Context<{{contextStruct}}>{{#if args}}, {{#each args}}{{name}}: {{type}}{{#unless @last}}, {{/unless}}{{/each}}{{/if}}) -> Result<()> {
+    {{body}}
+
+    Ok(())
+}
+
+#[derive(Accounts)]
+{{#if args}}
+#[instruction({{#each args}}{{name}}: {{type}}{{#unless @last}}, {{/unless}}{{/each}})]
+{{/if}}
+pub struct {{contextStruct}}<'info> {
+    {{#each accounts}}
+    {{#each attributes}}
+    {{this}}
+    {{/each}}
+    pub {{name}}: {{rustType}},
+
+    {{/each}}
+}

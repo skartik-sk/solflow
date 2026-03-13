@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "outDir": "./dist-server",
+    "noEmit": false,
+    "target": "ES2020"
+  },
+  "include": ["server.ts", "src/lib/ws-broadcaster.ts"]
+}
