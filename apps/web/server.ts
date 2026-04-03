@@ -42,6 +42,9 @@ app.prepare().then(() => {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
+    } else if (pathname?.startsWith("/_next")) {
+      // Let Next.js handle HMR and other internal WebSocket upgrades
+      handle(req, socket, head);
     } else {
       socket.destroy();
     }
@@ -49,7 +52,7 @@ app.prepare().then(() => {
 
   server.listen(port, hostname, () => {
     console.log(
-      `> SolFlow ready on http://${hostname}:${port} (${dev ? "dev" : "prod"})`,
+      `> SolFlow ready on http://${hostname === "0.0.0.0" ? "localhost" : hostname}:${port} (${dev ? "dev" : "prod"})`,
     );
   });
 });

@@ -106,7 +106,7 @@ export const compileRouter = router({
             status: "FAILED",
             errors: [
               err instanceof Error ? err.message : String(err),
-            ] as unknown as PrismaJsonValue,
+            ] as unknown as any,
           },
         });
         throw new TRPCError({

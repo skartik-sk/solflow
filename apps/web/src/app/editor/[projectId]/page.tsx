@@ -33,7 +33,6 @@ export default async function EditorPage({ params }: Props) {
       id: true,
       name: true,
       framework: true,
-      network: true,
       flowData: true,
     },
   });

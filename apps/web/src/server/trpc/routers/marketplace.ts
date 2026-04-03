@@ -116,7 +116,7 @@ export const marketplaceRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Fetch the project to get flow data + IR
       const project = await ctx.prisma.project.findFirst({
-        where: { id: input.projectId, userId: ctx.session.user.id },
+        where: { id: input.projectId, userId: ctx.session.user.id! },
         select: { id: true, flowData: true, irData: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
@@ -129,7 +129,7 @@ export const marketplaceRouter = router({
 
       // Sanitize — strip programId + personal pubkeys before publishing
       const { sanitizedFlow, sanitizedIR } = sanitizeFlowForMarketplace(
-        project.flowData as Parameters<typeof sanitizeFlowForMarketplace>[0],
+        project.flowData as any,
         project.irData as ProgramIR,
       );
 
@@ -162,7 +162,7 @@ export const marketplaceRouter = router({
       const listing = await ctx.prisma.marketplaceListing.create({
         data: {
           projectId: input.projectId,
-          authorId: ctx.session.user.id,
+          authorId: ctx.session.user.id!,
           title: input.title,
           description: input.description,
           longDescription: input.longDescription,
@@ -198,7 +198,7 @@ export const marketplaceRouter = router({
       const newProject = await ctx.prisma.project.create({
         data: {
           name: `${listing.title} (fork)`,
-          userId: ctx.session.user.id,
+          userId: ctx.session.user.id!,
           framework: "ANCHOR",
           flowData: listing.templateFlowData ?? {},
           irData: listing.templateIR ?? undefined,
@@ -236,12 +236,12 @@ export const marketplaceRouter = router({
         where: {
           listingId_reviewerId: {
             listingId: input.listingId,
-            reviewerId: ctx.session.user.id,
+            reviewerId: ctx.session.user.id!,
           },
         },
         create: {
           listingId: input.listingId,
-          reviewerId: ctx.session.user.id,
+          reviewerId: ctx.session.user.id!,
           rating: input.rating,
           comment: input.comment,
         },
@@ -272,7 +272,7 @@ export const marketplaceRouter = router({
         where: {
           listingId_buyerId: {
             listingId: input.listingId,
-            buyerId: ctx.session.user.id,
+            buyerId: ctx.session.user.id!,
           },
         },
         select: { id: true },
@@ -377,12 +377,12 @@ export const marketplaceRouter = router({
         where: {
           listingId_buyerId: {
             listingId: input.listingId,
-            buyerId: ctx.session.user.id,
+            buyerId: ctx.session.user.id!,
           },
         },
         create: {
           listingId: input.listingId,
-          buyerId: ctx.session.user.id,
+          buyerId: ctx.session.user.id!,
           txSignature: input.txSignature,
           amount: listing.priceSOL,
           currency: "SOL",

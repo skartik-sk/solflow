@@ -5,28 +5,37 @@ import bs58 from "bs58";
 import { prisma } from "@solflow/db";
 
 // In-memory nonce store (replace with Redis in production)
-const nonceStore = new Map<string, number>();
+import { createHmac } from "crypto";
+
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 export async function generateNonce(): Promise<string> {
-  const nonce = crypto.randomUUID();
-  nonceStore.set(nonce, Date.now());
-  return nonce;
+  const timestamp = Date.now().toString();
+  const secret = process.env.AUTH_SECRET || "default-secret";
+  const hmac = createHmac("sha256", secret).update(timestamp).digest("hex");
+  return `${timestamp}.${hmac}`;
 }
 
 async function verifyNonce(nonce: string): Promise<boolean> {
-  const createdAt = nonceStore.get(nonce);
-  if (!createdAt) return false;
-  if (Date.now() - createdAt > NONCE_TTL_MS) {
-    nonceStore.delete(nonce);
+  try {
+    const [timestamp, hmac] = nonce.split(".");
+    if (!timestamp || !hmac) return false;
+    
+    if (Date.now() - parseInt(timestamp, 10) > NONCE_TTL_MS) return false;
+    
+    const secret = process.env.AUTH_SECRET || "default-secret";
+    const expectedHmac = createHmac("sha256", secret).update(timestamp).digest("hex");
+    
+    return hmac === expectedHmac;
+  } catch {
     return false;
   }
-  return true;
 }
 
 async function invalidateNonce(nonce: string): Promise<void> {
-  nonceStore.delete(nonce);
+  // Stateless nonce: relies on timestamp expiration instead of explicit deletion
 }
+
 
 export const SolanaWalletProvider = Credentials({
   id: "solana-wallet",

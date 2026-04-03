@@ -59,9 +59,9 @@ export async function PATCH(
       ...(name !== undefined && { name: String(name).trim() }),
       ...(description !== undefined && { description: String(description).trim() || null }),
       ...(framework !== undefined && { framework: framework === "PINOCCHIO" ? "PINOCCHIO" : "ANCHOR" }),
-      ...(flowData !== undefined && { flowData }),
-      ...(irData !== undefined && { irData }),
-      ...(generatedCode !== undefined && { generatedCode }),
+      ...(flowData !== undefined && { flowData: flowData ? (flowData as any) : null }),
+      ...(irData !== undefined && { irData: irData ? (irData as any) : null }),
+      ...(generatedCode !== undefined && { generatedCode: generatedCode ? (generatedCode as any) : null }),
     },
     select: {
       id: true,

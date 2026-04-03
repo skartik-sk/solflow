@@ -1,33 +1,29 @@
 "use client";
 
-// apps/web/src/components/providers/WalletProvider.tsx
-// Wraps the app with Solana wallet adapter context (Phantom, Solflare, Backpack).
-
-import React, { useMemo } from "react";
+import React, { FC, ReactNode, useMemo } from "react";
 import {
   ConnectionProvider,
   WalletProvider as SolanaWalletProvider,
 } from "@solana/wallet-adapter-react";
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
+import { clusterApiUrl } from "@solana/web3.js";
 
-// Import the default wallet adapter styles
 import "@solana/wallet-adapter-react-ui/styles.css";
 
-const RPC_ENDPOINT =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
+interface WalletProviderProps {
+  children: ReactNode;
+}
 
-export function WalletProvider({ children }: { children: React.ReactNode }) {
-  // Supported wallets — kept minimal; wallet-standard wallets (Phantom, Solflare,
-  // Backpack) register themselves automatically via the Wallet Standard protocol,
-  // so we only need to explicitly add legacy adapters.
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+export const WalletProvider: FC<WalletProviderProps> = ({ children }) => {
+  const network = WalletAdapterNetwork.Devnet;
+  const endpoint = useMemo(() => clusterApiUrl(network), [network]);
 
   return (
-    <ConnectionProvider endpoint={RPC_ENDPOINT}>
-      <SolanaWalletProvider wallets={wallets} autoConnect={false}>
+    <ConnectionProvider endpoint={endpoint}>
+      <SolanaWalletProvider wallets={[]} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </SolanaWalletProvider>
     </ConnectionProvider>
   );
-}
+};

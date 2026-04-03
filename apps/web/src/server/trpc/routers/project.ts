@@ -32,7 +32,7 @@ export const projectRouter = router({
     .query(async ({ ctx, input }) => {
       const projects = await ctx.prisma.project.findMany({
         where: {
-          userId: ctx.session.user.id,
+          userId: ctx.session.user.id!,
           ...(input.status && { status: input.status }),
           ...(input.framework && { framework: input.framework }),
         },
@@ -111,8 +111,8 @@ export const projectRouter = router({
           name: input.name,
           description: input.description,
           framework: input.framework,
-          userId: ctx.session.user.id,
-          flowData: initialFlowData,
+          userId: ctx.session.user.id!,
+          flowData: initialFlowData as any,
           ...(forkedFrom && { forkedFrom }),
         },
       });
@@ -153,7 +153,7 @@ export const projectRouter = router({
 
       await ctx.prisma.project.update({
         where: { id: input.id },
-        data: { flowData: input.flowData, irData },
+        data: { flowData: input.flowData as any, irData: irData as any },
       });
 
       // Create snapshot if requested
@@ -166,8 +166,8 @@ export const projectRouter = router({
             projectId: input.id,
             version: count + 1,
             label: input.snapshotLabel,
-            flowData: input.flowData,
-            irData,
+            flowData: input.flowData as any,
+            irData: irData as any,
             flowHash: JSON.stringify(input.flowData).length.toString(), // lightweight hash
           },
         });

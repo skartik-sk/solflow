@@ -15,10 +15,24 @@ const nextConfig: NextConfig = {
     ],
   },
   // Monaco editor requires this
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
     };
+    config.ignoreWarnings = [
+      { module: /@opentelemetry\/instrumentation/ },
+      { module: /bullmq/ }
+    ];
+    if (!isServer) {
+
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false,
+        path: false,
+        os: false,
+        crypto: false,
+      };
+    }
     return config;
   },
 };

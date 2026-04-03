@@ -123,11 +123,11 @@ export function startCompileWorker(): void {
             data: {
               status: "SUCCESS",
               logs: result.logs.join("\n"),
-              warnings: result.warnings as unknown as PrismaJsonValue,
+              warnings: result.warnings as unknown as any,
               binaryUrl: artifacts.binaryPath,
               binarySize: artifacts.binarySize,
               idlData:
-                (artifacts.idl as unknown as PrismaJsonValue) ?? undefined,
+                (artifacts.idl as unknown as any) ?? undefined,
               completedAt: new Date(),
               duration: result.duration,
             },
@@ -153,7 +153,7 @@ export function startCompileWorker(): void {
             data: {
               status: "FAILED",
               logs: result.logs.join("\n"),
-              errors: result.errors as unknown as PrismaJsonValue,
+              errors: result.errors as unknown as any,
               completedAt: new Date(),
               duration: result.duration,
             },
@@ -173,7 +173,7 @@ export function startCompileWorker(): void {
           where: { id: compilationId },
           data: {
             status: "FAILED",
-            errors: [msg] as unknown as PrismaJsonValue,
+            errors: [msg] as unknown as any,
             completedAt: new Date(),
           },
         });

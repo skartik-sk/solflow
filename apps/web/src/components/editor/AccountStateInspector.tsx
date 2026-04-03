@@ -118,12 +118,12 @@ function decodeField(
       case "u128": {
         const lo = dv.getBigUint64(offset, true);
         const hi = dv.getBigUint64(offset + 8, true);
-        return { value: String((hi << 64n) | lo), size: 16 };
+        return { value: String((hi << BigInt(64)) | lo), size: 16 };
       }
       case "i128": {
         const lo = dv.getBigUint64(offset, true);
         const hi = dv.getBigInt64(offset + 8, true);
-        return { value: String((hi << 64n) | lo), size: 16 };
+        return { value: String((hi << BigInt(64)) | lo), size: 16 };
       }
       case "Pubkey": {
         const bytes: number[] = [];

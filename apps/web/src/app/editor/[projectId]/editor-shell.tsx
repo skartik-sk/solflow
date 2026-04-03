@@ -195,7 +195,7 @@ export function EditorShell({
       {bottomPanelOpen && (
         <div className="flex h-64 shrink-0 flex-col border-t border-border bg-background">
           {/* Tab bar */}
-          <div className="flex shrink-0 items-center gap-0 border-b border-border bg-card">
+          <div className="flex shrink-0 items-center gap-0 border-b border-border bg-card overflow-x-auto whitespace-nowrap scrollbar-hide [&::-webkit-scrollbar]:hidden">
             {(
               [
                 "code",
@@ -213,23 +213,38 @@ export function EditorShell({
               <button
                 key={tab}
                 onClick={() => setBottomPanelTab(tab)}
-                className={`px-4 py-1.5 text-xs capitalize transition-colors ${
+                className={`shrink-0 px-4 py-1.5 text-xs capitalize transition-colors ${
                   bottomPanelTab === tab
-                    ? "border-b-2 border-primary bg-background text-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    ? "border-b-2 border-primary bg-background text-foreground font-medium"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground border-b-2 border-transparent"
                 }`}
               >
                 {tab === "txbuilder" ? "Tx Builder" : tab}
               </button>
             ))}
             {/* Close button */}
-            <button
-              onClick={toggleBottomPanel}
-              className="ml-auto px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-              title="Close panel (Ctrl+B)"
-            >
-              ✕
-            </button>
+            <div className="sticky right-0 ml-auto flex shrink-0 items-center bg-card pl-2 pr-1 shadow-[-8px_0_8px_-4px_rgba(0,0,0,0.3)]">
+              <button
+                onClick={toggleBottomPanel}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Close panel (Ctrl+B)"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
+              </button>
+            </div>
           </div>
 
           {/* Tab content */}

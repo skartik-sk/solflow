@@ -125,8 +125,8 @@ export const snapshotRouter = router({
       await ctx.prisma.project.update({
         where: { id: snapshot.projectId },
         data: {
-          flowData: snapshot.flowData ?? {},
-          irData: snapshot.irData,
+          flowData: (snapshot.flowData ?? {}) as any,
+          irData: snapshot.irData as any,
         },
       });
 

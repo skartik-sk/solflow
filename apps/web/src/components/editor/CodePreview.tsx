@@ -118,59 +118,6 @@ export function CodePreview() {
       {/* File tabs + compare toggle */}
       <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-card">
         <div className="flex min-w-0 flex-1 overflow-x-auto">
-          {files.map((file) => {
-            const isActive = file.path === (activeFile ?? files[0]?.path);
-            return (
-              <button
-                key={file.path}
-                onClick={() => handleTabClick(file.path)}
-                title={file.path}
-                className={cn(
-                  "flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs transition-colors",
-                  "hover:bg-accent hover:text-accent-foreground",
-                  isActive
-                    ? "border-b-2 border-b-primary bg-background text-foreground"
-                    : "text-muted-foreground"
-                )}
-              >
-                <FileIcon path={file.path} />
-                {shortName(file.path)}
-              </button>
-            );
-          })}
-        </div>
-        {/* Compare toggle */}
-        <button
-          onClick={() => setCompareMode(true)}
-          title="Compare Anchor vs Pinocchio side-by-side"
-          className="shrink-0 border-l border-border px-3 py-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap"
-        >
-          ⇄ Compare
-        </button>
-      </div>
-    );
-  }
-
-  if (errors.length > 0 && files.length === 0) {
-    return (
-      <div className="flex h-full flex-col gap-2 overflow-auto p-3">
-        {errors.map((e, i) => (
-          <div
-            key={i}
-            className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-mono text-destructive"
-          >
-            {e.message}
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  // ── Normal state ─────────────────────────────────────────────────
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {/* File tabs */}
-      <div className="flex shrink-0 overflow-x-auto border-b border-border bg-card">
         {files.map((file) => {
           const isActive = file.path === (activeFile ?? files[0]?.path);
           return (
@@ -191,6 +138,14 @@ export function CodePreview() {
             </button>
           );
         })}
+              </div>
+        <button
+          onClick={() => setCompareMode(true)}
+          title="Compare Anchor vs Pinocchio side-by-side"
+          className="shrink-0 border-l border-border px-3 py-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap"
+        >
+          ⇄ Compare
+        </button>
       </div>
 
       {/* Path breadcrumb */}

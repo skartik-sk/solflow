@@ -150,7 +150,7 @@ export const testRouter = router({
         data: {
           projectId: input.projectId,
           status: "QUEUED",
-          testCases: testCases as unknown as PrismaJsonValue,
+          testCases: testCases as unknown as any,
         },
       });
 

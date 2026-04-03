@@ -730,10 +730,8 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
 
 export function PropertiesPanel() {
   const { propertiesOpen, toggleProperties } = useUIStore();
-  const { selectedNodeId, nodes } = useFlowStore((s) => ({
-    selectedNodeId: s.selectedNodeId,
-    nodes: s.nodes,
-  }));
+  const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
+  const nodes = useFlowStore((s) => s.nodes);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 

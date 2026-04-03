@@ -1,9 +1,9 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import { Inter, JetBrains_Mono, Bricolage_Grotesque } from "next/font/google";
 import { Toaster } from "sonner";
 import { TRPCProvider } from "@/components/providers/TRPCProvider";
-import { WalletProvider } from "@/components/providers/WalletProvider";
+import { ClientWalletProvider } from "@/components/providers/ClientWalletProvider";
 import { MonitoringProvider } from "@/components/providers/MonitoringProvider";
 
 const inter = Inter({
@@ -16,6 +16,13 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-mono",
   display: "swap",
+});
+
+const bricolage = Bricolage_Grotesque({
+  subsets: ["latin"],
+  variable: "--font-bricolage",
+  display: "swap",
+  adjustFontFallback: false,
 });
 
 export const metadata: Metadata = {
@@ -59,12 +66,12 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} dark`}
+      className={`${inter.variable} ${jetbrainsMono.variable} ${bricolage.variable} dark`}
       suppressHydrationWarning
     >
-      <body className="min-h-screen antialiased">
+      <body className="font-bricolage min-h-screen antialiased bg-background text-foreground">
         <TRPCProvider>
-          <WalletProvider>
+          <ClientWalletProvider>
             <MonitoringProvider>
               {children}
               <Toaster
@@ -79,7 +86,7 @@ export default function RootLayout({
                 }}
               />
             </MonitoringProvider>
-          </WalletProvider>
+          </ClientWalletProvider>
         </TRPCProvider>
       </body>
     </html>

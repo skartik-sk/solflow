@@ -132,7 +132,9 @@ export const RULES: AuditRule[] = [
       return patches;
     },
   },
-    name: "Missing Owner Check",
+
+  {
+    id: "SOL-002",    name: "Missing Owner Check",
     description:
       "Program-owned account is not verified to be owned by the expected program",
     severity: "high",
@@ -253,7 +255,9 @@ export const RULES: AuditRule[] = [
       return patches;
     },
   },
-    name: "PDA Seed Collision Risk",
+
+  {
+    id: "SOL-020",    name: "PDA Seed Collision Risk",
     description:
       "PDA seeds may not be unique enough, allowing account collision",
     severity: "medium",

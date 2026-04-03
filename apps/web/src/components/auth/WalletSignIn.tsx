@@ -1,17 +1,11 @@
 "use client";
 
-// apps/web/src/components/auth/WalletSignIn.tsx
-// Real SIWS (Sign-In With Solana) flow using @solana/wallet-adapter-react.
-// Follows the spec in docs/architecture/12-auth-system.md exactly.
-
 import React, { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { useWalletModal } from "@solana/wallet-adapter-react-ui";
+import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { signIn } from "next-auth/react";
 import bs58 from "bs58";
 import { toast } from "sonner";
-
-// ─── SIWS Message Builder ─────────────────────────────────────────────────────
 
 function createSignInMessage(publicKey: string, nonce: string): string {
   const domain =
@@ -29,32 +23,40 @@ Sign in to SolFlow
 
 URI: ${uri}
 Version: 1
-Chain ID: mainnet
+Chain ID: devnet
 Nonce: ${nonce}
 Issued At: ${issuedAt}`;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
 export function WalletSignIn() {
   const { publicKey, signMessage, connected, disconnect } = useWallet();
-  const { setVisible } = useWalletModal();
   const [signing, setSigning] = useState(false);
 
-  // Step 1 — wallet not connected yet: show "Connect Wallet" button
   if (!connected || !publicKey) {
     return (
-      <button
-        onClick={() => setVisible(true)}
-        className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-primary/40 bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20"
-      >
-        <WalletIcon />
-        Connect Solana Wallet
-      </button>
+      <div className="w-full">
+        <style>{`
+          .wallet-adapter-button-trigger {
+            background-color: hsl(var(--secondary)) !important;
+            color: hsl(var(--foreground)) !important;
+            border: 1px solid hsl(var(--border)) !important;
+            border-radius: var(--radius) !important;
+            height: 2.75rem !important;
+            width: 100% !important;
+            justify-content: center !important;
+            font-size: 0.875rem !important;
+            font-weight: 500 !important;
+            transition: background-color 0.2s !important;
+          }
+          .wallet-adapter-button-trigger:hover {
+            background-color: hsl(var(--accent)) !important;
+          }
+        `}</style>
+        <WalletMultiButton />
+      </div>
     );
   }
 
-  // Step 2 — wallet connected: prompt to sign the SIWS message
   const shortKey = `${publicKey.toBase58().slice(0, 4)}…${publicKey.toBase58().slice(-4)}`;
 
   const handleSignIn = async () => {
@@ -65,20 +67,16 @@ export function WalletSignIn() {
 
     setSigning(true);
     try {
-      // Fetch nonce from server
       const nonceRes = await fetch("/api/auth/nonce");
       if (!nonceRes.ok) throw new Error("Failed to fetch nonce");
       const { nonce } = (await nonceRes.json()) as { nonce: string };
 
-      // Build SIWS message
       const message = createSignInMessage(publicKey.toBase58(), nonce);
 
-      // Sign with wallet
       const messageBytes = new TextEncoder().encode(message);
       const signatureBytes = await signMessage(messageBytes);
       const signature = bs58.encode(signatureBytes);
 
-      // Authenticate via NextAuth Solana-wallet credentials provider
       const result = await signIn("solana-wallet", {
         publicKey: publicKey.toBase58(),
         signature,
@@ -91,12 +89,10 @@ export function WalletSignIn() {
       if (result?.error) {
         toast.error(`Sign-in failed: ${result.error}`);
       } else if (result?.url) {
-        // Manually redirect after successful sign-in
         window.location.href = result.url;
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Wallet sign-in failed";
-      // User rejected the signature request — don't show an error toast
       if (msg.toLowerCase().includes("user rejected")) {
         toast.info("Signature request cancelled");
       } else {
@@ -112,7 +108,7 @@ export function WalletSignIn() {
       <button
         onClick={handleSignIn}
         disabled={signing}
-        className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-primary/40 bg-primary/10 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-50"
+        className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-primary bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
       >
         <WalletIcon />
         {signing ? "Signing…" : `Sign in as ${shortKey}`}
@@ -121,13 +117,11 @@ export function WalletSignIn() {
         onClick={() => disconnect()}
         className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
       >
-        Use a different wallet
+        Disconnect wallet
       </button>
     </div>
   );
 }
-
-// ─── Wallet SVG Icon ──────────────────────────────────────────────────────────
 
 function WalletIcon() {
   return (

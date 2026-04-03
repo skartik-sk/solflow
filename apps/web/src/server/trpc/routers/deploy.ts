@@ -71,7 +71,7 @@ export const deployRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const project = await ctx.prisma.project.findFirst({
-        where: { id: input.projectId, userId: ctx.session.user.id },
+        where: { id: input.projectId, userId: ctx.session.user.id! },
         select: { id: true, irData: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
@@ -83,7 +83,7 @@ export const deployRouter = router({
       }
 
       // Rate limit: 3 deploy jobs per user per 10 minutes
-      const rl = deployRateLimit(ctx.session.user.id ?? "anonymous");
+      const rl = deployRateLimit(ctx.session.user.id! ?? "anonymous");
       if (!rl.allowed) {
         throw new TRPCError({
           code: "TOO_MANY_REQUESTS",
@@ -109,7 +109,7 @@ export const deployRouter = router({
       const deployment = await ctx.prisma.deployment.create({
         data: {
           projectId: input.projectId,
-          userId: ctx.session.user.id,
+          userId: ctx.session.user.id!,
           network: input.network,
           programId: "11111111111111111111111111111111", // placeholder until confirmed
           txSignature: "pending",
@@ -148,7 +148,7 @@ export const deployRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.prisma.deployment.findFirst({
-        where: { id: input.deploymentId, userId: ctx.session.user.id },
+        where: { id: input.deploymentId, userId: ctx.session.user.id! },
       });
       if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -192,7 +192,7 @@ export const deployRouter = router({
       const deployment = await ctx.prisma.deployment.findFirst({
         where: {
           id: input.deploymentId,
-          userId: ctx.session.user.id,
+          userId: ctx.session.user.id!,
         },
       });
       if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
@@ -204,7 +204,7 @@ export const deployRouter = router({
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
       const project = await ctx.prisma.project.findFirst({
-        where: { id: input.projectId, userId: ctx.session.user.id },
+        where: { id: input.projectId, userId: ctx.session.user.id! },
         select: { id: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });

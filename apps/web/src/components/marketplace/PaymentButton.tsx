@@ -1,12 +1,5 @@
 "use client";
 
-// apps/web/src/components/marketplace/PaymentButton.tsx
-// SOL payment flow for paid marketplace templates.
-// 1. Connect wallet (if not connected)
-// 2. Build + send SOL transfer to treasury
-// 3. Call verifyPayment tRPC → creates MarketplacePurchase record
-// 4. Fork the template into a new project
-
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet, useConnection } from "@solana/wallet-adapter-react";
@@ -26,7 +19,6 @@ const TREASURY_WALLET = process.env.NEXT_PUBLIC_SOLFLOW_TREASURY_WALLET ?? "";
 interface PaymentButtonProps {
   listingId: string;
   priceSOL: number;
-  /** Already purchased by current user */
   alreadyPurchased?: boolean;
 }
 
@@ -43,7 +35,6 @@ export function PaymentButton({
     "idle" | "sending" | "verifying" | "forking"
   >("idle");
 
-  // If already purchased, go straight to fork
   const fork = trpc.marketplace.fork.useMutation({
     onSuccess: (data) => {
       toast.success("Template forked! Opening editor…");
@@ -69,7 +60,6 @@ export function PaymentButton({
   const isPending =
     step !== "idle" || fork.isPending || verifyPayment.isPending;
 
-  // ── Already purchased: just fork ─────────────────────────────────
   if (alreadyPurchased) {
     return (
       <button
@@ -90,7 +80,6 @@ export function PaymentButton({
     );
   }
 
-  // ── Wallet not connected ──────────────────────────────────────────
   if (!connected || !publicKey) {
     return (
       <button
@@ -103,7 +92,6 @@ export function PaymentButton({
     );
   }
 
-  // ── Main payment flow ─────────────────────────────────────────────
   const handlePurchase = async () => {
     if (!TREASURY_WALLET) {
       toast.error("Payments are not configured on this instance.");
@@ -112,7 +100,6 @@ export function PaymentButton({
 
     setStep("sending");
     try {
-      // Build SOL transfer transaction
       const lamports = Math.round(priceSOL * LAMPORTS_PER_SOL);
       const treasury = new PublicKey(TREASURY_WALLET);
 
@@ -129,10 +116,8 @@ export function PaymentButton({
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Send transaction via connected wallet
       const txSignature = await sendTransaction(transaction, connection);
 
-      // Wait for confirmation
       await connection.confirmTransaction(
         { signature: txSignature, blockhash, lastValidBlockHeight },
         "confirmed",
@@ -140,7 +125,6 @@ export function PaymentButton({
 
       toast.success("Payment confirmed! Verifying on-chain…");
 
-      // Verify on server and create purchase record
       setStep("verifying");
       verifyPayment.mutate({ listingId, txSignature });
     } catch (err: unknown) {

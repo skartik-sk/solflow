@@ -133,14 +133,10 @@ export const auditRouter = router({
       // ── 4. Persist AuditReport to DB ──────────────────────────────────────
       const saved = await ctx.prisma.auditReport.create({
         data: {
-          projectId: input.projectId,
-          findings: allFindings as unknown as Parameters<
-            typeof ctx.prisma.auditReport.create
-          >[0]["data"]["findings"],
+          projectId: input.projectId, irHash: "manual-run", auditType: "STATIC_ANALYSIS",
+          findings: allFindings as any,
           score: mergedScore,
-          summary: summary as unknown as Parameters<
-            typeof ctx.prisma.auditReport.create
-          >[0]["data"]["summary"],
+          summary: summary as any,
         },
       });
 
