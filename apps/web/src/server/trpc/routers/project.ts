@@ -11,7 +11,119 @@ import type { Node, Edge } from "@xyflow/react";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function createDefaultFlow() {
-  return { nodes: [], edges: [] };
+  // Pre-built Anchor starter: Program → Initialize Instruction → Account ← State
+  const ts = Date.now();
+
+  const programId = `program-${ts}`;
+  const instrId = `instruction-${ts}`;
+  const accountId = `account-${ts}`;
+  const stateId = `state-${ts}`;
+  const logicId = `logic-${ts}`;
+
+  return {
+    nodes: [
+      {
+        id: programId,
+        type: "program",
+        position: { x: 300, y: 50 },
+        data: {
+          name: "my_program",
+          version: "0.1.0",
+          description: "My first Anchor program",
+          license: "MIT",
+        },
+      },
+      {
+        id: instrId,
+        type: "instruction",
+        position: { x: 300, y: 220 },
+        data: {
+          name: "initialize",
+          description: "Initialize the program state",
+          args: [],
+          accessControl: "none",
+        },
+      },
+      {
+        id: accountId,
+        type: "account",
+        position: { x: 120, y: 420 },
+        data: {
+          name: "state_account",
+          accountType: "account",
+          isMut: true,
+          isSigner: false,
+          isInit: true,
+          isClose: false,
+        },
+      },
+      {
+        id: stateId,
+        type: "state",
+        position: { x: 480, y: 420 },
+        data: {
+          name: "ProgramState",
+          fields: [
+            { name: "authority", type: "Pubkey" },
+            { name: "count", type: "u64" },
+          ],
+          isZeroCopy: false,
+        },
+      },
+      {
+        id: logicId,
+        type: "logic",
+        position: { x: 300, y: 340 },
+        data: {
+          logicType: "set-field",
+          operation: {
+            type: "set-field",
+            account: "state_account",
+            field: "count",
+            value: "0",
+          },
+        },
+      },
+    ],
+    edges: [
+      {
+        id: `e-${programId}-${instrId}`,
+        source: programId,
+        target: instrId,
+        sourceHandle: "instruction-out",
+        targetHandle: "instruction-in",
+        type: "smoothstep",
+        animated: true,
+      },
+      {
+        id: `e-${instrId}-${accountId}`,
+        source: instrId,
+        target: accountId,
+        sourceHandle: "account-out",
+        targetHandle: "account-in",
+        type: "smoothstep",
+        animated: true,
+      },
+      {
+        id: `e-${instrId}-${logicId}`,
+        source: instrId,
+        target: logicId,
+        sourceHandle: "logic-out",
+        targetHandle: "logic-in",
+        type: "smoothstep",
+        animated: true,
+      },
+      {
+        id: `e-${stateId}-${accountId}`,
+        source: stateId,
+        target: accountId,
+        sourceHandle: "data-out",
+        targetHandle: "data-in",
+        type: "smoothstep",
+        animated: true,
+      },
+    ],
+  };
 }
 
 // ─── Router ──────────────────────────────────────────────────────────────────

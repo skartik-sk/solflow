@@ -37,7 +37,7 @@ export default function SignInPage() {
             {/* GitHub */}
             <button
               onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
-              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               <Github className="h-4 w-4" />
               Continue with GitHub
@@ -46,7 +46,7 @@ export default function SignInPage() {
             {/* Google */}
             <button
               onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
-              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-secondary text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               <GoogleIcon />
               Continue with Google

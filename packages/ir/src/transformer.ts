@@ -9,6 +9,46 @@ function djb2Hash(str: string): string {
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
 }
+
+// Deterministic UUID v4 from any string — same input always gives same UUID.
+// Uses djb2 to fill the bits so it's pure and doesn't need crypto.
+// Format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx where y ∈ {8,9,a,b}
+function deterministicUuid(seed: string): string {
+  const h1 = djb2Hash(seed);
+  const h2 = djb2Hash(seed + ":salt1");
+  const h3 = djb2Hash(seed + ":salt2");
+  const h4 = djb2Hash(seed + ":salt3");
+  const h5 = djb2Hash(seed + ":salt4");
+
+  // time_low (8 hex) + time_mid (4 hex)
+  const timeLow = h1; // 8 hex chars
+  const timeMid = h2.slice(0, 4);
+
+  // time_hi_and_version: version=4, then 3 hex from h2
+  const timeHi = "4" + h2.slice(4, 7); // "4xxx" — 1+3=4 chars
+
+  // clock_seq_hi_and_reserved + clock_seq_low: variant (8/9/a/b) + 3 hex from h3
+  const v = parseInt(h3.slice(0, 1), 16); // 0-15
+  const variant = (8 + (v % 4)).toString(16); // 8,9,a,b
+  const clockSeq = variant + h3.slice(1, 4); // "yxxx" — 1+3=4 chars
+
+  // node: 12 hex from h4 + h5
+  const node = (h4 + h5).padStart(12, "0").slice(0, 12);
+
+  return `${timeLow}-${timeMid}-${timeHi}-${clockSeq}-${node}`;
+}
+
+// Cache: map flow node IDs to stable UUIDs so the same flow always produces the same IR.
+const _uuidCache = new Map<string, string>();
+function toUuid(nodeId: string): string {
+  let uuid = _uuidCache.get(nodeId);
+  if (!uuid) {
+    uuid = deterministicUuid(nodeId);
+    _uuidCache.set(nodeId, uuid);
+  }
+  return uuid;
+}
+
 import type {
   ProgramIR,
   Account,
@@ -20,10 +60,42 @@ import type {
   Integration,
   LogicOperation,
   Field,
+  Seed,
 } from "./schema";
 import { ProgramIRSchema } from "./schema";
 
 export const SOLFLOW_VERSION = "0.1.0";
+
+// ─── Type normalization ────────────────────────────────────────────
+
+const TYPE_ALIASES: Record<string, string> = {
+  pubkey: "Pubkey",
+  Pubkey: "Pubkey",
+  publickey: "Pubkey",
+  string: "String",
+  String: "String",
+};
+
+/** Normalize a Solana type string to the exact casing the IR schema expects. */
+function normalizeType(t: unknown): unknown {
+  if (typeof t === "string") {
+    return TYPE_ALIASES[t] ?? t;
+  }
+  // Object types like { option: ... }, { vec: ... } — recurse
+  if (t && typeof t === "object") {
+    const obj = t as Record<string, unknown>;
+    if ("option" in obj) return { option: normalizeType(obj.option) };
+    if ("vec" in obj) return { vec: normalizeType(obj.vec) };
+    if ("array" in obj && Array.isArray(obj.array))
+      return { array: [normalizeType(obj.array[0]), obj.array[1]] as [unknown, number] };
+    if ("defined" in obj) return { defined: obj.defined };
+    if ("hashMap" in obj && Array.isArray(obj.hashMap))
+      return { hashMap: [normalizeType(obj.hashMap[0]), normalizeType(obj.hashMap[1])] as [unknown, unknown] };
+    if ("enum" in obj) return { enum: obj.enum };
+    return obj;
+  }
+  return t;
+}
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -70,7 +142,89 @@ export function computeFlowHash(nodes: Node[], edges: Edge[]): string {
 // ─── Account Builder ───────────────────────────────────────────────
 
 function buildConstraints(constraintNodes: Node[]): Constraint[] {
-  return constraintNodes.map((n) => n.data as Constraint);
+  return constraintNodes.map((n) => {
+    const d = n.data as Record<string, unknown>;
+    const t = (d.constraintType as string) ?? (d.type as string) ?? "signer";
+
+    switch (t) {
+      case "signer":
+        return { type: "signer" as const };
+      case "mut":
+        return { type: "mut" as const };
+      case "init":
+        return {
+          type: "init" as const,
+          payer: (d.payer as string) ?? "payer",
+          space: (d.space as number | "auto") ?? "auto",
+        };
+      case "init-if-needed":
+        return {
+          type: "init-if-needed" as const,
+          payer: (d.payer as string) ?? "payer",
+          space: (d.space as number | "auto") ?? "auto",
+        };
+      case "close":
+        return {
+          type: "close" as const,
+          target: (d.closeTarget as string) ?? (d.target as string) ?? "",
+        };
+      case "has-one":
+        return {
+          type: "has-one" as const,
+          field: (d.hasOneField as string) ?? (d.field as string) ?? "",
+          target: (d.hasOneTarget as string) ?? (d.target as string) ?? "",
+          errorCode: d.hasOneErrorCode as string | undefined ?? d.errorCode as string | undefined,
+        };
+      case "seeds": {
+        // Seeds can come as a Seed[] array or comma-separated string
+        const rawSeeds = d.seeds;
+        let seeds: { type: "literal" | "account-field" | "instruction-arg" | "pubkey"; value: string }[] = [];
+        if (Array.isArray(rawSeeds)) {
+          seeds = rawSeeds as typeof seeds;
+        } else if (typeof rawSeeds === "string" && rawSeeds.length > 0) {
+          seeds = rawSeeds.split(",").map((s: string) => ({
+            type: "literal" as const,
+            value: s.trim(),
+          }));
+        }
+        return {
+          type: "seeds" as const,
+          seeds,
+          bump: d.bump as string | undefined,
+          programId: d.programId as string | undefined,
+        };
+      }
+      case "owner":
+        return { type: "owner" as const, owner: (d.owner as string) ?? "" };
+      case "address":
+        return { type: "address" as const, address: (d.address as string) ?? "" };
+      case "token-authority":
+        return {
+          type: "token-authority" as const,
+          authority: (d.tokenAuthority as string) ?? (d.authority as string) ?? "",
+        };
+      case "token-mint":
+        return {
+          type: "token-mint" as const,
+          mint: (d.tokenMint as string) ?? (d.mint as string) ?? "",
+        };
+      case "realloc":
+        return {
+          type: "realloc" as const,
+          space: (d.reallocSpace as number) ?? (d.space as number) ?? 0,
+          payer: (d.reallocPayer as string) ?? (d.payer as string) ?? "",
+          zeroInit: (d.reallocZeroInit as boolean) ?? (d.zeroInit as boolean) ?? false,
+        };
+      case "custom":
+        return {
+          type: "custom" as const,
+          expression: (d.expression as string) ?? "",
+          errorCode: d.errorCode as string | undefined,
+        };
+      default:
+        return { type: "signer" as const };
+    }
+  });
 }
 
 function buildAccountIR(
@@ -80,7 +234,7 @@ function buildAccountIR(
 ): Account {
   const data = accNode.data as Record<string, unknown>;
   return {
-    id: accNode.id,
+    id: toUuid(accNode.id),
     name: (data.name as string) ?? "account",
     accountType:
       (data.accountType as Account["accountType"]) ?? "system-account",
@@ -145,11 +299,11 @@ function buildInstructionIR(
   const body = buildLogicBody([...logicNodes, ...customCodeNodes]);
 
   return {
-    id: ixNode.id,
+    id: toUuid(ixNode.id),
     name: (data.name as string) ?? "instruction",
     description: data.description as string | undefined,
     discriminator: data.discriminator as number[] | undefined,
-    args: (data.args as Instruction["args"]) ?? [],
+    args: (data.args as Instruction["args"]) ?? (data.instructionData as Instruction["args"]) ?? [],
     accounts: resolvedAccounts,
     body,
   };
@@ -162,10 +316,18 @@ function collectStates(nodes: Node[]): State[] {
     .filter((n) => n.type === "state")
     .map((n) => {
       const data = n.data as Record<string, unknown>;
+      // Strip fields not in IR schema (e.g. defaultValue) and normalize types
+      const rawFields = (data.fields as Array<Record<string, unknown>>) ?? [];
+      const fields: Field[] = rawFields.map((f) => ({
+        name: f.name as string,
+        type: normalizeType(f.type) as Field["type"],
+        ...(f.description ? { description: f.description as string } : {}),
+        ...(f.maxLen ? { maxLen: f.maxLen as number } : {}),
+      }));
       return {
-        id: n.id,
+        id: toUuid(n.id),
         name: (data.name as string) ?? "State",
-        fields: (data.fields as Field[]) ?? [],
+        fields,
         description: data.description as string | undefined,
         isZeroCopy: (data.isZeroCopy as boolean) ?? false,
         customDiscriminator: data.customDiscriminator as
@@ -183,7 +345,7 @@ function collectErrors(nodes: Node[]): ErrorVariant[] {
     .map((n) => {
       const data = n.data as Record<string, unknown>;
       return {
-        id: n.id,
+        id: toUuid(n.id),
         name: (data.name as string) ?? "Error",
         code: (data.code as number) ?? 6000,
         message: (data.message as string) ?? "",
@@ -198,10 +360,17 @@ function collectEvents(nodes: Node[]): IrEvent[] {
     .filter((n) => n.type === "event")
     .map((n) => {
       const data = n.data as Record<string, unknown>;
+      const rawFields = (data.fields as Array<Record<string, unknown>>) ?? [];
+      const fields: Field[] = rawFields.map((f) => ({
+        name: f.name as string,
+        type: normalizeType(f.type) as Field["type"],
+        ...(f.description ? { description: f.description as string } : {}),
+        ...(f.maxLen ? { maxLen: f.maxLen as number } : {}),
+      }));
       return {
-        id: n.id,
+        id: toUuid(n.id),
         name: (data.name as string) ?? "Event",
-        fields: (data.fields as Field[]) ?? [],
+        fields,
         description: data.description as string | undefined,
       };
     });
@@ -212,7 +381,19 @@ function collectEvents(nodes: Node[]): IrEvent[] {
 function collectIntegrations(nodes: Node[], _edges: Edge[]): Integration[] {
   return nodes
     .filter((n) => n.type === "integration")
-    .map((n) => n.data as Integration);
+    .map((n) => {
+      const data = n.data as Record<string, unknown>;
+      return {
+        id: toUuid(n.id),
+        pluginId: (data.pluginId as string) ?? "",
+        integrationId: (data.integrationId as string) ?? "",
+        config: (data.config as Record<string, unknown>) ?? {},
+        attachedTo: {
+          instructionId: toUuid((data.attachedTo as Record<string, unknown>)?.instructionId as string ?? ""),
+          position: ((data.attachedTo as Record<string, unknown>)?.position as Integration["attachedTo"]["position"]) ?? "before-body",
+        },
+      };
+    });
 }
 
 // ─── Main Transformer ──────────────────────────────────────────────

@@ -39,9 +39,13 @@ export interface DeployStatusData {
     | "complete"
     | "error";
   txSig?: string;
+  txSignature?: string;
   programId?: string;
   explorerUrl?: string;
+  txExplorerUrl?: string;
   error?: string;
+  log?: string;
+  level?: "info" | "warn" | "error";
 }
 
 export type WSMessageData =

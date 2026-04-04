@@ -34,22 +34,49 @@ export function WalletSignIn() {
 
   if (!connected || !publicKey) {
     return (
-      <div className="w-full">
+      <div className="w-full [&>button]:w-full">
         <style>{`
-          .wallet-adapter-button-trigger {
-            background-color: hsl(var(--secondary)) !important;
-            color: hsl(var(--foreground)) !important;
-            border: 1px solid hsl(var(--border)) !important;
-            border-radius: var(--radius) !important;
+          .wallet-adapter-button-trigger,
+          button.wallet-adapter-button.wallet-adapter-button-trigger {
+            background-color: var(--color-card) !important;
+            color: var(--color-foreground) !important;
+            border: 1px solid var(--color-border) !important;
+            border-radius: var(--radius-lg) !important;
             height: 2.75rem !important;
             width: 100% !important;
+            max-width: 100% !important;
+            display: flex !important;
             justify-content: center !important;
             font-size: 0.875rem !important;
             font-weight: 500 !important;
+            font-family: inherit !important;
             transition: background-color 0.2s !important;
           }
           .wallet-adapter-button-trigger:hover {
-            background-color: hsl(var(--accent)) !important;
+            background-color: var(--color-accent) !important;
+          }
+          .wallet-adapter-modal-wrapper,
+          .wallet-adapter-modal-container {
+            background-color: var(--color-card) !important;
+            color: var(--color-foreground) !important;
+          }
+          .wallet-adapter-modal-title,
+          .wallet-adapter-modal-button-close {
+            color: var(--color-foreground) !important;
+          }
+          .wallet-adapter-modal-button-close svg {
+            fill: var(--color-foreground) !important;
+          }
+          .wallet-adapter-button {
+            background-color: var(--color-card) !important;
+            color: var(--color-foreground) !important;
+            border: 1px solid var(--color-border) !important;
+          }
+          .wallet-adapter-button:hover {
+            background-color: var(--color-accent) !important;
+          }
+          .wallet-adapter-collapse-button {
+            color: var(--color-muted-foreground) !important;
           }
         `}</style>
         <WalletMultiButton />

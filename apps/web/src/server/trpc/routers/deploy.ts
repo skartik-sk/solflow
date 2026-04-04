@@ -1,6 +1,5 @@
 // tRPC deploy router — start, status, history
-// Phase 3: real network config, explorer URL construction, deployment tracking.
-// Full on-chain tx submission deferred to wallet-signing flow (post-Phase 3).
+// Uses local solana CLI for deployment (no Docker/Redis needed).
 // Per docs/architecture/09-compilation-deployment.md → Deployment Service.
 
 import { z } from "zod";
@@ -8,9 +7,10 @@ import { TRPCError } from "@trpc/server";
 import { createHash } from "crypto";
 import { router, protectedProcedure } from "../trpc";
 import { deployRateLimit } from "@/lib/rate-limit";
+import { runLocalDeploy } from "@/server/compile-worker/local-compiler";
+import { broadcastToJob } from "@/lib/ws-broadcaster";
 
 // ─── Network config ───────────────────────────────────────────────────────────
-// Per docs/architecture/09-compilation-deployment.md → Network Configuration.
 
 const NETWORK_CONFIG = {
   DEVNET: {
@@ -56,17 +56,14 @@ function buildTxExplorerUrl(
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export const deployRouter = router({
-  // ── Start deployment ─────────────────────────────────────────────────────
+  // ── Start deployment (local CLI) ──────────────────────────────────────────
   start: protectedProcedure
     .input(
       z.object({
         projectId: z.string(),
         network: z.enum(["DEVNET", "MAINNET", "LOCALNET"]).default("DEVNET"),
         programKeypair: z.string().optional(),
-        /** Base64-encoded .so binary from a completed compilation */
-        programBinary: z.string().optional(),
-        /** Payer wallet public key (client provides; backend uses for tx construction) */
-        payerWallet: z.string().optional(),
+        payerKeypair: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -96,22 +93,37 @@ export const deployRouter = router({
         .digest("hex")
         .slice(0, 16);
 
-      const binaryHash = input.programBinary
-        ? createHash("sha256")
-            .update(input.programBinary)
-            .digest("hex")
-            .slice(0, 16)
-        : "pending";
+      // Find the latest successful compilation with a binary
+      const compilation = await ctx.prisma.compilation.findFirst({
+        where: {
+          projectId: input.projectId,
+          status: "SUCCESS",
+          binaryUrl: { not: null },
+        },
+        orderBy: { completedAt: "desc" },
+      });
 
-      // Per spec: deployment flow requires wallet signing — backend creates the
-      // DB record as PENDING and returns the deployment ID for client polling.
-      // Real on-chain submission happens in a follow-up mutation (submitDeployTx).
+      if (!compilation?.binaryUrl) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "No compiled binary found. Run a successful compilation first.",
+        });
+      }
+
+      const binaryPath = compilation.binaryUrl;
+      const binaryHash = createHash("sha256")
+        .update(binaryPath)
+        .digest("hex")
+        .slice(0, 16);
+
+      // Create deployment record as PENDING
       const deployment = await ctx.prisma.deployment.create({
         data: {
           projectId: input.projectId,
           userId: ctx.session.user.id!,
           network: input.network,
-          programId: "11111111111111111111111111111111", // placeholder until confirmed
+          programId: "pending",
           txSignature: "pending",
           irHash,
           binaryHash,
@@ -120,23 +132,127 @@ export const deployRouter = router({
         },
       });
 
-      // Broadcast deploy-status update via WebSocket
+      // Broadcast: deployment started
       try {
-        const { broadcastToJob } = await import("@/lib/ws-broadcaster");
         broadcastToJob(deployment.id, {
           type: "deploy-status",
           jobId: deployment.id,
           data: { phase: "preparing" },
         });
-      } catch {
-        // Non-fatal if WS not connected
-      }
+      } catch { /* WS not connected */ }
 
-      return { deploymentId: deployment.id };
+      // ── Run actual deployment via local solana CLI ──────────────────────
+      try {
+        broadcastToJob(deployment.id, {
+          type: "deploy-status",
+          jobId: deployment.id,
+          data: { phase: "submitting" },
+        });
+
+        const deployResult = await runLocalDeploy(
+          {
+            binaryPath,
+            network: input.network.toLowerCase() as "devnet" | "mainnet" | "localnet",
+            programKeypairPath: input.programKeypair,
+            payerKeypairPath: input.payerKeypair,
+          },
+          (line, level) => {
+            try {
+              broadcastToJob(deployment.id, {
+                type: "deploy-status",
+                jobId: deployment.id,
+                data: { phase: "submitting", log: line, level },
+              });
+            } catch { /* WS not connected */ }
+          },
+        );
+
+        if (deployResult.success) {
+          const explorerUrl = buildExplorerUrl(input.network, deployResult.programId);
+          const txExplorerUrl = buildTxExplorerUrl(input.network, deployResult.txSignature);
+
+          await ctx.prisma.deployment.update({
+            where: { id: deployment.id },
+            data: {
+              status: "CONFIRMED",
+              programId: deployResult.programId,
+              txSignature: deployResult.txSignature,
+              explorerUrl: explorerUrl ?? undefined,
+            },
+          });
+
+          // Broadcast completion
+          try {
+            broadcastToJob(deployment.id, {
+              type: "deploy-status",
+              jobId: deployment.id,
+              data: {
+                phase: "complete",
+                programId: deployResult.programId,
+                txSignature: deployResult.txSignature,
+                explorerUrl: explorerUrl ?? undefined,
+                txExplorerUrl: txExplorerUrl ?? undefined,
+              },
+            });
+          } catch { /* WS not connected */ }
+
+          return {
+            deploymentId: deployment.id,
+            programId: deployResult.programId,
+            txSignature: deployResult.txSignature,
+            explorerUrl,
+            txExplorerUrl,
+          };
+        } else {
+          // Deployment failed
+          await ctx.prisma.deployment.update({
+            where: { id: deployment.id },
+            data: {
+              status: "FAILED",
+              programId: deployResult.programId || undefined,
+              txSignature: deployResult.txSignature || undefined,
+            },
+          });
+
+          broadcastToJob(deployment.id, {
+            type: "deploy-status",
+            jobId: deployment.id,
+            data: {
+              phase: "error",
+              error: deployResult.logs.join("\n") || "Deployment failed",
+            },
+          });
+
+          return {
+            deploymentId: deployment.id,
+            error: deployResult.logs.join("\n") || "Deployment failed",
+          };
+        }
+      } catch (deployErr) {
+        // CLI not available or unexpected error
+        await ctx.prisma.deployment.update({
+          where: { id: deployment.id },
+          data: { status: "FAILED" },
+        });
+
+        broadcastToJob(deployment.id, {
+          type: "deploy-status",
+          jobId: deployment.id,
+          data: {
+            phase: "error",
+            error: deployErr instanceof Error ? deployErr.message : String(deployErr),
+          },
+        });
+
+        return {
+          deploymentId: deployment.id,
+          error: deployErr instanceof Error ? deployErr.message : String(deployErr),
+        };
+      }
     }),
 
-  // ── Submit signed deploy transaction ─────────────────────────────────────
-  // Called client-side after wallet signs the transaction.
+  // ── Submit signed deploy transaction (wallet-signing flow) ────────────────
+  // Kept for future use when browser wallet signing is implemented.
   submitTx: protectedProcedure
     .input(
       z.object({
@@ -168,7 +284,6 @@ export const deployRouter = router({
 
       // Broadcast completion
       try {
-        const { broadcastToJob } = await import("@/lib/ws-broadcaster");
         broadcastToJob(input.deploymentId, {
           type: "deploy-status",
           jobId: input.deploymentId,

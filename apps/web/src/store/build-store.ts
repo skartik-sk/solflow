@@ -121,64 +121,64 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     });
 
     try {
-      const { getVanillaClient } = await import("@/lib/trpc/client");
-      const client = getVanillaClient();
-      const { jobId } = await client.compile.start.mutate({ projectId });
+      // Ensure project is saved (with IR) before compiling
+      const [{ useFlowStore }, { useProjectStore }] = await Promise.all([
+        import("./flow-store"),
+        import("./project-store"),
+      ]);
+      const { nodes, edges } = useFlowStore.getState();
+      const { isDirty, isSaving } = useProjectStore.getState();
 
-      set({ compileStatus: "building", compileJobId: jobId });
+      // Only save if there are unsaved changes
+      if (isDirty) {
+        await useProjectStore.getState().save();
+      }
+
       get().addLog({
-        line: `Compilation queued — job ${jobId}`,
+        line: "Project saved, generating IR…",
         level: "info",
         timestamp: Date.now(),
       });
 
-      // Subscribe to WebSocket job messages for real-time log streaming
-      const { connectWS, onJobMessage, isBuildLog, isBuildComplete } =
-        await import("@/lib/ws");
-      connectWS();
+      const { getVanillaClient } = await import("@/lib/trpc/client");
+      const client = getVanillaClient();
+      const result = await client.compile.start.mutate({ projectId });
 
-      await new Promise<void>((resolve) => {
-        const unsubscribe = onJobMessage(jobId, (msg) => {
-          if (isBuildLog(msg)) {
-            const data = msg.data as {
-              line: string;
-              level: "info" | "warn" | "error";
-            };
-            get().addLog({
-              line: data.line,
-              level: data.level,
-              timestamp: Date.now(),
-            });
-          } else if (isBuildComplete(msg)) {
-            const data = msg.data as {
-              success: boolean;
-              binarySize?: number;
-              errors?: string[];
-              warnings?: string[];
-            };
-            if (data.success) {
-              set({
-                compileStatus: "success",
-                compileBinarySize: data.binarySize ?? null,
-                compileWarnings: data.warnings ?? [],
-              });
-            } else {
-              set({
-                compileStatus: "error",
-                compileErrors: data.errors ?? ["Unknown error"],
-              });
-            }
-            unsubscribe();
-            resolve();
-          }
+      set({ compileStatus: "building", compileJobId: result.jobId });
+
+      // Stream any server-side logs into the console
+      if (result.logs && Array.isArray(result.logs)) {
+        for (const line of result.logs) {
+          const level = /^error/i.test(line) ? "error" : /^warning/i.test(line) ? "warn" : "info";
+          get().addLog({ line, level, timestamp: Date.now() });
+        }
+      }
+
+      // The mutation response already contains the result (server processes synchronously).
+      if (result.error) {
+        set({
+          compileStatus: "error",
+          compileErrors: [result.error],
         });
-
-        // Fallback: poll after 5 minutes
-        setTimeout(() => {
-          unsubscribe();
-          resolve();
-        }, 300_000);
-      });
+      } else if (result.binaryBuilt) {
+        get().addLog({
+          line: `Compilation successful — ${result.binarySize ?? 0} bytes (${result.compileMethod ?? "unknown"})`,
+          level: "info",
+          timestamp: Date.now(),
+        });
+        set({
+          compileStatus: "success",
+          compileBinarySize: result.binarySize ?? null,
+        });
+      } else {
+        const errMsg = result.errors?.length
+          ? result.errors.join("\n")
+          : "Compilation produced no binary.";
+        set({
+          compileStatus: "error",
+          compileErrors: [errMsg],
+        });
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       set({ compileStatus: "error", compileErrors: [msg] });
@@ -302,8 +302,10 @@ export const useBuildStore = create<BuildState>((set, get) => ({
             const data = msg.data as {
               phase: string;
               txSig?: string;
+              txSignature?: string;
               programId?: string;
               explorerUrl?: string;
+              txExplorerUrl?: string;
               error?: string;
             };
             set({ deployPhase: data.phase });
@@ -312,7 +314,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
               set({
                 deployStatus: "success",
                 deployedProgramId: data.programId ?? null,
-                deployTxSignature: data.txSig ?? null,
+                deployTxSignature: data.txSignature ?? data.txSig ?? null,
                 deployExplorerUrl: data.explorerUrl ?? null,
               });
               unsubscribe();
@@ -328,7 +330,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           }
         });
 
-        // Fallback: poll for status after 10 seconds
+        // Fallback: poll for status after 60 seconds (CLI deploy can be slow)
         setTimeout(async () => {
           try {
             const { getVanillaClient: vc } = await import("@/lib/trpc/client");
@@ -344,7 +346,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           }
           unsubscribe();
           resolve();
-        }, 10_000);
+        }, 60_000);
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

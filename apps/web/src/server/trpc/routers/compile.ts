@@ -7,15 +7,11 @@ import { TRPCError } from "@trpc/server";
 import { createHash } from "crypto";
 import { router, protectedProcedure } from "../trpc";
 import { compileRateLimit } from "@/lib/rate-limit";
-
-// Local alias for Prisma JSON field values (Prisma client is ungenerated/stubbed)
-type PrismaJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | PrismaJsonValue[]
-  | { [key: string]: PrismaJsonValue };
+import { flowToIR } from "@solflow/ir";
+import { generateCode } from "@solflow/codegen";
+import type { Node, Edge } from "@xyflow/react";
+import { compileWithStrategy } from "@/server/compile-worker/compiler-strategy";
+import { broadcastToJob } from "@/lib/ws-broadcaster";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,13 +41,35 @@ export const compileRouter = router({
     .mutation(async ({ ctx, input }) => {
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, userId: ctx.session.user.id },
-        select: { id: true, irData: true, framework: true },
+        select: { id: true, irData: true, framework: true, flowData: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      if (!project.irData) {
+
+      // Regenerate IR from flow data if irData is missing
+      let irData = project.irData;
+      if (!irData && project.flowData) {
+        try {
+          const fd = project.flowData as unknown as { nodes: Node[]; edges: Edge[] };
+          const ir = flowToIR(fd.nodes, fd.edges);
+          irData = ir as unknown as typeof irData;
+          // Persist the regenerated IR
+          await ctx.prisma.project.update({
+            where: { id: project.id },
+            data: { irData: ir as unknown as any },
+          });
+        } catch (irErr) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `IR generation failed: ${irErr instanceof Error ? irErr.message : String(irErr)}`,
+          });
+        }
+      }
+
+      if (!irData) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "Project has no IR data. Save the flow first.",
+          message:
+            "Project has no flow data. Add a Program node with at least one connected Instruction.",
         });
       }
 
@@ -64,59 +82,156 @@ export const compileRouter = router({
         });
       }
 
-      const irHash = hashIR(project.irData);
+      const irHash = hashIR(irData);
 
-      // Persist the compilation record (status=QUEUED)
+      // ── Generate code + compile locally (no Docker/Redis needed) ────────
+      const framework = (project.framework?.toLowerCase() ?? "anchor") as
+        | "anchor"
+        | "pinocchio";
+
+      // Create compilation record as BUILDING
       const compilation = await ctx.prisma.compilation.create({
         data: {
           projectId: input.projectId,
-          status: "QUEUED",
+          status: "BUILDING",
           framework: project.framework,
           irHash,
         },
       });
 
-      // Enqueue BullMQ job (lazy import to avoid loading worker code in all paths)
       try {
-        const { queueCompilation } =
-          await import("@/server/compile-worker/queue");
+        // Step 1: Generate Rust source from IR
+        const result = generateCode(irData as any, framework);
+        if (result.errors.length > 0) {
+          throw new Error(result.errors.map((e) => e.message).join("; "));
+        }
 
-        // irData is already stored as ProgramIR JSON — cast directly
-        const ir = project.irData as Parameters<
-          typeof queueCompilation
-        >[0]["ir"];
+        const generatedCode = result.files
+          .map((f) => `// ─── ${f.path} ───────────────────────────\n${f.content}`)
+          .join("\n\n");
+        const codegenWarnings = result.warnings.map((w) => w.message);
 
-        await queueCompilation({
-          compilationId: compilation.id,
-          projectId: input.projectId,
-          ir,
-          framework: project.framework,
-          irHash,
-          options: {
-            release: input.release,
-            verifiable: input.verifiable,
-            targetNetwork: input.targetNetwork,
-          },
+        // Update project with generated code
+        await ctx.prisma.project.update({
+          where: { id: input.projectId },
+          data: { generatedCode: generatedCode as any },
         });
-      } catch (err) {
-        // If queueing fails, mark compilation as failed
+
+        // Step 2: Compile using best available method (WASM → Local CLI → codegen only)
+        let buildLogs: string[] = [`Code generation — ${result.files.length} file(s)`];
+        let buildWarnings = [...codegenWarnings];
+        let buildErrors: string[] = [];
+        let binarySize: number | null = null;
+        let binaryPath: string | null = null;
+        let compileMethod: string = "codegen-only";
+
+        try {
+          const buildResult = await compileWithStrategy(
+            {
+              ir: irData as any,
+              framework: project.framework,
+              irHash,
+              options: {
+                release: input.release,
+                verifiable: input.verifiable,
+                targetNetwork: input.targetNetwork,
+              },
+            },
+            (line, level) => {
+              // Broadcast build logs via WebSocket
+              try {
+                broadcastToJob(compilation.id, {
+                  type: "build-log",
+                  jobId: compilation.id,
+                  data: { line, level },
+                });
+              } catch { /* WS not connected */ }
+            },
+          );
+
+          buildLogs = buildResult.logs;
+          buildWarnings.push(...buildResult.warnings);
+          binarySize = buildResult.binarySize;
+          binaryPath = buildResult.binaryPath;
+          compileMethod = buildResult.method;
+
+          if (!buildResult.success) {
+            buildErrors = buildResult.errors;
+          }
+        } catch (buildErr) {
+          // Compilation strategy exhausted — codegen only
+          buildLogs.push("No compilation toolchain available — showing generated source only.");
+          buildWarnings.push("Install anchor CLI and cargo-build-sbf for compilation, or enable WASM.");
+        }
+
+        const success = buildErrors.length === 0;
+
         await ctx.prisma.compilation.update({
           where: { id: compilation.id },
           data: {
+            status: success ? "SUCCESS" : "FAILED",
+            logs: buildLogs.join("\n"),
+            ...(buildErrors.length > 0 ? { errors: buildErrors as unknown as any } : {}),
+            ...(buildWarnings.length > 0 ? { warnings: buildWarnings as unknown as any } : {}),
+            ...(binarySize ? { binarySize } : {}),
+            ...(binaryPath ? { binaryUrl: binaryPath } : {}),
+            completedAt: new Date(),
+          },
+        });
+
+        if (success) {
+          await ctx.prisma.project.update({
+            where: { id: input.projectId },
+            data: { status: "COMPILED" },
+          });
+        }
+
+        // Broadcast completion
+        try {
+          broadcastToJob(compilation.id, {
+            type: "build-complete",
+            jobId: compilation.id,
+            data: {
+              success,
+              binarySize: binarySize ?? undefined,
+              errors: buildErrors.length > 0 ? buildErrors : undefined,
+              warnings: buildWarnings.length > 0 ? buildWarnings : undefined,
+            },
+          });
+        } catch { /* WS not connected */ }
+
+        return {
+          jobId: compilation.id,
+          codeGenerated: true,
+          binaryBuilt: success,
+          fileCount: result.files.length,
+          binarySize,
+          warnings: buildWarnings.length,
+          compileMethod,
+          logs: buildLogs,
+          errors: buildErrors,
+        };
+      } catch (err) {
+        // Code generation failed
+        const compilation = await ctx.prisma.compilation.create({
+          data: {
+            projectId: input.projectId,
             status: "FAILED",
+            framework: project.framework,
+            irHash,
             errors: [
               err instanceof Error ? err.message : String(err),
             ] as unknown as any,
+            completedAt: new Date(),
           },
         });
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to queue compilation job",
-          cause: err,
-        });
-      }
 
-      return { jobId: compilation.id };
+        return {
+          jobId: compilation.id,
+          codeGenerated: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     }),
 
   // ── Get compilation status ───────────────────────────────────────────────

@@ -36,18 +36,18 @@ app.prepare().then(() => {
   const wss = new WebSocketServer({ noServer: true });
   setWebSocketServer(wss);
 
+  // Use noServer mode + only intercept our custom WS path.
+  // We must use "upgrade" event but only handle /api/ws ourselves.
+  // Next.js 15 in dev mode uses its own HMR WebSocket — we don't touch those.
   server.on("upgrade", (req, socket, head) => {
     const { pathname } = parse(req.url ?? "/", true);
     if (pathname === "/api/ws") {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
-    } else if (pathname?.startsWith("/_next")) {
-      // Let Next.js handle HMR and other internal WebSocket upgrades
-      handle(req, socket, head);
-    } else {
-      socket.destroy();
     }
+    // Explicitly do NOT destroy or handle other upgrade requests.
+    // If we don't handle them, any other registered listeners will get them.
   });
 
   server.listen(port, hostname, () => {
