@@ -4,10 +4,10 @@ import type { Node, Edge } from "@xyflow/react";
 function djb2Hash(str: string): string {
   let hash = 5381;
   for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = (hash << 5) + hash + str.charCodeAt(i);
     hash = hash & hash;
   }
-  return (hash >>> 0).toString(16).padStart(8, '0');
+  return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
 // Deterministic UUID v4 from any string — same input always gives same UUID.
@@ -87,10 +87,17 @@ function normalizeType(t: unknown): unknown {
     if ("option" in obj) return { option: normalizeType(obj.option) };
     if ("vec" in obj) return { vec: normalizeType(obj.vec) };
     if ("array" in obj && Array.isArray(obj.array))
-      return { array: [normalizeType(obj.array[0]), obj.array[1]] as [unknown, number] };
+      return {
+        array: [normalizeType(obj.array[0]), obj.array[1]] as [unknown, number],
+      };
     if ("defined" in obj) return { defined: obj.defined };
     if ("hashMap" in obj && Array.isArray(obj.hashMap))
-      return { hashMap: [normalizeType(obj.hashMap[0]), normalizeType(obj.hashMap[1])] as [unknown, unknown] };
+      return {
+        hashMap: [
+          normalizeType(obj.hashMap[0]),
+          normalizeType(obj.hashMap[1]),
+        ] as [unknown, unknown],
+      };
     if ("enum" in obj) return { enum: obj.enum };
     return obj;
   }
@@ -173,12 +180,17 @@ function buildConstraints(constraintNodes: Node[]): Constraint[] {
           type: "has-one" as const,
           field: (d.hasOneField as string) ?? (d.field as string) ?? "",
           target: (d.hasOneTarget as string) ?? (d.target as string) ?? "",
-          errorCode: d.hasOneErrorCode as string | undefined ?? d.errorCode as string | undefined,
+          errorCode:
+            (d.hasOneErrorCode as string | undefined) ??
+            (d.errorCode as string | undefined),
         };
       case "seeds": {
         // Seeds can come as a Seed[] array or comma-separated string
         const rawSeeds = d.seeds;
-        let seeds: { type: "literal" | "account-field" | "instruction-arg" | "pubkey"; value: string }[] = [];
+        let seeds: {
+          type: "literal" | "account-field" | "instruction-arg" | "pubkey";
+          value: string;
+        }[] = [];
         if (Array.isArray(rawSeeds)) {
           seeds = rawSeeds as typeof seeds;
         } else if (typeof rawSeeds === "string" && rawSeeds.length > 0) {
@@ -197,11 +209,15 @@ function buildConstraints(constraintNodes: Node[]): Constraint[] {
       case "owner":
         return { type: "owner" as const, owner: (d.owner as string) ?? "" };
       case "address":
-        return { type: "address" as const, address: (d.address as string) ?? "" };
+        return {
+          type: "address" as const,
+          address: (d.address as string) ?? "",
+        };
       case "token-authority":
         return {
           type: "token-authority" as const,
-          authority: (d.tokenAuthority as string) ?? (d.authority as string) ?? "",
+          authority:
+            (d.tokenAuthority as string) ?? (d.authority as string) ?? "",
         };
       case "token-mint":
         return {
@@ -213,7 +229,8 @@ function buildConstraints(constraintNodes: Node[]): Constraint[] {
           type: "realloc" as const,
           space: (d.reallocSpace as number) ?? (d.space as number) ?? 0,
           payer: (d.reallocPayer as string) ?? (d.payer as string) ?? "",
-          zeroInit: (d.reallocZeroInit as boolean) ?? (d.zeroInit as boolean) ?? false,
+          zeroInit:
+            (d.reallocZeroInit as boolean) ?? (d.zeroInit as boolean) ?? false,
         };
       case "custom":
         return {
@@ -227,21 +244,58 @@ function buildConstraints(constraintNodes: Node[]): Constraint[] {
   });
 }
 
+function buildConstraintsFromFlags(
+  data: Record<string, unknown>,
+): Constraint[] {
+  const constraints: Constraint[] = [];
+  if (data.isInit) {
+    constraints.push({
+      type: "init" as const,
+      payer: (data.payer as string) ?? "authority",
+      space: (data.space as number | "auto") ?? "auto",
+    });
+  } else if (data.isInitIfNeeded) {
+    constraints.push({
+      type: "init-if-needed" as const,
+      payer: (data.payer as string) ?? "authority",
+      space: (data.space as number | "auto") ?? "auto",
+    });
+  }
+  if (data.isMut && !data.isInit) {
+    constraints.push({ type: "mut" as const });
+  }
+  if (data.isSigner) {
+    constraints.push({ type: "signer" as const });
+  }
+  if (data.isClose) {
+    constraints.push({
+      type: "close" as const,
+      target: (data.closeTarget as string) ?? (data.target as string) ?? "",
+    });
+  }
+  return constraints;
+}
+
 function buildAccountIR(
   accNode: Node,
   constraintNodes: Node[],
   stateNode: Node | undefined,
 ): Account {
   const data = accNode.data as Record<string, unknown>;
+  const constraints =
+    constraintNodes.length > 0
+      ? buildConstraints(constraintNodes)
+      : buildConstraintsFromFlags(data);
+
   return {
     id: toUuid(accNode.id),
     name: (data.name as string) ?? "account",
     accountType:
       (data.accountType as Account["accountType"]) ?? "system-account",
     stateType: stateNode
-      ? (stateNode.data as Record<string, unknown>).name as string
+      ? ((stateNode.data as Record<string, unknown>).name as string)
       : (data.stateType as string | undefined),
-    constraints: buildConstraints(constraintNodes),
+    constraints,
     description: data.description as string | undefined,
   };
 }
@@ -287,12 +341,9 @@ function buildInstructionIR(
       nodes,
       edges,
     );
-    const stateNode = getConnectedNodes(
-      accNode.id,
-      "state",
-      nodes,
-      edges,
-    )[0];
+    const stateNode =
+      getConnectedNodesReverse(accNode.id, "state", nodes, edges)[0] ??
+      getConnectedNodes(accNode.id, "state", nodes, edges)[0];
     return buildAccountIR(accNode, constraintNodes, stateNode);
   });
 
@@ -303,7 +354,10 @@ function buildInstructionIR(
     name: (data.name as string) ?? "instruction",
     description: data.description as string | undefined,
     discriminator: data.discriminator as number[] | undefined,
-    args: (data.args as Instruction["args"]) ?? (data.instructionData as Instruction["args"]) ?? [],
+    args:
+      (data.args as Instruction["args"]) ??
+      (data.instructionData as Instruction["args"]) ??
+      [],
     accounts: resolvedAccounts,
     body,
   };
@@ -330,9 +384,7 @@ function collectStates(nodes: Node[]): State[] {
         fields,
         description: data.description as string | undefined,
         isZeroCopy: (data.isZeroCopy as boolean) ?? false,
-        customDiscriminator: data.customDiscriminator as
-          | number[]
-          | undefined,
+        customDiscriminator: data.customDiscriminator as number[] | undefined,
       };
     });
 }
@@ -389,8 +441,14 @@ function collectIntegrations(nodes: Node[], _edges: Edge[]): Integration[] {
         integrationId: (data.integrationId as string) ?? "",
         config: (data.config as Record<string, unknown>) ?? {},
         attachedTo: {
-          instructionId: toUuid((data.attachedTo as Record<string, unknown>)?.instructionId as string ?? ""),
-          position: ((data.attachedTo as Record<string, unknown>)?.position as Integration["attachedTo"]["position"]) ?? "before-body",
+          instructionId: toUuid(
+            ((data.attachedTo as Record<string, unknown>)
+              ?.instructionId as string) ?? "",
+          ),
+          position:
+            ((data.attachedTo as Record<string, unknown>)
+              ?.position as Integration["attachedTo"]["position"]) ??
+            "before-body",
         },
       };
     });

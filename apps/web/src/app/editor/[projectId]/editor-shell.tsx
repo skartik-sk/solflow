@@ -69,8 +69,8 @@ export function EditorShell({
   useEffect(() => {
     setProject({ id: projectId, name: projectName, framework });
 
-    if (flowData?.nodes?.length) {
-      setFlow(flowData.nodes, flowData.edges ?? []);
+    if (flowData) {
+      setFlow(flowData.nodes ?? [], flowData.edges ?? []);
     }
     // Run once on mount only
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -8,7 +8,7 @@
 # Build this image once and cache it:
 #   docker build -t solflow-compiler:latest docker/compiler/
 
-FROM rust:1.78-slim
+FROM rust:1.82.0-slim
 
 # ─── System dependencies ──────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,6 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# ─── Cargo config (use system git for CI reliability) ─────────────────────────
+RUN mkdir -p /root/.cargo && \
+    printf "[net]\ngit-fetch-with-cli = true\n" > /root/.cargo/config.toml
+
 # ─── Rust toolchain ───────────────────────────────────────────────────────────
 RUN rustup component add rustfmt clippy
 RUN rustup target add wasm32-unknown-unknown
@@ -33,7 +37,7 @@ ENV PATH="/root/.local/share/solana/install/active_release/bin:$PATH"
 # ─── cargo-build-sbf (ships with Solana CLI, also install standalone) ─────────
 RUN cargo install --git https://github.com/solana-labs/cargo-build-sbf.git \
     --tag v1.18.22 --locked \
-    || true   # cargo-build-sbf is included in the Solana release; this is a fallback
+    || true
 
 # ─── Anchor CLI v0.32.0 ───────────────────────────────────────────────────────
 RUN cargo install --git https://github.com/coral-xyz/anchor \

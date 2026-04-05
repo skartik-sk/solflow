@@ -7,11 +7,12 @@ import { router, protectedProcedure } from "../trpc";
 import { flowToIR } from "@solflow/ir";
 import { generateCode } from "@solflow/codegen";
 import type { Node, Edge } from "@xyflow/react";
+import { Keypair } from "@solana/web3.js";
+import bs58 from "bs58";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function createDefaultFlow() {
-  // Pre-built Anchor starter: Program → Initialize Instruction → Account ← State
+function createDefaultFlow(programPublicKey: string) {
   const ts = Date.now();
 
   const programId = `program-${ts}`;
@@ -19,6 +20,8 @@ function createDefaultFlow() {
   const accountId = `account-${ts}`;
   const stateId = `state-${ts}`;
   const logicId = `logic-${ts}`;
+  const authorityId = `authority-${ts}`;
+  const systemProgramId = `system-program-${ts}`;
 
   return {
     nodes: [
@@ -31,6 +34,7 @@ function createDefaultFlow() {
           version: "0.1.0",
           description: "My first Anchor program",
           license: "MIT",
+          programId: programPublicKey,
         },
       },
       {
@@ -58,9 +62,35 @@ function createDefaultFlow() {
         },
       },
       {
+        id: authorityId,
+        type: "account",
+        position: { x: 300, y: 420 },
+        data: {
+          name: "authority",
+          accountType: "signer",
+          isMut: false,
+          isSigner: true,
+          isInit: false,
+          isClose: false,
+        },
+      },
+      {
+        id: systemProgramId,
+        type: "account",
+        position: { x: 480, y: 420 },
+        data: {
+          name: "system_program",
+          accountType: "system-program",
+          isMut: false,
+          isSigner: false,
+          isInit: false,
+          isClose: false,
+        },
+      },
+      {
         id: stateId,
         type: "state",
-        position: { x: 480, y: 420 },
+        position: { x: 120, y: 600 },
         data: {
           name: "ProgramState",
           fields: [
@@ -76,6 +106,7 @@ function createDefaultFlow() {
         position: { x: 300, y: 340 },
         data: {
           logicType: "set-field",
+          order: 0,
           operation: {
             type: "set-field",
             account: "state_account",
@@ -99,6 +130,24 @@ function createDefaultFlow() {
         id: `e-${instrId}-${accountId}`,
         source: instrId,
         target: accountId,
+        sourceHandle: "account-out",
+        targetHandle: "account-in",
+        type: "smoothstep",
+        animated: true,
+      },
+      {
+        id: `e-${instrId}-${authorityId}`,
+        source: instrId,
+        target: authorityId,
+        sourceHandle: "account-out",
+        targetHandle: "account-in",
+        type: "smoothstep",
+        animated: true,
+      },
+      {
+        id: `e-${instrId}-${systemProgramId}`,
+        source: instrId,
+        target: systemProgramId,
         sourceHandle: "account-out",
         targetHandle: "account-in",
         type: "smoothstep",
@@ -198,7 +247,12 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      let initialFlowData: Record<string, unknown> = createDefaultFlow();
+      const programKp = Keypair.generate();
+      const programPublicKey = programKp.publicKey.toBase58();
+      const programSecretKey = bs58.encode(programKp.secretKey);
+
+      let initialFlowData: Record<string, unknown> =
+        createDefaultFlow(programPublicKey);
       let forkedFrom: string | undefined;
 
       if (input.templateId) {
@@ -225,6 +279,7 @@ export const projectRouter = router({
           framework: input.framework,
           userId: ctx.session.user.id!,
           flowData: initialFlowData as any,
+          programKeypair: programSecretKey,
           ...(forkedFrom && { forkedFrom }),
         },
       });

@@ -1,16 +1,22 @@
 // apps/web/src/server/compile-worker/wasm-compiler.ts
-// Cloud-based compilation using the Solana Playground build API.
+// Cloud-based compilation using a remote build server.
 //
-// This is the same approach solpg uses: source files are sent to a remote
-// server running cargo-build-sbf, which returns the compiled .so binary.
+// Source files are sent to a remote server running cargo-build-sbf,
+// which returns the compiled .so binary.
 // No local toolchain, no Docker, no Redis needed.
 //
 // Strategy:
-//   1. Try Solana Playground build API (cloud compilation, like solpg)
+//   1. Try cloud build API (remote compilation)
 //   2. Fall back to local CLI (anchor build / cargo build-sbf)
 //   3. Fall back to codegen only (just generated source, no binary)
 
-import { mkdir, writeFile, readFile, rm, writeFile as writeFileCb } from "fs/promises";
+import {
+  mkdir,
+  writeFile,
+  readFile,
+  rm,
+  writeFile as writeFileCb,
+} from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { randomBytes } from "crypto";
@@ -44,12 +50,12 @@ export interface WasmBuildResult {
   binarySize: number | null;
   duration: number;
   /** Which compilation method was actually used */
-  method: "solpg-cloud" | "local-cli" | "codegen-only";
+  method: "cloud" | "local-cli" | "codegen-only";
 }
 
-// ─── SolPG Cloud Build API ────────────────────────────────────────────────────
+// ─── Cloud Build API ────────────────────────────────────────────────────
 
-const SOLPG_BUILD_URL = process.env.SOLPG_BUILD_URL ?? "https://api.solpg.io";
+const CLOUD_BUILD_URL = process.env.CLOUD_BUILD_URL ?? "https://api.solpg.io";
 const SOLPG_BUILD_TIMEOUT = 120_000; // 2 minutes
 
 interface SolpgBuildResponse {
@@ -63,46 +69,252 @@ interface SolpgBuildError {
 }
 
 /**
+ * Flatten a multi-file Anchor project into a single /src/lib.rs for the cloud build server.
+ *
+ * Our codegen produces:
+ *   programs/{name}/src/lib.rs             — main entry with `pub mod instructions;`
+ *   programs/{name}/src/instructions/mod.rs — `pub mod initialize;`
+ *   programs/{name}/src/instructions/initialize.rs — actual instruction handler
+ *   programs/{name}/src/state/mod.rs        — `pub mod counter;`
+ *   programs/{name}/src/state/counter.rs    — account struct
+ *
+ * The cloud build server expects a single /src/lib.rs with everything inline.
+ * Strategy: strip `pub mod X;` declarations and inline the content of each module.
+ */
+function flattenForCloudBuild(
+  files: { path: string; content: string }[],
+): [string, string][] {
+  const fileMap = new Map<string, string>();
+  for (const f of files) {
+    if (f.path.endsWith("Cargo.toml")) continue;
+    const srcIdx = f.path.indexOf("/src/");
+    if (srcIdx !== -1) {
+      const key = f.path.substring(srcIdx + 5);
+      fileMap.set(key, f.content);
+    }
+  }
+
+  const libRs = fileMap.get("lib.rs") ?? "";
+  if (!libRs) return [["/src/lib.rs", "// No source code generated"]];
+
+  // Collect module contents by category
+  const instructions: string[] = [];
+  const states: string[] = [];
+  const errors: string[] = [];
+  const events: string[] = [];
+  const constants: string[] = [];
+
+  // Extract instruction handler bodies and account structs from instruction files
+  for (const [path, content] of fileMap) {
+    if (path === "lib.rs" || path.endsWith("mod.rs")) continue;
+    if (path.startsWith("instructions/")) {
+      instructions.push(content);
+    } else if (path.startsWith("state/")) {
+      states.push(content);
+    } else if (path.startsWith("errors")) {
+      errors.push(content);
+    } else if (path.startsWith("events")) {
+      events.push(content);
+    } else if (path.startsWith("constants")) {
+      constants.push(content);
+    }
+  }
+
+  // Strip `use anchor_lang::prelude::*;` and `use crate::...` from module contents
+  const stripImports = (code: string) =>
+    code
+      .replace(/^use\s+anchor_lang::prelude::\*;\s*$/gm, "")
+      .replace(
+        /^use\s+crate::(state|instructions|errors|events|constants)::\w+;\s*$/gm,
+        "",
+      )
+      .replace(/^use\s+crate::errors::\w+;\s*$/gm, "")
+      .trim();
+
+  // Build the #[program] block from lib.rs
+  // Extract the declare_id! and program module
+  const declareIdMatch = libRs.match(/declare_id!\("[^"]*"\);/);
+  const declareId = declareIdMatch
+    ? declareIdMatch[0]
+    : 'declare_id!("11111111111111111111111111111111");';
+
+  // Extract the #[program] module body
+  const programModuleMatch = libRs.match(
+    /#\[program\]\s*pub mod \w+ \{([\s\S]*?)\n\}/,
+  );
+  let programBody = programModuleMatch ? programModuleMatch[1].trim() : "";
+
+  // Replace `instructions::name::handler(ctx, args)` with inlined handler body
+  for (const instrContent of instructions) {
+    const handlerMatch = instrContent.match(
+      /pub fn handler\(ctx: Context<(\w+)>[^)]*\)(?:\s*->\s*Result<\(\)>)?\s*\{([\s\S]*?)\n\}/,
+    );
+    if (handlerMatch) {
+      const ctxName = handlerMatch[1];
+      let body = handlerMatch[2].trim();
+      // Replace `instructions::xxx::handler(ctx...)` calls in program body with direct body
+      const callRegex = new RegExp(
+        `instructions::\\w+::handler\\(ctx[^)]*\\)`,
+        "g",
+      );
+      // We'll replace the whole fn body in the program module
+    }
+  }
+
+  // Simpler approach: just replace module calls with direct inline
+  // For each instruction file, extract the handler function body and Accounts struct
+  const handlerBodies: Map<
+    string,
+    { body: string; args: string; ctxName: string }
+  > = new Map();
+  const accountStructs: string[] = [];
+
+  for (const instrContent of instructions) {
+    const stripped = stripImports(instrContent);
+
+    // Extract handler function
+    const handlerMatch = stripped.match(
+      /pub fn handler\(ctx: Context<(\w+)>([^)]*)\)\s*(?:->\s*Result<\(\)>\s*)?\{([\s\S]*?)\n\}/,
+    );
+    if (handlerMatch) {
+      const ctxName = handlerMatch[1];
+      const args = handlerMatch[2].trim();
+      let body = handlerMatch[3].trim();
+      handlerBodies.set(ctxName, { body, args, ctxName });
+    }
+
+    // Extract Accounts struct
+    const accountsMatch = stripped.match(
+      /#\[derive\(Accounts\)\]\s*(?:#\[instruction\([^)]*\)\]\s*)?pub struct \w+[^{]*\{[\s\S]*?\n\}/,
+    );
+    if (accountsMatch) {
+      accountStructs.push(accountsMatch[0]);
+    }
+  }
+
+  // Extract state structs
+  const stateStructs: string[] = [];
+  for (const stateContent of states) {
+    const stripped = stripImports(stateContent);
+    const structMatch = stripped.match(
+      /#\[account[^\n]*\](?:\s*#\[derive[^\n]*\])*\s*pub struct \w+[^{]*\{[\s\S]*?\n\}/,
+    );
+    if (structMatch) {
+      stateStructs.push(structMatch[0]);
+    }
+  }
+
+  // Extract error enums
+  const errorEnums: string[] = [];
+  for (const errorContent of errors) {
+    const stripped = stripImports(errorContent);
+    const enumMatch = stripped.match(
+      /#\[error_code\]\s*pub enum \w+[^{]*\{[\s\S]*?\n\}/,
+    );
+    if (enumMatch) {
+      errorEnums.push(enumMatch[0]);
+    }
+  }
+
+  // Extract event structs
+  const eventStructs: string[] = [];
+  for (const eventContent of events) {
+    const stripped = stripImports(eventContent);
+    const structMatch = stripped.match(
+      /#\[event\]\s*pub struct \w+[^{]*\{[\s\S]*?\n\}/,
+    );
+    if (structMatch) {
+      eventStructs.push(structMatch[0]);
+    }
+  }
+
+  // Extract program name from lib.rs
+  const programNameMatch = libRs.match(/pub mod (\w+)\s*\{/);
+  const programName = programNameMatch ? programNameMatch[1] : "program";
+
+  // Build the instruction fns for #[program]
+  const instrFns: string[] = [];
+  for (const [ctxName, info] of handlerBodies) {
+    const fnNameMatch = programBody.match(
+      new RegExp(`pub fn (\\w+)\\(ctx: Context<${ctxName}>`),
+    );
+    const fnName = fnNameMatch ? fnNameMatch[1] : ctxName.toLowerCase();
+    const extraArgs = info.args ? ` ${info.args}` : "";
+    instrFns.push(
+      `    pub fn ${fnName}(ctx: Context<${ctxName}>${extraArgs}) -> Result<()> {\n` +
+        info.body
+          .split("\n")
+          .map((l) => (l ? `        ${l}` : ""))
+          .join("\n") +
+        `\n    }`,
+    );
+  }
+
+  // Assemble the final single-file lib.rs
+  const parts: string[] = [
+    "use anchor_lang::prelude::*;\n",
+    `${declareId}\n`,
+    "#[program]",
+    `pub mod ${programName} {`,
+    "    use super::*;",
+    "",
+    instrFns.join("\n\n"),
+    "}\n",
+  ];
+
+  if (stateStructs.length) {
+    parts.push(stateStructs.join("\n\n") + "\n");
+  }
+  if (accountStructs.length) {
+    parts.push(accountStructs.join("\n\n") + "\n");
+  }
+  if (errorEnums.length) {
+    parts.push(errorEnums.join("\n\n") + "\n");
+  }
+  if (eventStructs.length) {
+    parts.push(eventStructs.join("\n\n") + "\n");
+  }
+
+  return [["/src/lib.rs", parts.join("\n")]];
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Compile source files using the Solana Playground build API.
- * This is exactly what solpg does — sends Rust source to a cloud server,
+ * This is exactly the cloud build server — it sends Rust source to a cloud server,
  * gets back compiled .so binary.
  */
-async function compileWithSolpg(
+async function compileWithCloudBuild(
   files: { path: string; content: string }[],
   onLog: (line: string, level: "info" | "warn" | "error") => void,
-): Promise<{ success: boolean; uuid: string; logs: string[]; idl: unknown } | null> {
-  onLog("[solpg] Sending source files to Solana Playground build API...", "info");
+): Promise<{
+  success: boolean;
+  uuid: string;
+  logs: string[];
+  idl: unknown;
+} | null> {
+  onLog(
+    "[cloud] Sending source files to Solana Playground build API...",
+    "info",
+  );
 
-  // Convert our file paths to solpg format.
-  // Our codegen produces: "programs/{name}/src/lib.rs", "programs/{name}/src/instructions/mod.rs", etc.
-  // solpg expects: "/src/lib.rs", "/src/instructions/mod.rs", etc.
-  // Skip Cargo.toml — solpg has its own with pre-vendored dependencies.
-  const solpgFiles: [string, string][] = files
-    .filter((f) => !f.path.endsWith("Cargo.toml"))
-    .map((f) => {
-      let solpgPath: string;
-      if (f.path.startsWith("/src")) {
-        solpgPath = f.path;
-      } else {
-        const srcIdx = f.path.indexOf("/src/");
-        if (srcIdx !== -1) {
-          solpgPath = f.path.substring(srcIdx); // "/src/lib.rs" etc.
-        } else {
-          solpgPath = `/src/${f.path.split("/").pop()}`;
-        }
-      }
-      return [solpgPath, f.content];
-    });
+  // Flatten all source files into a single /src/lib.rs for the cloud build server.
+  // The build server doesn't handle multi-module Rust projects well — it expects one file.
+  // We merge all modules (instructions, state, errors, events) inline into lib.rs.
+  const cloudFiles: [string, string][] = flattenForCloudBuild(files);
 
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), SOLPG_BUILD_TIMEOUT);
 
-    const response = await fetch(`${SOLPG_BUILD_URL}/build`, {
+    const response = await fetch(`${CLOUD_BUILD_URL}/build`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        files: solpgFiles,
+        files: cloudFiles,
         flags: {
           seedsFeature: false,
           noDocs: true,
@@ -116,14 +328,19 @@ async function compileWithSolpg(
 
     if (!response.ok) {
       const errText = await response.text().catch(() => "Unknown error");
-      onLog(`[solpg] Build API returned ${response.status}: ${errText}`, "error");
+      onLog(
+        `[cloud] Build API returned ${response.status}: ${errText}`,
+        "error",
+      );
       return null;
     }
 
-    const data = (await response.json()) as SolpgBuildResponse | SolpgBuildError;
+    const data = (await response.json()) as
+      | SolpgBuildResponse
+      | SolpgBuildError;
 
     if ("error" in data) {
-      onLog(`[solpg] Build API error: ${data.error}`, "error");
+      onLog(`[cloud] Build API error: ${data.error}`, "error");
       return null;
     }
 
@@ -142,14 +359,15 @@ async function compileWithSolpg(
       onLog(line, level);
     }
 
-    // Check if build succeeded (solpg returns stderr which includes errors)
-    const hasCompilationError = buildData.stderr.includes("error: could not compile")
-      || buildData.stderr.includes("error[E");
+    // Check if build succeeded (the cloud build server returns stderr which includes errors)
+    const hasCompilationError =
+      buildData.stderr.includes("error: could not compile") ||
+      buildData.stderr.includes("error[E");
 
     onLog(
       hasCompilationError
-        ? "[solpg] Build completed with errors"
-        : `[solpg] Build successful — uuid: ${buildData.uuid}`,
+        ? "[cloud] Build completed with errors"
+        : `[cloud] Build successful — uuid: ${buildData.uuid}`,
       hasCompilationError ? "error" : "info",
     );
 
@@ -161,9 +379,12 @@ async function compileWithSolpg(
     };
   } catch (err) {
     if ((err as Error).name === "AbortError") {
-      onLog("[solpg] Build timed out after 120 seconds", "error");
+      onLog("[cloud] Build timed out after 120 seconds", "error");
     } else {
-      onLog(`[solpg] Build API unreachable: ${err instanceof Error ? err.message : String(err)}`, "warn");
+      onLog(
+        `[cloud] Build API unreachable: ${err instanceof Error ? err.message : String(err)}`,
+        "warn",
+      );
     }
     return null;
   }
@@ -172,26 +393,32 @@ async function compileWithSolpg(
 /**
  * Fetch the compiled .so binary from the Solana Playground server.
  */
-async function fetchSolpgBinary(
+async function fetchCloudBinary(
   uuid: string,
   destPath: string,
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<number | null> {
-  onLog(`[solpg] Fetching compiled binary...`, "info");
+  onLog(`[cloud] Fetching compiled binary...`, "info");
 
   try {
-    const response = await fetch(`${SOLPG_BUILD_URL}/deploy/${uuid}`);
+    const response = await fetch(`${CLOUD_BUILD_URL}/deploy/${uuid}`);
     if (!response.ok) {
-      onLog(`[solpg] Failed to fetch binary: ${response.status}`, "error");
+      onLog(`[cloud] Failed to fetch binary: ${response.status}`, "error");
       return null;
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
     await writeFile(destPath, buffer);
-    onLog(`[solpg] Binary saved: ${destPath} (${buffer.byteLength} bytes)`, "info");
+    onLog(
+      `[cloud] Binary saved: ${destPath} (${buffer.byteLength} bytes)`,
+      "info",
+    );
     return buffer.byteLength;
   } catch (err) {
-    onLog(`[solpg] Failed to fetch binary: ${err instanceof Error ? err.message : String(err)}`, "error");
+    onLog(
+      `[cloud] Failed to fetch binary: ${err instanceof Error ? err.message : String(err)}`,
+      "error",
+    );
     return null;
   }
 }
@@ -247,9 +474,9 @@ function parseErrors(logs: string[]): { errors: string[]; warnings: string[] } {
 /**
  * Compile a Solana program using the Solana Playground build API.
  *
- * Strategy (same UX as solpg):
- *   1. Send source files to api.solpg.io/build (cloud compilation)
- *   2. Download the compiled .so binary from api.solpg.io/deploy/{uuid}
+ * Strategy (same UX as cloud deployment):
+ *   1. Send source files to the cloud build API (cloud compilation)
+ *   2. Download the compiled .so binary from the cloud build API
  *   3. Fall back to local CLI if cloud API is unavailable
  *   4. Fall back to codegen-only if nothing works
  */
@@ -258,7 +485,8 @@ export async function runWasmBuild(
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<WasmBuildResult> {
   const startedAt = Date.now();
-  const generatedFramework = input.framework === "ANCHOR" ? "anchor" : "pinocchio";
+  const generatedFramework =
+    input.framework === "ANCHOR" ? "anchor" : "pinocchio";
 
   // Step 1: Generate Rust source code from IR
   const generated = generateCode(input.ir, generatedFramework);
@@ -277,56 +505,63 @@ export async function runWasmBuild(
     };
   }
 
-  onLog(`[solpg] Generated ${generated.files.length} source file(s)`, "info");
+  onLog(`[cloud] Generated ${generated.files.length} source file(s)`, "info");
   for (const f of generated.files) {
-    onLog(`[solpg]   ${f.path} (${f.content.length} chars)`, "info");
+    onLog(`[cloud]   ${f.path} (${f.content.length} chars)`, "info");
   }
 
-  // Step 2: Try SolPG cloud compilation first
-  const solpgResult = await compileWithSolpg(generated.files, onLog);
+  // Step 2: Try cloud build first
+  const cloudResult = await compileWithCloudBuild(generated.files, onLog);
 
-  if (solpgResult) {
-    if (solpgResult.success) {
+  if (cloudResult) {
+    if (cloudResult.success) {
       // Build succeeded — fetch the binary
-      const workDir = join(tmpdir(), `solflow-solpg-${randomBytes(4).toString("hex")}`);
+      const workDir = join(
+        tmpdir(),
+        `solflow-cloud-${randomBytes(4).toString("hex")}`,
+      );
       await mkdir(workDir, { recursive: true });
       const binaryPath = join(workDir, "program.so");
-      const binarySize = await fetchSolpgBinary(solpgResult.uuid, binaryPath, onLog);
+      const binarySize = await fetchCloudBinary(
+        cloudResult.uuid,
+        binaryPath,
+        onLog,
+      );
 
       if (binarySize) {
         return {
           success: true,
-          logs: solpgResult.logs,
+          logs: cloudResult.logs,
           errors: [],
           warnings: [],
           workDir,
           binaryPath,
           binarySize,
           duration: Date.now() - startedAt,
-          method: "solpg-cloud",
+          method: "cloud",
         };
       }
       // Binary fetch failed — fall through to local CLI
-      onLog("[solpg] Binary fetch failed, trying local CLI...", "warn");
+      onLog("[cloud] Binary fetch failed, trying local CLI...", "warn");
     } else {
-      // Build had errors — return them (same as solpg behavior)
-      const { errors, warnings } = parseErrors(solpgResult.logs);
+      // Build had errors — return them (same behavior)
+      const { errors, warnings } = parseErrors(cloudResult.logs);
       return {
         success: false,
-        logs: solpgResult.logs,
+        logs: cloudResult.logs,
         errors: errors.length > 0 ? errors : ["Compilation failed"],
         warnings,
         workDir: "",
         binaryPath: null,
         binarySize: null,
         duration: Date.now() - startedAt,
-        method: "solpg-cloud",
+        method: "cloud",
       };
     }
   }
 
-  // Step 3: SolPG API unavailable — fall back to local CLI
-  onLog("[solpg] Cloud API unavailable, trying local toolchain...", "warn");
+  // Step 3: cloud build unavailable — falling back to local CLI
+  onLog("[cloud] Cloud API unavailable, trying local toolchain...", "warn");
 
   // Write files to temp dir for local compilation
   let workDir: string;
@@ -355,9 +590,7 @@ export async function runWasmBuild(
   }
 
   const buildCmd =
-    input.framework === "ANCHOR"
-      ? "anchor build"
-      : "cargo build-sbf --release";
+    input.framework === "ANCHOR" ? "anchor build" : "cargo build-sbf --release";
 
   onLog(`[local] Running: ${buildCmd}`, "info");
 
@@ -368,7 +601,9 @@ export async function runWasmBuild(
 
     if (code !== 0) {
       onLog(`[local] Build failed with exit code ${code}`, "error");
-      await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+      await rm(workDir, { recursive: true, force: true }).catch(
+        () => undefined,
+      );
       return {
         success: false,
         logs,
@@ -395,7 +630,10 @@ export async function runWasmBuild(
         binaryPath = join(deployDir, soFile);
         const buf = await readFile(binaryPath);
         binarySize = buf.byteLength;
-        onLog(`[local] Compiled binary: ${binaryPath} (${binarySize} bytes)`, "info");
+        onLog(
+          `[local] Compiled binary: ${binaryPath} (${binarySize} bytes)`,
+          "info",
+        );
       }
     } catch {
       onLog("[local] Build succeeded but no .so binary found", "warn");
@@ -421,7 +659,7 @@ export async function runWasmBuild(
     return {
       success: false,
       logs: [
-        "[solpg] Cloud compilation unavailable.",
+        "[cloud] Cloud compilation unavailable.",
         "[local] Local toolchain not available.",
         "Generated source code is available for manual compilation.",
       ],

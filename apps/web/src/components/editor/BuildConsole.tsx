@@ -29,6 +29,8 @@ export function BuildConsole() {
   const deployPhase = useBuildStore((s) => s.deployPhase);
   const deployedProgramId = useBuildStore((s) => s.deployedProgramId);
   const deployExplorerUrl = useBuildStore((s) => s.deployExplorerUrl);
+  const deployTxSignature = useBuildStore((s) => s.deployTxSignature);
+  const deployTxExplorerUrl = useBuildStore((s) => s.deployTxExplorerUrl);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -68,20 +70,41 @@ export function BuildConsole() {
           </span>
         )}
         {deployedProgramId && (
-          <span className="ml-auto text-muted-foreground/60">
-            Program ID:{" "}
-            {deployExplorerUrl ? (
-              <a
-                href={deployExplorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="text-blue-400 underline hover:text-blue-300"
-              >
-                {deployedProgramId.slice(0, 8)}…
-              </a>
-            ) : (
-              <span className="text-foreground/70">
-                {deployedProgramId.slice(0, 8)}…
+          <span className="ml-auto flex items-center gap-3 text-muted-foreground/60">
+            <span>
+              Program:{" "}
+              {deployExplorerUrl ? (
+                <a
+                  href={deployExplorerUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-blue-400 underline hover:text-blue-300"
+                >
+                  {deployedProgramId.slice(0, 8)}…
+                </a>
+              ) : (
+                <span className="text-foreground/70">
+                  {deployedProgramId.slice(0, 8)}…
+                </span>
+              )}
+            </span>
+            {deployTxSignature && (
+              <span>
+                TX:{" "}
+                {deployTxExplorerUrl ? (
+                  <a
+                    href={deployTxExplorerUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-400 underline hover:text-blue-300"
+                  >
+                    {deployTxSignature.slice(0, 8)}…
+                  </a>
+                ) : (
+                  <span className="text-foreground/70">
+                    {deployTxSignature.slice(0, 8)}…
+                  </span>
+                )}
               </span>
             )}
           </span>

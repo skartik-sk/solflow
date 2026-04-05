@@ -44,7 +44,10 @@ interface FlowState {
   // ─── Node mutations ───────────────────────────────────────────
   addNode: (node: Node) => void;
   removeNode: (nodeId: string) => void;
-  updateNodeData: (nodeId: string, data: Partial<Record<string, unknown>>) => void;
+  updateNodeData: (
+    nodeId: string,
+    data: Partial<Record<string, unknown>>,
+  ) => void;
   duplicateNodes: (nodeIds: string[]) => void;
 
   // ─── Edge mutations ───────────────────────────────────────────
@@ -65,7 +68,10 @@ interface FlowState {
 
 // ─── Debounce helper (no lodash dep on store module) ─────────────────────────
 
-function debounce<T extends (...args: unknown[]) => void>(fn: T, ms: number): T {
+function debounce<T extends (...args: unknown[]) => void>(
+  fn: T,
+  ms: number,
+): T {
   let timer: ReturnType<typeof setTimeout>;
   return ((...args: unknown[]) => {
     clearTimeout(timer);
@@ -112,6 +118,9 @@ export const useFlowStore = create<FlowState>()(
                   selectedNodeId: change.selected ? change.id : null,
                 });
               }
+              if (change.type === "remove" || change.type === "position") {
+                useProjectStore.getState().markDirty();
+              }
             }
           },
 
@@ -124,6 +133,9 @@ export const useFlowStore = create<FlowState>()(
                 set({
                   selectedEdgeId: change.selected ? change.id : null,
                 });
+              }
+              if (change.type === "remove") {
+                useProjectStore.getState().markDirty();
               }
             }
           },
@@ -138,10 +150,11 @@ export const useFlowStore = create<FlowState>()(
                   animated: true,
                   style: { strokeWidth: 2 },
                 },
-                get().edges
+                get().edges,
               ),
             });
             get()._debouncedRegenerate();
+            useProjectStore.getState().markDirty();
           },
 
           // ─── Node mutations ───────────────────────────────────
@@ -155,12 +168,10 @@ export const useFlowStore = create<FlowState>()(
             set({
               nodes: get().nodes.filter((n) => n.id !== nodeId),
               edges: get().edges.filter(
-                (e) => e.source !== nodeId && e.target !== nodeId
+                (e) => e.source !== nodeId && e.target !== nodeId,
               ),
               selectedNodeId:
-                get().selectedNodeId === nodeId
-                  ? null
-                  : get().selectedNodeId,
+                get().selectedNodeId === nodeId ? null : get().selectedNodeId,
             });
             get()._debouncedRegenerate();
             useProjectStore.getState().markDirty();
@@ -169,9 +180,7 @@ export const useFlowStore = create<FlowState>()(
           updateNodeData: (nodeId, data) => {
             set({
               nodes: get().nodes.map((n) =>
-                n.id === nodeId
-                  ? { ...n, data: { ...n.data, ...data } }
-                  : n
+                n.id === nodeId ? { ...n, data: { ...n.data, ...data } } : n,
               ),
             });
             get()._debouncedRegenerate();
@@ -194,7 +203,7 @@ export const useFlowStore = create<FlowState>()(
             });
 
             const internalEdges = get().edges.filter(
-              (e) => nodeIds.includes(e.source) && nodeIds.includes(e.target)
+              (e) => nodeIds.includes(e.source) && nodeIds.includes(e.target),
             );
             const newEdges: Edge[] = internalEdges.map((edge) => ({
               ...edge,
@@ -229,7 +238,12 @@ export const useFlowStore = create<FlowState>()(
           },
 
           clearFlow: () => {
-            set({ nodes: [], edges: [], selectedNodeId: null, selectedEdgeId: null });
+            set({
+              nodes: [],
+              edges: [],
+              selectedNodeId: null,
+              selectedEdgeId: null,
+            });
             useCodeStore.getState().clear();
           },
 
@@ -264,9 +278,9 @@ export const useFlowStore = create<FlowState>()(
           nodes: state.nodes,
           edges: state.edges,
         }),
-      }
-    )
-  )
+      },
+    ),
+  ),
 );
 
 // ─── Convenience undo/redo hooks ─────────────────────────────────────────────

@@ -20,8 +20,11 @@ import {
   Rocket,
   CheckCircle,
   XCircle,
+  Wallet,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useProjectStore } from "@/store/project-store";
 import { useUIStore } from "@/store/ui-store";
 import { useUndo, useRedo, useCanUndo, useCanRedo } from "@/store/flow-store";
@@ -44,6 +47,9 @@ export function EditorTopBar() {
 
   const { openBottomPanelTab } = useUIStore();
 
+  const wallet = useWallet();
+  const { setVisible: setWalletModalVisible } = useWalletModal();
+
   const undo = useUndo();
   const redo = useRedo();
   const canUndo = useCanUndo();
@@ -55,6 +61,7 @@ export function EditorTopBar() {
     deployStatus,
     deployedProgramId,
     deployExplorerUrl,
+    deployTxExplorerUrl,
     startCompile,
     startTest,
     startDeploy,
@@ -156,7 +163,7 @@ export function EditorTopBar() {
     openBottomPanelTab("console");
     const net = network.toUpperCase() as "DEVNET" | "MAINNET" | "LOCALNET";
     try {
-      await startDeploy(projectId, net);
+      await startDeploy(projectId, net, wallet as any);
       if (useBuildStore.getState().deployStatus === "success") {
         toast.success("Deployed!");
       }
@@ -368,6 +375,34 @@ export function EditorTopBar() {
             <Save size={12} />
           )}
           {isSaving ? "Saving…" : "Save"}
+        </button>
+
+        <div className="mx-0.5 h-4 w-px bg-border" />
+
+        {/* Wallet connect */}
+        <button
+          onClick={() => {
+            if (wallet.connected) {
+              wallet.disconnect();
+            } else {
+              setWalletModalVisible(true);
+            }
+          }}
+          title={
+            wallet.connected && wallet.publicKey
+              ? `Connected: ${wallet.publicKey.toBase58()} — click to disconnect`
+              : "Connect wallet to deploy"
+          }
+          className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+            wallet.connected
+              ? "border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20"
+              : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+          }`}
+        >
+          <Wallet size={12} />
+          {wallet.connected && wallet.publicKey
+            ? `${wallet.publicKey.toBase58().slice(0, 4)}..${wallet.publicKey.toBase58().slice(-4)}`
+            : "Connect"}
         </button>
 
         <div className="mx-0.5 h-4 w-px bg-border" />

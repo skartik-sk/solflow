@@ -2,11 +2,6 @@
 
 // Build Store — compile, test, and deploy state.
 // Per docs/architecture/18-state-management.md → Build Store section.
-//
-// Phase 3 upgrade:
-//  - startCompile now subscribes to WebSocket for streaming logs
-//  - startTest persists TestRun via tRPC
-//  - startDeploy tracks deployment phases
 
 import { create } from "zustand";
 
@@ -60,9 +55,12 @@ interface BuildState {
   // ─── Deployment ───────────────────────────────────────────────
   deployStatus: DeployStatus;
   deployPhase: string | null;
+  deployErrors: string[];
+  deployProgress: { current: number; total: number } | null;
   deployedProgramId: string | null;
   deployTxSignature: string | null;
   deployExplorerUrl: string | null;
+  deployTxExplorerUrl: string | null;
   deploymentId: string | null;
 
   // ─── Actions ──────────────────────────────────────────────────
@@ -70,7 +68,12 @@ interface BuildState {
   startTest: (projectId: string) => Promise<void>;
   startDeploy: (
     projectId: string,
-    network?: "DEVNET" | "MAINNET" | "LOCALNET",
+    network: "DEVNET" | "MAINNET" | "LOCALNET",
+    walletContext?: {
+      publicKey: { toBase58: () => string } | null;
+      signTransaction: ((tx: unknown) => Promise<unknown>) | undefined;
+      connected: boolean;
+    } | null,
   ) => Promise<void>;
   addLog: (log: BuildLogLine) => void;
   reset: () => void;
@@ -95,9 +98,12 @@ const INITIAL: Omit<
   testSummary: null,
   deployStatus: "idle",
   deployPhase: null,
+  deployErrors: [],
+  deployProgress: null,
   deployedProgramId: null,
   deployTxSignature: null,
   deployExplorerUrl: null,
+  deployTxExplorerUrl: null,
   deploymentId: null,
 };
 
@@ -126,10 +132,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         import("./flow-store"),
         import("./project-store"),
       ]);
-      const { nodes, edges } = useFlowStore.getState();
-      const { isDirty, isSaving } = useProjectStore.getState();
+      const { isDirty } = useProjectStore.getState();
 
-      // Only save if there are unsaved changes
       if (isDirty) {
         await useProjectStore.getState().save();
       }
@@ -146,15 +150,17 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       set({ compileStatus: "building", compileJobId: result.jobId });
 
-      // Stream any server-side logs into the console
       if (result.logs && Array.isArray(result.logs)) {
         for (const line of result.logs) {
-          const level = /^error/i.test(line) ? "error" : /^warning/i.test(line) ? "warn" : "info";
+          const level = /^error/i.test(line)
+            ? "error"
+            : /^warning/i.test(line)
+              ? "warn"
+              : "info";
           get().addLog({ line, level, timestamp: Date.now() });
         }
       }
 
-      // The mutation response already contains the result (server processes synchronously).
       if (result.error) {
         set({
           compileStatus: "error",
@@ -200,7 +206,6 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       const resp = await client.test.run.mutate({ projectId });
 
       if (resp.runId === "stub") {
-        // No Redis/Docker in this environment — complete immediately
         set({ testStatus: "passed" });
         return;
       }
@@ -265,92 +270,210 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   },
 
   // ─── Deploy ─────────────────────────────────────────────────────────────
+  // Flow:
+  //   1. Check program keypair balance
+  //   2. If low → popup wallet to transfer SOL (1 prompt)
+  //   3. Server deploys everything (zero prompts)
+  //   Program keypair persists in DB — user only funds once.
   startDeploy: async (
     projectId: string,
     network: "DEVNET" | "MAINNET" | "LOCALNET" = "DEVNET",
+    walletContext?: {
+      publicKey: { toBase58: () => string } | null;
+      signTransaction: ((tx: unknown) => Promise<unknown>) | undefined;
+      connected: boolean;
+    } | null,
   ) => {
     set({
       deployStatus: "deploying",
       deployPhase: "preparing",
+      deployErrors: [],
+      deployProgress: null,
       deployedProgramId: null,
       deployTxSignature: null,
       deployExplorerUrl: null,
+      deployTxExplorerUrl: null,
     });
 
     try {
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
-      const { deploymentId } = await client.deploy.start.mutate({
-        projectId,
-        network,
-      });
 
-      set({ deploymentId, deployPhase: "submitting" });
+      // Step 0: Check balance
       get().addLog({
-        line: `Deployment started — id ${deploymentId}`,
+        line: "Checking deployer balance…",
         level: "info",
         timestamp: Date.now(),
       });
 
-      const { connectWS, onJobMessage, isDeployStatus } =
-        await import("@/lib/ws");
-      connectWS();
-
-      await new Promise<void>((resolve) => {
-        const unsubscribe = onJobMessage(deploymentId, (msg) => {
-          if (isDeployStatus(msg)) {
-            const data = msg.data as {
-              phase: string;
-              txSig?: string;
-              txSignature?: string;
-              programId?: string;
-              explorerUrl?: string;
-              txExplorerUrl?: string;
-              error?: string;
-            };
-            set({ deployPhase: data.phase });
-
-            if (data.phase === "complete") {
-              set({
-                deployStatus: "success",
-                deployedProgramId: data.programId ?? null,
-                deployTxSignature: data.txSignature ?? data.txSig ?? null,
-                deployExplorerUrl: data.explorerUrl ?? null,
-              });
-              unsubscribe();
-              resolve();
-            } else if (data.phase === "error") {
-              set({
-                deployStatus: "error",
-                compileErrors: [data.error ?? "Deployment failed"],
-              });
-              unsubscribe();
-              resolve();
-            }
-          }
-        });
-
-        // Fallback: poll for status after 60 seconds (CLI deploy can be slow)
-        setTimeout(async () => {
-          try {
-            const { getVanillaClient: vc } = await import("@/lib/trpc/client");
-            const result = await vc().deploy.status.query({ deploymentId });
-            const status = result.status === "CONFIRMED" ? "success" : "error";
-            set({
-              deployStatus: status,
-              deployedProgramId: result.programId,
-              deployTxSignature: result.txSignature,
-            });
-          } catch {
-            // Ignore poll failure
-          }
-          unsubscribe();
-          resolve();
-        }, 60_000);
+      const bal = await client.deploy.checkBalance.query({
+        projectId,
+        network,
       });
-    } catch (err) {
+
+      if (bal.address && !bal.funded) {
+        const deficitLamports = bal.needed - bal.balance;
+        const deficitSol = (deficitLamports / 1e9).toFixed(2);
+
+        // Try to fund via user's wallet
+        if (
+          walletContext?.connected &&
+          walletContext.publicKey &&
+          walletContext.signTransaction
+        ) {
+          get().addLog({
+            line: `Deployer needs ~${deficitSol} SOL. Opening wallet to fund…`,
+            level: "info",
+            timestamp: Date.now(),
+          });
+
+          const { Connection, Transaction, SystemProgram, PublicKey } =
+            await import("@solana/web3.js");
+          const rpcUrl =
+            network === "MAINNET"
+              ? (process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
+                "https://api.mainnet-beta.solana.com")
+              : network === "LOCALNET"
+                ? "http://localhost:8899"
+                : (process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
+                  "https://api.devnet.solana.com");
+
+          const connection = new Connection(rpcUrl, "confirmed");
+          const fromPubkey = walletContext.publicKey;
+          const toPubkey = new PublicKey(bal.address);
+
+          // Add a small buffer on top of the deficit
+          const transferAmount = deficitLamports + 0.01 * 1e9;
+
+          const { blockhash, lastValidBlockHeight } =
+            await connection.getLatestBlockhash("confirmed");
+          const transferTx = new Transaction({
+            blockhash,
+            lastValidBlockHeight,
+            feePayer: new PublicKey(fromPubkey.toBase58()),
+          });
+          transferTx.add(
+            SystemProgram.transfer({
+              fromPubkey: new PublicKey(fromPubkey.toBase58()),
+              toPubkey,
+              lamports: transferAmount,
+            }),
+          );
+
+          get().addLog({
+            line: "Waiting for wallet signature to fund deployer…",
+            level: "info",
+            timestamp: Date.now(),
+          });
+
+          const signed = (await walletContext.signTransaction(transferTx)) as {
+            serialize: () => Uint8Array;
+          };
+          const sig = await connection.sendRawTransaction(signed.serialize(), {
+            skipPreflight: false,
+            preflightCommitment: "confirmed",
+          });
+          await connection.confirmTransaction(
+            { signature: sig, blockhash, lastValidBlockHeight },
+            "confirmed",
+          );
+
+          get().addLog({
+            line: `Funded! ${deficitSol} SOL sent to ${bal.address.slice(0, 8)}…`,
+            level: "info",
+            timestamp: Date.now(),
+          });
+        } else {
+          // No wallet connected — show faucet link
+          get().addLog({
+            line: `Insufficient funds. Connect wallet to fund automatically, or use faucet:`,
+            level: "error",
+            timestamp: Date.now(),
+          });
+          get().addLog({
+            line: `https://faucet.solana.com/?address=${bal.address}`,
+            level: "info",
+            timestamp: Date.now(),
+          });
+          get().addLog({
+            line: `Send at least ${deficitSol} SOL to ${bal.address}`,
+            level: "info",
+            timestamp: Date.now(),
+          });
+          set({
+            deployStatus: "error",
+            deployErrors: [
+              `Connect your wallet to fund the deployer, or send ${deficitSol} SOL to:\n${bal.address}\n\nFaucet: https://faucet.solana.com/?address=${bal.address}`,
+            ],
+          });
+          return;
+        }
+      } else if (bal.address) {
+        get().addLog({
+          line: `Balance OK: ${(bal.balance / 1e9).toFixed(2)} SOL`,
+          level: "info",
+          timestamp: Date.now(),
+        });
+      }
+
+      // Deploy (server handles everything)
+      get().addLog({
+        line: "Deploying program (this may take 1-2 minutes)…",
+        level: "info",
+        timestamp: Date.now(),
+      });
+
+      const result = await client.deploy.start.mutate({
+        projectId,
+        network,
+      });
+
+      set({
+        deployStatus: "success",
+        deployPhase: "complete",
+        deployedProgramId: result.programId,
+        deployTxSignature: result.txSignature,
+        deployExplorerUrl: result.explorerUrl ?? null,
+        deployTxExplorerUrl: (result as any).txExplorerUrl ?? null,
+        deploymentId: result.deploymentId,
+      });
+
+      get().addLog({
+        line: `Deployed! Program: ${result.programId}`,
+        level: "info",
+        timestamp: Date.now(),
+      });
+      get().addLog({
+        line: `TX: ${result.txSignature}`,
+        level: "info",
+        timestamp: Date.now(),
+      });
+      if (result.explorerUrl) {
+        get().addLog({
+          line: `Explorer: ${result.explorerUrl}`,
+          level: "info",
+          timestamp: Date.now(),
+        });
+      }
+      if ((result as any).txExplorerUrl) {
+        get().addLog({
+          line: `TX Explorer: ${(result as any).txExplorerUrl}`,
+          level: "info",
+          timestamp: Date.now(),
+        });
+      }
+    } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      set({ deployStatus: "error", compileErrors: [msg] });
+      for (const line of msg.split("\n")) {
+        if (line.trim()) {
+          get().addLog({
+            line: line.trim(),
+            level: "error",
+            timestamp: Date.now(),
+          });
+        }
+      }
+      set({ deployStatus: "error", deployErrors: [msg] });
     }
   },
 }));
