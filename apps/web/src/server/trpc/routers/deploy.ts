@@ -24,7 +24,7 @@ const log = (...args: unknown[]) => console.log("[deploy]", ...args);
 const PACKET_DATA_SIZE = 1232;
 const WRITE_OVERHEAD = 220 + 44 + 40;
 const CHUNK_SIZE = PACKET_DATA_SIZE - WRITE_OVERHEAD;
-const WRITE_CONCURRENCY = 8;
+const CHUNK_SEND_DELAY_MS = 350;
 const MAX_RETRIES = 5;
 const BATCH_DELAY_MS = 100;
 const BLOCKHASH_CACHE_TTL_MS = 45_000;
@@ -50,7 +50,7 @@ const NETWORK_CONFIG = {
 } as const;
 
 const BPF_LOADER_UPGRADEABLE = new PublicKey(
-  "BPFLoaderUpgradeab1e111111111111111111111111",
+  "BPFLoaderUpgradeab1e11111111111111111111111",
 );
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -97,13 +97,13 @@ function serializeVecU8(data: Buffer): Buffer {
 // ─── BPFLoaderUpgradeable Instructions ─────────────────────────────────────
 
 function createInitializeBufferIx(
-  bufferProgramData: PublicKey,
+  bufferPk: PublicKey,
   authority: PublicKey,
 ): TransactionInstruction {
   return new TransactionInstruction({
     keys: [
-      { pubkey: bufferProgramData, isSigner: false, isWritable: true },
-      { pubkey: authority, isSigner: true, isWritable: false },
+      { pubkey: bufferPk, isSigner: false, isWritable: true },
+      { pubkey: authority, isSigner: false, isWritable: false },
     ],
     programId: BPF_LOADER_UPGRADEABLE,
     data: serializeU32(0),
@@ -124,7 +124,7 @@ function createWriteIx(
     programId: BPF_LOADER_UPGRADEABLE,
     data: Buffer.concat([
       serializeU32(1),
-      serializeU64(offset),
+      serializeU32(offset),
       serializeVecU8(bytes),
     ]),
   });
@@ -134,17 +134,16 @@ function createDeployWithMaxProgramLenIx(
   programDataAddress: PublicKey,
   programId: PublicKey,
   bufferPubkey: PublicKey,
-  authority: PublicKey,
+  upgradeAuthority: PublicKey,
   payer: PublicKey,
   maxProgramLen: number,
 ): TransactionInstruction {
   return new TransactionInstruction({
     keys: [
-      { pubkey: programDataAddress, isSigner: false, isWritable: true },
-      { pubkey: programId, isSigner: true, isWritable: true },
-      { pubkey: bufferPubkey, isSigner: false, isWritable: true },
-      { pubkey: authority, isSigner: true, isWritable: false },
       { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: programDataAddress, isSigner: false, isWritable: true },
+      { pubkey: programId, isSigner: false, isWritable: true },
+      { pubkey: bufferPubkey, isSigner: false, isWritable: true },
       { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
       {
         pubkey: new PublicKey("SysvarC1ock11111111111111111111111111111111"),
@@ -152,6 +151,7 @@ function createDeployWithMaxProgramLenIx(
         isWritable: false,
       },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: upgradeAuthority, isSigner: true, isWritable: false },
     ],
     programId: BPF_LOADER_UPGRADEABLE,
     data: Buffer.concat([serializeU32(2), serializeU64(maxProgramLen)]),
@@ -162,21 +162,23 @@ function createUpgradeIx(
   programDataAddress: PublicKey,
   programId: PublicKey,
   bufferPubkey: PublicKey,
+  spillPk: PublicKey,
   authority: PublicKey,
 ): TransactionInstruction {
   return new TransactionInstruction({
     keys: [
       { pubkey: programDataAddress, isSigner: false, isWritable: true },
-      { pubkey: programId, isSigner: true, isWritable: true },
+      { pubkey: programId, isSigner: false, isWritable: true },
       { pubkey: bufferPubkey, isSigner: false, isWritable: true },
-      { pubkey: authority, isSigner: true, isWritable: false },
+      { pubkey: spillPk, isSigner: true, isWritable: true },
       { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
       {
-        pubkey: new PublicKey("SysvarC1ock11111111111111111111111111111"),
+        pubkey: new PublicKey("SysvarC1ock11111111111111111111111111111111"),
         isSigner: false,
         isWritable: false,
       },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: authority, isSigner: true, isWritable: false },
     ],
     programId: BPF_LOADER_UPGRADEABLE,
     data: serializeU32(3),
@@ -199,52 +201,12 @@ function createCloseIx(
   });
 }
 
-// ─── Send + confirm using the tx's own blockhash ───────────────────────────────
+// ─── Send + confirm using blockhash-based strategy ──────────────────────────
 
-async function sendAndConfirm(
-  connection: Connection,
-  tx: Transaction,
-  bh: CachedBlockhash,
-): Promise<string> {
-  const serialized = tx.serialize();
-  const sig = await connection.sendRawTransaction(serialized, {
-    skipPreflight: true,
-    preflightCommitment: "confirmed",
-  });
-  await connection.confirmTransaction(
-    {
-      signature: sig,
-      blockhash: bh.blockhash,
-      lastValidBlockHeight: bh.lastValidBlockHeight,
-    },
-    "confirmed",
-  );
-  return sig;
-}
-
-async function withRetry<T>(
-  fn: () => Promise<T>,
-  label: string,
-  maxRetries = MAX_RETRIES,
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      if (attempt < maxRetries) {
-        const delay = 1000 * 1.8 ** attempt;
-        log(
-          `${label} attempt ${attempt + 1} failed, retrying in ${Math.round(delay)}ms…`,
-        );
-        await new Promise((r) => setTimeout(r, delay));
-      }
-    }
-  }
-  throw new Error(
-    `${label} failed after ${maxRetries + 1} attempts: ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
-  );
+interface SendTxResult {
+  signature: string;
+  blockhash: string;
+  lastValidBlockHeight: number;
 }
 
 async function tryUntilSuccess<T>(
@@ -286,7 +248,7 @@ async function getLatestBlockhash(
 
 async function sendAndConfirmTxWithRetries(
   connection: Connection,
-  sendTx: () => Promise<string>,
+  sendTx: () => Promise<SendTxResult>,
   checkConfirmation: () => Promise<boolean>,
   label: string,
 ): Promise<string> {
@@ -295,14 +257,19 @@ async function sendAndConfirmTxWithRetries(
 
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
-      const txHash = await sendTx();
-      const result = await connection.confirmTransaction(txHash, "confirmed");
-      if (!result?.value?.err) return txHash;
-      log(`${label} confirm returned error, checking on-chain…`);
-      if (await checkConfirmation()) return txHash;
+      const { signature, blockhash, lastValidBlockHeight } = await sendTx();
+      const result = await connection.confirmTransaction(
+        { signature, blockhash, lastValidBlockHeight },
+        "confirmed",
+      );
+      if (!result?.value?.err) return signature;
+      log(
+        `${label} confirm returned error: ${JSON.stringify(result.value.err).slice(0, 200)}`,
+      );
+      if (await checkConfirmation()) return signature;
     } catch (e: any) {
       const msg = e?.message ?? String(e);
-      log(`${label} attempt ${i + 1}/${MAX_RETRIES}: ${msg.slice(0, 200)}`);
+      log(`${label} attempt ${i + 1}/${MAX_RETRIES}: ${msg.slice(0, 300)}`);
 
       if (
         msg.includes("already been processed") ||
@@ -452,17 +419,16 @@ export const deployRouter = router({
         orderBy: { completedAt: "desc" },
       });
 
-      let needed = 2 * LAMPORTS_PER_SOL; // fallback minimum
+      let needed = 2 * LAMPORTS_PER_SOL;
       if (compilation?.binaryUrl) {
         const binaryBuffer = await readFile(compilation.binaryUrl);
         const totalChunks = Math.ceil(binaryBuffer.length / CHUNK_SIZE);
         const bufferRent = await connection.getMinimumBalanceForRentExemption(
-          binaryBuffer.length,
+          37 + binaryBuffer.length,
         );
         const txFees = (totalChunks + 3) * 5000;
-        needed = txFees + bufferRent + 2 * LAMPORTS_PER_SOL;
+        needed = txFees + 3 * bufferRent;
       }
-      // Add 0.5 SOL safety buffer for price variance
       needed += Math.floor(0.5 * LAMPORTS_PER_SOL);
 
       return {
@@ -509,6 +475,49 @@ export const deployRouter = router({
       log("network:", input.network, "rpc:", rpcUrl);
       log("binary size:", binaryBuffer.length, "bytes");
 
+      // Validate: deployer and program keypairs MUST be different
+      if (deployerPk.equals(programId)) {
+        log("WARNING: deployer and program keypairs are the same! Regenerating program keypair…");
+        const newProgramKp = Keypair.generate();
+        const newProgramSecretKey = bs58.encode(newProgramKp.secretKey);
+
+        await ctx.prisma.project.update({
+          where: { id: input.projectId },
+          data: { programKeypair: newProgramSecretKey },
+        });
+
+        // Update flow data with new program ID
+        const fd = await ctx.prisma.project.findUnique({
+          where: { id: input.projectId },
+          select: { flowData: true },
+        });
+        if (fd?.flowData) {
+          const flow = fd.flowData as { nodes: any[]; edges: any[] };
+          const idx = flow.nodes.findIndex((n: any) => n.type === "program");
+          if (idx !== -1) {
+            flow.nodes[idx] = {
+              ...flow.nodes[idx],
+              data: {
+                ...(flow.nodes[idx].data as Record<string, unknown>),
+                programId: newProgramKp.publicKey.toBase58(),
+              },
+            };
+            await ctx.prisma.project.update({
+              where: { id: input.projectId },
+              data: { flowData: flow as any },
+            });
+          }
+        }
+
+        // Recalculate with new program keypair
+        const newProgramId = newProgramKp.publicKey;
+        log("new program:", newProgramId.toBase58());
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: `Deployer and program keypairs were identical (bug). Program keypair has been regenerated to ${newProgramId.toBase58()}. Please try deploying again.`,
+        });
+      }
+
       const [programDataAddress] = PublicKey.findProgramAddressSync(
         [programId.toBuffer()],
         BPF_LOADER_UPGRADEABLE,
@@ -547,10 +556,6 @@ export const deployRouter = router({
 
       const bufferKp = Keypair.generate();
       const bufferPubkey = bufferKp.publicKey;
-      const [bufferProgramData] = PublicKey.findProgramAddressSync(
-        [bufferPubkey.toBuffer()],
-        BPF_LOADER_UPGRADEABLE,
-      );
       log("buffer:", bufferPubkey.toBase58());
 
       const sendProgress = (phase: string, message: string, extra?: any) => {
@@ -570,13 +575,15 @@ export const deployRouter = router({
         // ─── Check deployer balance ──────────────────────────────────────
         sendProgress("funding", "Checking deployer balance…");
 
-        const bufferSpace = binaryBuffer.length;
+        const bufferSpace = 37 + binaryBuffer.length;
         const bufferRent =
           await connection.getMinimumBalanceForRentExemption(bufferSpace);
+        const programRent =
+          await connection.getMinimumBalanceForRentExemption(36);
         const estimatedCost =
           (totalChunks + 3) * 5000 +
           bufferRent +
-          (isUpgrade ? 0 : 2 * LAMPORTS_PER_SOL);
+          (isUpgrade ? 0 : 2 * bufferRent + programRent);
 
         const balance = await connection.getBalance(deployerPk);
         log("deployer balance:", balance / LAMPORTS_PER_SOL, "SOL");
@@ -598,13 +605,39 @@ export const deployRouter = router({
           `Balance OK: ${(balance / LAMPORTS_PER_SOL).toFixed(2)} SOL`,
         );
 
+        // ─── Pre-flight: Verify network and programs ──────────────────────
+        log("verifying network connectivity…");
+        try {
+          const bpfAccount = await connection.getAccountInfo(
+            BPF_LOADER_UPGRADEABLE,
+          );
+          if (!bpfAccount) {
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `BPFLoaderUpgradeable not found at ${rpcUrl}. Is this a valid Solana cluster?`,
+            });
+          }
+          log(
+            "BPFLoaderUpgradeable OK, owner:",
+            bpfAccount.owner.toBase58(),
+            "executable:",
+            bpfAccount.executable,
+          );
+        } catch (e) {
+          if (e instanceof TRPCError) throw e;
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: `Failed to verify network at ${rpcUrl}: ${e instanceof Error ? e.message : String(e)}`,
+          });
+        }
+
         // ─── Step 1: Create buffer account (deployer pays) ────────────────
         sendProgress("buffer", "Creating buffer account…");
 
-        await sendAndConfirmTxWithRetries(
-          connection,
-          async () => {
-            const bh = await getLatestBlockhash(connection);
+        // Build the buffer creation transaction
+        const buildBufferTx = () => {
+          const bh = getLatestBlockhash(connection);
+          return bh.then((bh) => {
             const tx = new Transaction({
               blockhash: bh.blockhash,
               lastValidBlockHeight: bh.lastValidBlockHeight,
@@ -618,17 +651,52 @@ export const deployRouter = router({
                 lamports: bufferRent,
                 programId: BPF_LOADER_UPGRADEABLE,
               }),
-              createInitializeBufferIx(bufferProgramData, programId),
+              createInitializeBufferIx(bufferPubkey, deployerPk),
             );
-            tx.sign(bufferKp, programKp, deployerKp);
+            tx.sign(bufferKp, deployerKp);
+            return { tx, bh };
+          });
+        };
+
+        // Simulate first to get detailed error info
+        try {
+          const { tx: simTx } = await buildBufferTx();
+          const simulation = await connection.simulateTransaction(simTx);
+          if (simulation?.value?.err) {
+            log(
+              "BUFFER SIMULATION FAILED:",
+              JSON.stringify(simulation.value.err),
+            );
+            log("SIMULATION LOGS:", simulation.value.logs);
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: `Buffer creation would fail: ${JSON.stringify(simulation.value.err)}\nLogs: ${(simulation.value.logs || []).join("\n")}`,
+            });
+          }
+          log("buffer simulation passed");
+        } catch (e) {
+          if (e instanceof TRPCError) throw e;
+          log("simulation exception:", e instanceof Error ? e.message : String(e));
+          // Continue anyway - simulation might fail for benign reasons
+        }
+
+        await sendAndConfirmTxWithRetries(
+          connection,
+          async () => {
+            const { tx, bh } = await buildBufferTx();
             const serialized = tx.serialize();
-            return connection.sendRawTransaction(serialized, {
+            const signature = await connection.sendRawTransaction(serialized, {
               skipPreflight: true,
               preflightCommitment: "confirmed",
             });
+            return {
+              signature,
+              blockhash: bh.blockhash,
+              lastValidBlockHeight: bh.lastValidBlockHeight,
+            };
           },
           async () => {
-            const acc = await connection.getAccountInfo(bufferProgramData);
+            const acc = await connection.getAccountInfo(bufferPubkey);
             return !!acc;
           },
           "Create buffer",
@@ -636,82 +704,86 @@ export const deployRouter = router({
 
         sendProgress("buffer", "Waiting for buffer to propagate…");
         await tryUntilSuccess(async () => {
-          const acc = await connection.getAccountInfo(bufferProgramData);
+          const acc = await connection.getAccountInfo(bufferPubkey);
           if (!acc) throw new Error("Buffer not found yet");
           return acc;
         }, 1000);
         log("buffer created and confirmed on-chain");
 
-        // ─── Step 2: Write chunks with verification loop ──────────────
+        // ─── Step 2: Write chunks sequentially (fire-and-forget, verify at end) ─
         sendProgress("writing", `Writing ${totalChunks} chunks…`, {
           totalChunks,
         });
 
-        const loadBuffer = async (indices: number[]) => {
-          let nextIdx = 0;
-          let lastTxSig: string | undefined;
+        // Fire-and-forget: send each chunk, don't wait for individual confirmation.
+        // The verify loop at the end catches missing chunks.
+        // This matches how `solana program deploy` CLI works.
+        const CHUNK_SEND_DELAY_MS = 350;
 
-          await Promise.all(
-            new Array(WRITE_CONCURRENCY).fill(null).map(async () => {
-              while (nextIdx < indices.length) {
-                const chunkIdx = indices[nextIdx++];
-                const offset = chunkIdx * CHUNK_SIZE;
-                const chunk = binaryBuffer.slice(offset, offset + CHUNK_SIZE);
-
-                try {
-                  lastTxSig = await sendAndConfirmTxWithRetries(
-                    connection,
-                    async () => {
-                      const bh = await getLatestBlockhash(connection);
-                      const tx = new Transaction({
-                        blockhash: bh.blockhash,
-                        lastValidBlockHeight: bh.lastValidBlockHeight,
-                        feePayer: deployerPk,
-                      });
-                      tx.add(
-                        createWriteIx(
-                          bufferProgramData,
-                          programId,
-                          offset,
-                          chunk,
-                        ),
-                      );
-                      tx.sign(programKp, deployerKp);
-                      const serialized = tx.serialize();
-                      return connection.sendRawTransaction(serialized, {
-                        skipPreflight: true,
-                        preflightCommitment: "confirmed",
-                      });
-                    },
-                    async () => true,
-                    `Chunk ${chunkIdx}`,
-                  );
-                } catch (e: any) {
-                  log(
-                    `Chunk ${chunkIdx} write error (will be retried in verify pass): ${e.message}`,
-                  );
-                }
-              }
-            }),
-          );
-
-          if (lastTxSig) {
-            try {
-              await connection.confirmTransaction(lastTxSig, "confirmed");
-            } catch {
-              await new Promise((r) => setTimeout(r, 400));
-            }
-          }
+        const sendChunk = async (chunkIdx: number) => {
+          const offset = chunkIdx * CHUNK_SIZE;
+          const chunk = binaryBuffer.slice(offset, offset + CHUNK_SIZE);
+          const bh = await getLatestBlockhash(connection);
+          const tx = new Transaction({
+            blockhash: bh.blockhash,
+            lastValidBlockHeight: bh.lastValidBlockHeight,
+            feePayer: deployerPk,
+          });
+          tx.add(createWriteIx(bufferPubkey, deployerPk, offset, chunk));
+          tx.sign(deployerKp);
+          const serialized = tx.serialize();
+          // Fire and forget: just send, don't confirm
+          await connection.sendRawTransaction(serialized, {
+            skipPreflight: true,
+            preflightCommitment: "confirmed",
+          });
         };
 
         const allIndices = Array.from({ length: totalChunks }, (_, i) => i);
-        await loadBuffer(allIndices);
 
+        // Send all chunks sequentially with delays to avoid rate limits
+        for (let i = 0; i < allIndices.length; i++) {
+          const chunkIdx = allIndices[i];
+          try {
+            await sendChunk(chunkIdx);
+            if (i % 20 === 0) {
+              log(`writing chunk ${i}/${totalChunks}…`);
+              sendProgress("writing", `Writing chunk ${i}/${totalChunks}…`, {
+                written: i,
+                totalChunks,
+              });
+            }
+          } catch (e: any) {
+            const msg = e?.message ?? String(e);
+            if (msg.includes("429")) {
+              // Rate limited - wait longer and retry this chunk
+              log(`chunk ${chunkIdx} rate limited, waiting 2s…`);
+              await new Promise((r) => setTimeout(r, 2000));
+              try {
+                await sendChunk(chunkIdx);
+              } catch (e2: any) {
+                log(`chunk ${chunkIdx} failed after retry: ${e2.message}`);
+              }
+            } else {
+              log(`chunk ${chunkIdx} send error: ${msg.slice(0, 200)}`);
+            }
+          }
+          // Delay between sends to stay under rate limit
+          if (i < allIndices.length - 1) {
+            await new Promise((r) => setTimeout(r, CHUNK_SEND_DELAY_MS));
+          }
+        }
+
+        log("all chunks sent, waiting for finalization…");
+        // Give the network a moment to finalize all transactions
+        await new Promise((r) => setTimeout(r, 3000));
+
+        // ─── Verify all chunks on-chain ──────────────────────────────────
         let verifyPass = 0;
         while (true) {
           verifyPass++;
           const bufferAccount = await tryUntilSuccess(async () => {
-            const acc = await connection.getAccountInfo(bufferProgramData);
+            const acc = await connection.getAccountInfo(bufferPubkey);
             if (!acc) throw new Error("Buffer account not found");
             return acc;
           }, 1000);
@@ -747,7 +819,20 @@ export const deployRouter = router({
             },
           );
 
-          await loadBuffer(missingIndices);
+          // Re-send missing chunks sequentially with delay
+          for (let j = 0; j < missingIndices.length; j++) {
+            const chunkIdx = missingIndices[j];
+            try {
+              await sendChunk(chunkIdx);
+            } catch (e: any) {
+              log(`retry chunk ${chunkIdx} failed: ${(e?.message ?? String(e)).slice(0, 200)}`);
+            }
+            if (j < missingIndices.length - 1) {
+              await new Promise((r) => setTimeout(r, CHUNK_SEND_DELAY_MS));
+            }
+          }
+          // Wait for re-sent chunks to finalize
+          await new Promise((r) => setTimeout(r, 3000));
         }
 
         log("all chunks written and verified successfully");
@@ -773,27 +858,37 @@ export const deployRouter = router({
                   programDataAddress,
                   programId,
                   bufferPubkey,
-                  programId,
+                  deployerPk,
+                  deployerPk,
                 ),
               );
+              tx.sign(deployerKp);
             } else {
               tx.add(
+                SystemProgram.createAccount({
+                  fromPubkey: deployerPk,
+                  newAccountPubkey: programId,
+                  space: 36,
+                  lamports: programRent,
+                  programId: BPF_LOADER_UPGRADEABLE,
+                }),
                 createDeployWithMaxProgramLenIx(
                   programDataAddress,
                   programId,
                   bufferPubkey,
-                  programId,
+                  deployerPk,
                   deployerPk,
                   binaryBuffer.length,
                 ),
               );
+              tx.sign(programKp, deployerKp);
             }
-            tx.sign(programKp, deployerKp);
             const serialized = tx.serialize();
-            return connection.sendRawTransaction(serialized, {
+            const signature = await connection.sendRawTransaction(serialized, {
               skipPreflight: true,
               preflightCommitment: "confirmed",
             });
+            return { signature, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight };
           },
           async () => {
             if (isUpgrade) {
@@ -821,16 +916,17 @@ export const deployRouter = router({
                 lastValidBlockHeight: bh.lastValidBlockHeight,
                 feePayer: deployerPk,
               });
-              tx.add(createCloseIx(bufferProgramData, deployerPk, programId));
-              tx.sign(programKp, deployerKp);
+              tx.add(createCloseIx(bufferPubkey, deployerPk, deployerPk));
+              tx.sign(deployerKp);
               const serialized = tx.serialize();
-              return connection.sendRawTransaction(serialized, {
+              const signature = await connection.sendRawTransaction(serialized, {
                 skipPreflight: true,
                 preflightCommitment: "confirmed",
               });
+              return { signature, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight };
             },
             async () => {
-              const acc = await connection.getAccountInfo(bufferProgramData);
+              const acc = await connection.getAccountInfo(bufferPubkey);
               return !acc;
             },
             "Close buffer",
@@ -898,16 +994,17 @@ export const deployRouter = router({
                 lastValidBlockHeight: bh.lastValidBlockHeight,
                 feePayer: deployerPk,
               });
-              tx.add(createCloseIx(bufferProgramData, deployerPk, programId));
-              tx.sign(programKp, deployerKp);
+              tx.add(createCloseIx(bufferPubkey, deployerPk, deployerPk));
+              tx.sign(deployerKp);
               const serialized = tx.serialize();
-              return connection.sendRawTransaction(serialized, {
+              const signature = await connection.sendRawTransaction(serialized, {
                 skipPreflight: true,
                 preflightCommitment: "confirmed",
               });
+              return { signature, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight };
             },
             async () => {
-              const acc = await connection.getAccountInfo(bufferProgramData);
+              const acc = await connection.getAccountInfo(bufferPubkey);
               return !acc;
             },
             "Cleanup buffer",
