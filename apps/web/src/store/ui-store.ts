@@ -14,6 +14,7 @@ export type BottomPanelTab =
   | "tests"
   | "audit"
   | "history"
+  | "idl"
   | "sdk"
   | "plugins"
   | "inspector"

@@ -65,6 +65,7 @@ export function EditorTopBar() {
     startCompile,
     startTest,
     startDeploy,
+    resetProgramKeypair,
   } = useBuildStore();
 
   const [editingName, setEditingName] = useState(false);
@@ -169,6 +170,24 @@ export function EditorTopBar() {
       }
     } catch {
       toast.error("Deployment failed");
+    }
+  };
+
+  const handleResetProgram = async () => {
+    if (!projectId) return;
+    const confirmed = window.confirm(
+      "Reset program keypair?\n\nThis will generate a new program ID. " +
+        "The next deploy will create a fresh program (with upgrade headroom). " +
+        "The old program will remain on-chain but won't be upgraded.\n\n" +
+        "This is useful when the program was deployed without upgrade headroom.",
+    );
+    if (!confirmed) return;
+    try {
+      openBottomPanelTab("console");
+      const newId = await resetProgramKeypair(projectId);
+      toast.success(`Program keypair reset: ${newId.slice(0, 8)}…`);
+    } catch {
+      toast.error("Failed to reset program keypair");
     }
   };
 
@@ -431,6 +450,16 @@ export function EditorTopBar() {
         >
           {deployIcon}
           {isDeploying ? "Deploying…" : "Deploy"}
+        </button>
+
+        {/* Reset Program Keypair */}
+        <button
+          onClick={handleResetProgram}
+          disabled={!projectId || isDeploying}
+          title="Reset program keypair (generates new program ID for fresh deploy with upgrade headroom)"
+          className="inline-flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          <RotateCcw size={12} />
         </button>
 
         {/* Compile */}

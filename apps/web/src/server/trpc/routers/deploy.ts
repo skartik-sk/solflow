@@ -26,7 +26,6 @@ const WRITE_OVERHEAD = 220 + 44 + 40;
 const CHUNK_SIZE = PACKET_DATA_SIZE - WRITE_OVERHEAD;
 const CHUNK_SEND_DELAY_MS = 350;
 const MAX_RETRIES = 5;
-const BATCH_DELAY_MS = 100;
 const BLOCKHASH_CACHE_TTL_MS = 45_000;
 const BUFFER_ACCOUNT_METADATA_SIZE = 37;
 
@@ -732,7 +731,6 @@ export const deployRouter = router({
         // Fire-and-forget: send each chunk, don't wait for individual confirmation.
         // The verify loop at the end catches missing chunks.
         // This matches how `solana program deploy` CLI works.
-        const CHUNK_SEND_DELAY_MS = 350;
 
         const sendChunk = async (chunkIdx: number) => {
           const offset = chunkIdx * CHUNK_SIZE;
@@ -1098,5 +1096,52 @@ export const deployRouter = router({
         orderBy: { deployedAt: "desc" },
         take: 20,
       });
+    }),
+
+  /**
+   * Reset the program keypair for a project. Generates a new keypair so the
+   * next deploy creates a fresh program (with 2x allocation for upgrades).
+   * Returns the new program ID.
+   */
+  resetProgramKeypair: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      const project = await ctx.prisma.project.findFirst({
+        where: { id: input.projectId, userId },
+        select: { id: true, programKeypair: true, flowData: true },
+      });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const newKp = Keypair.generate();
+      const newSecretKey = bs58.encode(newKp.secretKey);
+      const newProgramId = newKp.publicKey.toBase58();
+
+      await ctx.prisma.project.update({
+        where: { id: project.id },
+        data: { programKeypair: newSecretKey },
+      });
+
+      // Update program ID in flow data
+      if (project.flowData) {
+        const flow = project.flowData as { nodes: any[]; edges: any[] };
+        const idx = flow.nodes.findIndex((n: any) => n.type === "program");
+        if (idx !== -1) {
+          flow.nodes[idx] = {
+            ...flow.nodes[idx],
+            data: {
+              ...(flow.nodes[idx].data as Record<string, unknown>),
+              programId: newProgramId,
+            },
+          };
+          await ctx.prisma.project.update({
+            where: { id: project.id },
+            data: { flowData: flow as any },
+          });
+        }
+      }
+
+      log("reset program keypair:", newProgramId);
+      return { programId: newProgramId };
     }),
 });

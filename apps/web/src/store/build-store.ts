@@ -75,6 +75,7 @@ interface BuildState {
       connected: boolean;
     } | null,
   ) => Promise<void>;
+  resetProgramKeypair: (projectId: string) => Promise<string>;
   addLog: (log: BuildLogLine) => void;
   reset: () => void;
 }
@@ -83,7 +84,7 @@ interface BuildState {
 
 const INITIAL: Omit<
   BuildState,
-  "startCompile" | "startTest" | "startDeploy" | "addLog" | "reset"
+  "startCompile" | "startTest" | "startDeploy" | "addLog" | "resetProgramKeypair" | "reset"
 > = {
   compileStatus: "idle",
   compileLogs: [],
@@ -128,10 +129,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
     try {
       // Ensure project is saved (with IR) before compiling
-      const [{ useFlowStore }, { useProjectStore }] = await Promise.all([
-        import("./flow-store"),
-        import("./project-store"),
-      ]);
+      const { useProjectStore } = await import("./project-store");
       const { isDirty } = useProjectStore.getState();
 
       if (isDirty) {
@@ -475,5 +473,25 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       }
       set({ deployStatus: "error", deployErrors: [msg] });
     }
+  },
+
+  // ─── Reset Program Keypair ──────────────────────────────────────────────
+  resetProgramKeypair: async (projectId: string) => {
+    const { getVanillaClient } = await import("@/lib/trpc/client");
+    const client = getVanillaClient();
+    const result = await client.deploy.resetProgramKeypair.mutate({
+      projectId,
+    });
+    get().addLog({
+      line: `Program keypair reset. New program ID: ${result.programId}`,
+      level: "info",
+      timestamp: Date.now(),
+    });
+    get().addLog({
+      line: "Next deploy will create a fresh program with upgrade headroom.",
+      level: "info",
+      timestamp: Date.now(),
+    });
+    return result.programId;
   },
 }));

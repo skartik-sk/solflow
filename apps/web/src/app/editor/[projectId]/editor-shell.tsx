@@ -18,6 +18,7 @@ import { VersionHistoryPanel } from "@/components/editor/VersionHistoryPanel";
 import { BuildConsole } from "@/components/editor/BuildConsole";
 import { BuildErrors } from "@/components/editor/BuildErrors";
 import { TestResultsPanel } from "@/components/editor/TestResultsPanel";
+import { IDLPanel } from "@/components/editor/IDLPanel";
 import { SDKPanel } from "@/components/editor/SDKPanel";
 import { PluginsPanel } from "@/components/editor/PluginsPanel";
 import { AccountStateInspector } from "@/components/editor/AccountStateInspector";
@@ -204,6 +205,7 @@ export function EditorShell({
                 "tests",
                 "audit",
                 "history",
+                "idl",
                 "sdk",
                 "plugins",
                 "inspector",
@@ -304,6 +306,7 @@ export function EditorShell({
               {bottomPanelTab === "history" && (
                 <VersionHistoryPanel projectId={projectId} />
               )}
+              {bottomPanelTab === "idl" && <IDLPanel />}
               {bottomPanelTab === "sdk" && <SDKPanel />}
               {bottomPanelTab === "plugins" && <PluginsPanel />}
               {bottomPanelTab === "inspector" && <AccountStateInspector />}
