@@ -165,6 +165,8 @@ function createUpgradeIx(
   spillPk: PublicKey,
   authority: PublicKey,
 ): TransactionInstruction {
+  // NOTE: Upgrade instruction has exactly 7 accounts — NO SystemProgram
+  // (unlike deployWithMaxProgramLen which has 8). See sol-pg reference.
   return new TransactionInstruction({
     keys: [
       { pubkey: programDataAddress, isSigner: false, isWritable: true },
@@ -177,7 +179,6 @@ function createUpgradeIx(
         isSigner: false,
         isWritable: false,
       },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       { pubkey: authority, isSigner: true, isWritable: false },
     ],
     programId: BPF_LOADER_UPGRADEABLE,
@@ -254,10 +255,12 @@ async function sendAndConfirmTxWithRetries(
 ): Promise<string> {
   const SLEEP_MULTIPLIER = 1.8;
   let sleepMs = 1000;
+  let lastSig: string | undefined;
 
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       const { signature, blockhash, lastValidBlockHeight } = await sendTx();
+      lastSig = signature;
       const result = await connection.confirmTransaction(
         { signature, blockhash, lastValidBlockHeight },
         "confirmed",
@@ -268,7 +271,10 @@ async function sendAndConfirmTxWithRetries(
       );
       if (await checkConfirmation()) return signature;
     } catch (e: any) {
-      const msg = e?.message ?? String(e);
+      const msg =
+        typeof e?.message === "string"
+          ? e.message
+          : JSON.stringify(e?.message ?? e);
       log(`${label} attempt ${i + 1}/${MAX_RETRIES}: ${msg.slice(0, 300)}`);
 
       if (
@@ -280,8 +286,8 @@ async function sendAndConfirmTxWithRetries(
       }
 
       if (await checkConfirmation()) {
-        log(`${label} confirmed on-chain despite error`);
-        return "confirmed-via-check";
+        log(`${label} confirmed on-chain despite error, sig: ${lastSig}`);
+        return lastSig ?? "confirmed-on-chain";
       }
     }
     await new Promise((r) => setTimeout(r, sleepMs));
@@ -526,6 +532,14 @@ export const deployRouter = router({
         await connection.getAccountInfo(programDataAddress);
       const isUpgrade = existingProgramData !== null;
       log("isUpgrade:", isUpgrade);
+
+      // Calculate maxProgramLen — sol-pg uses programLen * 2 for initial
+      // deploys to leave room for future upgrades with larger binaries.
+      const PROGRAM_DATA_HEADER_SIZE = 45;
+      const maxProgramLen = isUpgrade
+        ? binaryBuffer.length // upgrades just need to fit
+        : binaryBuffer.length * 2; // 2x headroom (matches sol-pg)
+      log("maxProgramLen:", maxProgramLen, "(binary:", binaryBuffer.length, ")");
 
       const totalChunks = Math.ceil(binaryBuffer.length / CHUNK_SIZE);
       log("total chunks:", totalChunks);
@@ -843,6 +857,28 @@ export const deployRouter = router({
           isUpgrade ? "Upgrading program…" : "Deploying program…",
         );
 
+        // For upgrades: check if ProgramData account is large enough.
+        // sol-pg does NOT use ExtendProgram — they allocate 2x upfront.
+        if (isUpgrade && existingProgramData) {
+          const currentDataSpace =
+            existingProgramData.data.length - PROGRAM_DATA_HEADER_SIZE;
+          if (binaryBuffer.length > currentDataSpace) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Program binary (${binaryBuffer.length} bytes) is larger than the allocated ProgramData space (${currentDataSpace} bytes). This program was initially deployed without size headroom. To fix this, create a new project or reset the program keypair — new deploys allocate 2x the binary size for future upgrades.`,
+            });
+          }
+        }
+
+        // Track slot before upgrade so we can verify it actually changed
+        let preUpgradeSlot = BigInt(0);
+        if (isUpgrade) {
+          const preAcc = await connection.getAccountInfo(programDataAddress);
+          if (preAcc) {
+            preUpgradeSlot = preAcc.data.readBigUInt64LE(8);
+          }
+        }
+
         const deployTxSig = await sendAndConfirmTxWithRetries(
           connection,
           async () => {
@@ -878,7 +914,7 @@ export const deployRouter = router({
                   bufferPubkey,
                   deployerPk,
                   deployerPk,
-                  binaryBuffer.length,
+                  maxProgramLen,
                 ),
               );
               tx.sign(programKp, deployerKp);
@@ -888,14 +924,19 @@ export const deployRouter = router({
               skipPreflight: true,
               preflightCommitment: "confirmed",
             });
-            return { signature, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight };
+            return {
+              signature,
+              blockhash: bh.blockhash,
+              lastValidBlockHeight: bh.lastValidBlockHeight,
+            };
           },
           async () => {
             if (isUpgrade) {
               const acc = await connection.getAccountInfo(programDataAddress);
               if (!acc) return false;
               const slot = acc.data.readBigUInt64LE(8);
-              return slot > BigInt(0);
+              // Slot must have advanced past the pre-upgrade value
+              return slot > preUpgradeSlot;
             }
             const acc = await connection.getAccountInfo(programId);
             return !!acc && acc.executable;
