@@ -5,6 +5,7 @@
 
 FROM node:20-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+RUN npm install -g bun
 WORKDIR /app
 
 # ─── Stage 1: Install dependencies ────────────────────────────────────────────
