@@ -51,7 +51,7 @@ RUN ./apps/web/node_modules/.bin/tsc --project apps/web/tsconfig.server.json
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV HOSTNAME=0.0.0.0
+ENV HOST=0.0.0.0
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
