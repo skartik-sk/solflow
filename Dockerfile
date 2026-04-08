@@ -30,8 +30,8 @@ RUN npm install --workspaces --include-workspace-root 2>&1 | tail -5
 FROM deps AS builder
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate --schema packages/db/prisma/schema.prisma
+# Generate Prisma client — pin to v6 to match project
+RUN npx prisma@6 generate --schema packages/db/prisma/schema.prisma
 
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
