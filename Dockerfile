@@ -4,7 +4,7 @@
 # =============================================================================
 
 FROM node:20-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl curl && rm -rf /var/lib/apt/lists/*
 RUN npm install -g bun
 WORKDIR /app
 
@@ -38,8 +38,8 @@ RUN bun install --frozen-lockfile 2>&1 | tail -5
 FROM deps AS builder
 COPY . .
 
-# Generate Prisma client — use explicit path to locally installed prisma@6
-RUN cd packages/db && /app/node_modules/.bin/prisma generate
+# Generate Prisma client from the db workspace so Bun resolves the local prisma binary correctly
+RUN bun run --cwd packages/db db:generate
 
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
