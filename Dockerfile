@@ -24,15 +24,15 @@ COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/package.json
 COPY packages/tsconfig/package.json ./packages/tsconfig/package.json
 COPY apps/web/package.json ./apps/web/package.json
 
-# Install with npm (works in all environments)
-RUN npm install --workspaces --include-workspace-root 2>&1 | tail -5
+# Install with bun (matches local dev environment)
+RUN bun install --frozen-lockfile 2>&1 | tail -5
 
 # ─── Stage 2: Build ───────────────────────────────────────────────────────────
 FROM deps AS builder
 COPY . .
 
-# Generate Prisma client — prisma@6 binary is installed in packages/db
-RUN cd packages/db && npx --no-install prisma generate --schema prisma/schema.prisma
+# Generate Prisma client using bun (matches the install method)
+RUN bunx prisma generate --schema packages/db/prisma/schema.prisma
 
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
