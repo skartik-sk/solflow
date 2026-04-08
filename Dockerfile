@@ -39,7 +39,7 @@ FROM deps AS builder
 COPY . .
 
 # Generate Prisma client — use explicit path to locally installed prisma@6
-RUN cd packages/db && ../../node_modules/.bin/prisma generate
+RUN cd packages/db && /app/node_modules/.bin/prisma generate
 
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
