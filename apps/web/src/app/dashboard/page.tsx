@@ -71,7 +71,7 @@ export default async function DashboardPage() {
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
               <Workflow className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-semibold tracking-tight">SolFlow</span>
+            <span className="font-semibold tracking-tight">SolStudio</span>
           </Link>
 
           <nav className="hidden items-center gap-6 text-sm text-muted-foreground md:flex">

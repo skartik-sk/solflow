@@ -11,7 +11,7 @@ import {
   Menu,
 } from "lucide-react";
 
-export const metadata = { title: "Marketplace | SolFlow" };
+export const metadata = { title: "Marketplace | SolStudio" };
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +106,7 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
               <Workflow className="h-4 w-4 text-primary-foreground" />
             </div>
             <span className="font-bold tracking-tight text-sm text-foreground">
-              SolFlow
+              SolStudio
             </span>
           </Link>
           <nav className="flex items-center gap-6 text-sm font-medium">

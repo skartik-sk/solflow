@@ -20,7 +20,7 @@ export default function SignInPage() {
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary">
               <Workflow className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="text-xl font-bold tracking-tight">SolFlow</span>
+            <span className="text-xl font-bold tracking-tight">SolStudio</span>
           </Link>
           <p className="mt-3 text-sm text-muted-foreground">
             Sign in to start building Solana contracts

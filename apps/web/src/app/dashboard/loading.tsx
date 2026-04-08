@@ -14,7 +14,7 @@ export default function DashboardLoading() {
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary">
               <Workflow className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="font-semibold tracking-tight">SolFlow</span>
+            <span className="font-semibold tracking-tight">SolStudio</span>
           </Link>
           {/* Avatar placeholder */}
           <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />

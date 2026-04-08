@@ -22,7 +22,7 @@ import {
   PauseCircle,
 } from "lucide-react";
 
-export const metadata = { title: "My Listings | SolFlow Marketplace" };
+export const metadata = { title: "My Listings | SolStudio Marketplace" };
 export const dynamic = "force-dynamic";
 
 // ─── Local types ──────────────────────────────────────────────────────────────
@@ -109,7 +109,7 @@ export default async function MyListingsPage() {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-primary" />
-            <span className="font-semibold">SolFlow</span>
+            <span className="font-semibold">SolStudio</span>
           </Link>
           <nav className="flex items-center gap-4 text-sm text-muted-foreground">
             <Link

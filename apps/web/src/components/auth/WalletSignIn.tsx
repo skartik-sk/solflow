@@ -16,10 +16,10 @@ function createSignInMessage(publicKey: string, nonce: string): string {
       : "https://solflow.app";
   const issuedAt = new Date().toISOString();
 
-  return `SolFlow wants you to sign in with your Solana account:
+  return `SolStudio wants you to sign in with your Solana account:
 ${publicKey}
 
-Sign in to SolFlow
+Sign in to SolStudio
 
 URI: ${uri}
 Version: 1

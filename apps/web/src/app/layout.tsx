@@ -27,8 +27,8 @@ const bricolage = Bricolage_Grotesque({
 
 export const metadata: Metadata = {
   title: {
-    default: "SolFlow — Visual Solana Contract Builder",
-    template: "%s | SolFlow",
+    default: "SolStudio — Visual Solana Contract Builder",
+    template: "%s | SolStudio",
   },
   description:
     "Build production-ready Solana smart contracts visually. Drag, drop, connect nodes and generate Anchor or Pinocchio Rust code in real-time.",
@@ -41,18 +41,18 @@ export const metadata: Metadata = {
     "visual builder",
     "blockchain",
   ],
-  authors: [{ name: "SolFlow" }],
+  authors: [{ name: "SolStudio" }],
   openGraph: {
     type: "website",
     locale: "en_US",
-    title: "SolFlow — Visual Solana Contract Builder",
+    title: "SolStudio — Visual Solana Contract Builder",
     description:
       "Build production-ready Solana smart contracts visually. No Rust required.",
-    siteName: "SolFlow",
+    siteName: "SolStudio",
   },
   twitter: {
     card: "summary_large_image",
-    title: "SolFlow — Visual Solana Contract Builder",
+    title: "SolStudio — Visual Solana Contract Builder",
     description:
       "Build production-ready Solana smart contracts visually. No Rust required.",
   },

@@ -67,10 +67,10 @@ export async function generateMetadata({ params }: PageProps) {
   });
 
   if (!listing) {
-    return { title: "Not Found | SolFlow Marketplace" };
+    return { title: "Not Found | SolStudio Marketplace" };
   }
 
-  const title = `${listing.title} | SolFlow Marketplace`;
+  const title = `${listing.title} | SolStudio Marketplace`;
   const description = listing.description;
   const image = listing.thumbnailUrl ?? null;
 
@@ -163,7 +163,7 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-primary" />
-            <span className="font-semibold">SolFlow</span>
+            <span className="font-semibold">SolStudio</span>
           </Link>
           <Link
             href="/marketplace"

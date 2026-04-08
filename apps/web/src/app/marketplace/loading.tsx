@@ -12,7 +12,7 @@ export default function MarketplaceLoading() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-primary" />
-            <span className="font-semibold text-foreground">SolFlow</span>
+            <span className="font-semibold text-foreground">SolStudio</span>
           </Link>
           <nav className="flex items-center gap-6 text-sm text-muted-foreground">
             <Link

@@ -11,7 +11,7 @@ import { prisma } from "@solflow/db";
 import { Layers, ArrowLeft } from "lucide-react";
 import { PublishForm } from "./publish-form";
 
-export const metadata = { title: "Publish Template | SolFlow Marketplace" };
+export const metadata = { title: "Publish Template | SolStudio Marketplace" };
 export const dynamic = "force-dynamic";
 
 // ─── Local types (Prisma stub → any) ─────────────────────────────────────────
@@ -53,7 +53,7 @@ export default async function PublishPage() {
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2">
             <Layers className="h-5 w-5 text-primary" />
-            <span className="font-semibold">SolFlow</span>
+            <span className="font-semibold">SolStudio</span>
           </Link>
           <Link
             href="/marketplace"

@@ -23,7 +23,7 @@ export default async function AuthErrorPage({
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary">
             <Workflow className="h-4 w-4 text-primary-foreground" />
           </div>
-          <span className="text-lg font-bold tracking-tight">SolFlow</span>
+          <span className="text-lg font-bold tracking-tight">SolStudio</span>
         </Link>
 
         <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-8">
