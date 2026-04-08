@@ -31,8 +31,8 @@ RUN bun install --frozen-lockfile 2>&1 | tail -5
 FROM deps AS builder
 COPY . .
 
-# Generate Prisma client using bun (matches the install method)
-RUN bunx prisma generate --schema packages/db/prisma/schema.prisma
+# Generate Prisma client using locally installed prisma@6 via bun run
+RUN cd packages/db && bun run db:generate
 
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
