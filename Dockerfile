@@ -44,8 +44,8 @@ RUN bun run --cwd packages/db db:generate
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
 
-# Compile custom server.ts for production
-RUN cd apps/web && npx tsc --project tsconfig.server.json
+# Compile custom server.ts for production using the app workspace's local TypeScript binary
+RUN ./apps/web/node_modules/.bin/tsc --project apps/web/tsconfig.server.json
 
 # ─── Stage 3: Production image ────────────────────────────────────────────────
 FROM base AS runner
