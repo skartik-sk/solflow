@@ -19,8 +19,21 @@ const jobSubscribers = new Map<string, Set<WebSocket>>();
 export function setWebSocketServer(server: WebSocketServer): void {
   wss = server;
 
+  // Heartbeat: detect and close stale connections every 30s
+  const heartbeat = setInterval(() => {
+    wss?.clients.forEach((ws) => {
+      const anyWs = ws as any;
+      if (!anyWs.isAlive) return ws.terminate();
+      anyWs.isAlive = false;
+      ws.ping();
+    });
+  }, 30_000);
+  wss.on("close", () => clearInterval(heartbeat));
+
   wss.on("connection", (ws: WebSocket) => {
     let subscribedJobs: string[] = [];
+    (ws as any).isAlive = true;
+    ws.on("pong", () => { (ws as any).isAlive = true; });
 
     ws.on("message", (raw: Buffer) => {
       try {

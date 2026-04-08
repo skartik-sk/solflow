@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "NODE_OPTIONS='--max-old-space-size=4096' tsx server.ts",
     "dev:next": "next dev --port 3000",
     "build": "next build",
     "start": "node dist-server/server.js",
