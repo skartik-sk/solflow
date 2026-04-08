@@ -10,7 +10,7 @@ WORKDIR /app
 
 # ─── Stage 1: Install dependencies ────────────────────────────────────────────
 FROM base AS deps
-COPY package.json bun.lockb* package-lock.json* yarn.lock* ./
+COPY package.json bun.lock* package-lock.json* yarn.lock* ./
 COPY packages/ir/package.json ./packages/ir/package.json
 COPY packages/codegen/package.json ./packages/codegen/package.json
 COPY packages/sdk-gen/package.json ./packages/sdk-gen/package.json
@@ -22,7 +22,14 @@ COPY packages/audit/package.json ./packages/audit/package.json
 COPY packages/versioning/package.json ./packages/versioning/package.json
 COPY packages/plugin-sdk/package.json ./packages/plugin-sdk/package.json
 COPY packages/tsconfig/package.json ./packages/tsconfig/package.json
+COPY packages/eslint-config/package.json ./packages/eslint-config/package.json
+COPY packages/solana-utils/package.json ./packages/solana-utils/package.json
+COPY packages/anchor-templates/package.json ./packages/anchor-templates/package.json
+COPY packages/pinocchio-templates/package.json ./packages/pinocchio-templates/package.json
 COPY apps/web/package.json ./apps/web/package.json
+COPY plugins/plugin-pyth/package.json ./plugins/plugin-pyth/package.json
+COPY plugins/plugin-metaplex/package.json ./plugins/plugin-metaplex/package.json
+COPY plugins/plugin-spl-token/package.json ./plugins/plugin-spl-token/package.json
 
 # Install with bun (matches local dev environment)
 RUN bun install --frozen-lockfile 2>&1 | tail -5
@@ -31,8 +38,8 @@ RUN bun install --frozen-lockfile 2>&1 | tail -5
 FROM deps AS builder
 COPY . .
 
-# Generate Prisma client using locally installed prisma@6 via bun run
-RUN cd packages/db && bun run db:generate
+# Generate Prisma client — use explicit path to locally installed prisma@6
+RUN cd packages/db && ../../node_modules/.bin/prisma generate
 
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
