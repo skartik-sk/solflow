@@ -32,7 +32,7 @@ export interface StateFieldDefinition {
 export interface RustImport {
   path: string;
   items: string[];
-  framework: "anchor" | "pinocchio" | "both";
+  framework: "anchor" | "pinocchio" | "quasar" | "both";
 }
 
 // ─── Node handle ──────────────────────────────────────────────────────────────
@@ -71,7 +71,7 @@ export interface GeneratedCode {
 }
 
 export interface CodegenContext {
-  framework: "anchor" | "pinocchio";
+  framework: "anchor" | "pinocchio" | "quasar";
   instructionName: string;
   availableAccounts: string[];
   programName: string;
@@ -94,7 +94,7 @@ export interface CargoDependency {
   name: string;
   version: string;
   features?: string[];
-  framework: "anchor" | "pinocchio" | "both";
+  framework: "anchor" | "pinocchio" | "quasar" | "both";
 }
 
 // ─── Audit rule stub ──────────────────────────────────────────────────────────

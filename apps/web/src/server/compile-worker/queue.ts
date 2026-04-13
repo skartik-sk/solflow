@@ -20,6 +20,11 @@ type PrismaJsonValue =
   | PrismaJsonValue[]
   | { [key: string]: PrismaJsonValue };
 
+/** Cast for Prisma JSON fields that have incompatible generated types */
+function asPrismaJson<T>(value: T): PrismaJsonValue {
+  return value as unknown as PrismaJsonValue;
+}
+
 // ─── Redis connection config ──────────────────────────────────────────────────
 // Pass a plain connection object to BullMQ — avoids the ioredis version
 // conflict that arises when sharing a Redis instance across two different
@@ -44,7 +49,7 @@ export interface CompileJobData {
   compilationId: string;
   projectId: string;
   ir: ProgramIR;
-  framework: "ANCHOR" | "PINOCCHIO";
+  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
   options: {
     release: boolean;
@@ -123,11 +128,11 @@ export function startCompileWorker(): void {
             data: {
               status: "SUCCESS",
               logs: result.logs.join("\n"),
-              warnings: result.warnings as unknown as any,
+              warnings: asPrismaJson(result.warnings),
               binaryUrl: artifacts.binaryPath,
               binarySize: artifacts.binarySize,
               idlData:
-                (artifacts.idl as unknown as any) ?? undefined,
+                asPrismaJson(artifacts.idl) ?? undefined,
               completedAt: new Date(),
               duration: result.duration,
             },
@@ -153,7 +158,7 @@ export function startCompileWorker(): void {
             data: {
               status: "FAILED",
               logs: result.logs.join("\n"),
-              errors: result.errors as unknown as any,
+              errors: asPrismaJson(result.errors),
               completedAt: new Date(),
               duration: result.duration,
             },
@@ -173,7 +178,7 @@ export function startCompileWorker(): void {
           where: { id: compilationId },
           data: {
             status: "FAILED",
-            errors: [msg] as unknown as any,
+            errors: asPrismaJson([msg]),
             completedAt: new Date(),
           },
         });
@@ -190,10 +195,21 @@ export function startCompileWorker(): void {
     {
       connection: getConnectionConfig(),
       concurrency: 3,
+      lockDuration: 10 * 60_000, // 10 min — matches Docker timeout
     },
   );
 
   _worker.on("failed", (job, err) => {
     console.error(`[compile-worker] Job ${job?.id} failed:`, err);
   });
+}
+
+/**
+ * Gracefully stop the compile worker. Waits for current jobs to finish.
+ */
+export async function stopCompileWorker(): Promise<void> {
+  if (_worker) {
+    await _worker.close();
+    _worker = null;
+  }
 }

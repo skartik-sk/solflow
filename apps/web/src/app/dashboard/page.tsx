@@ -22,7 +22,7 @@ type ProjectSummary = {
   id: string;
   name: string;
   description: string | null;
-  framework: "ANCHOR" | "PINOCCHIO";
+  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   status: "DRAFT" | "COMPILED" | "TESTED" | "DEPLOYED" | "ARCHIVED";
   createdAt: Date;
   updatedAt: Date;
@@ -165,6 +165,13 @@ export default async function DashboardPage() {
               projects.filter((p) => p.framework === "PINOCCHIO").length
             )}
           />
+          <StatCard
+            icon={<Zap className="h-4 w-4" />}
+            label="Quasar projects"
+            value={String(
+              projects.filter((p) => p.framework === "QUASAR").length
+            )}
+          />
         </div>
 
         {/* Project grid */}
@@ -218,6 +225,8 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
       "bg-blue-500/10 text-blue-400 border border-blue-500/20",
     PINOCCHIO:
       "bg-violet-500/10 text-violet-400 border border-violet-500/20",
+    QUASAR:
+      "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
   };
 
   const timeAgo = formatTimeAgo(project.updatedAt);
@@ -239,7 +248,7 @@ function ProjectCard({ project }: { project: ProjectSummary }) {
         <span
           className={`shrink-0 rounded-md px-2 py-0.5 text-xs font-medium ${frameworkBg[project.framework]}`}
         >
-          {project.framework === "ANCHOR" ? "Anchor" : "Pinocchio"}
+          {project.framework === "ANCHOR" ? "Anchor" : project.framework === "PINOCCHIO" ? "Pinocchio" : "Quasar"}
         </span>
       </div>
 

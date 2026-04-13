@@ -1,0 +1,39 @@
+# docker/docker-compose.yml
+# SolFlow compilation infrastructure
+#
+# Usage:
+#   docker compose build              — Build the compiler image
+#   docker compose up -d              — Start all services
+#   docker compose logs -f compiler   — Watch compiler logs
+#
+# The compiler runs as a long-lived service. Builds are executed via:
+#   docker exec solflow-compiler <build-command>
+#
+# Or use isolated per-build containers:
+#   docker run --rm --memory=2g --cpus=2 --network=none \
+#     -v /tmp/build-dir:/home/builder/project \
+#     solflow-compiler:latest \
+#     /bin/sh -c "anchor build"
+
+services:
+  compiler:
+    build:
+      context: ../
+      dockerfile: docker/compiler/Dockerfile
+    image: solflow-compiler:latest
+    container_name: solflow-compiler
+    # Keep container alive for exec-based builds
+    command: sleep infinity
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+          cpus: "4"
+    # Shared volume for build artifacts
+    volumes:
+      - build-cache:/home/builder/.cargo/registry
+      - build-cache:/home/builder/.rustup
+
+volumes:
+  build-cache:

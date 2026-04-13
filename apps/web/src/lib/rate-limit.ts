@@ -24,6 +24,19 @@ interface LimiterResult {
 // Map<key, { count, windowStart }>
 const store = new Map<string, { count: number; windowStart: number }>();
 
+// Periodic cleanup: purge expired entries every 60 seconds to prevent unbounded growth
+if (typeof setInterval !== "undefined") {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of store) {
+      // Remove entries older than 10 minutes (well past any reasonable window)
+      if (now - entry.windowStart > 10 * 60_000) {
+        store.delete(key);
+      }
+    }
+  }, 60_000);
+}
+
 /**
  * Check and increment the rate-limit counter for `key`.
  * Call this at the top of a handler; if `allowed` is false, return 429.

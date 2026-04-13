@@ -34,6 +34,9 @@ export type { LogicNodeData, LogicType } from "./logic-node";
 export { CustomCodeNode } from "./custom-code-node";
 export type { CustomCodeNodeData } from "./custom-code-node";
 
+export { IntegrationNode } from "./integration-node";
+export type { IntegrationNodeData } from "./integration-node";
+
 // ─── nodeTypes map (pass directly to <ReactFlow nodeTypes={nodeTypes}>) ────
 
 import { ProgramNode } from "./program-node";
@@ -45,6 +48,7 @@ import { ErrorNode } from "./error-node";
 import { EventNode } from "./event-node";
 import { LogicNode } from "./logic-node";
 import { CustomCodeNode } from "./custom-code-node";
+import { IntegrationNode } from "./integration-node";
 
 export const nodeTypes = {
   program:       ProgramNode,
@@ -56,6 +60,7 @@ export const nodeTypes = {
   event:         EventNode,
   logic:         LogicNode,
   "custom-code": CustomCodeNode,
+  integration:   IntegrationNode,
 } as const;
 
 export type NodeTypeName = keyof typeof nodeTypes;
@@ -79,7 +84,7 @@ export const NODE_COLOR_MAP: Record<string, string> = {
 
 export const CONNECTION_RULES: Record<string, string[]> = {
   program:       ["instruction"],
-  instruction:   ["account", "error", "event", "logic", "custom-code"],
+  instruction:   ["account", "error", "event", "logic", "custom-code", "integration"],
   account:       ["constraint", "state"],
   state:         ["account"],
   constraint:    [],
@@ -155,6 +160,12 @@ export function createNodeFromType(
       code: "",
       inputs: [],
       outputs: [],
+    },
+    integration: {
+      name: "Integration",
+      pluginId: "",
+      integrationId: "",
+      config: {},
     },
   };
 

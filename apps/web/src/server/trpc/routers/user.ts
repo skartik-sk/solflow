@@ -50,9 +50,16 @@ export const userRouter = router({
     .mutation(async ({ ctx, input }) => {
       const { publicKey, signature, message, nonce } = input;
 
-      // Basic replay guard: message must contain the nonce
-      if (!message.includes(nonce)) {
+      // Replay guard: message must end with the nonce (standard Solana sign-in format)
+      // This prevents crafted messages that embed the nonce as a substring
+      const expectedSuffix = `Nonce: ${nonce}`;
+      if (!message.trim().endsWith(expectedSuffix)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Nonce mismatch" });
+      }
+
+      // Reject if message is suspiciously long (limits attack surface)
+      if (message.length > 512) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Message too long" });
       }
 
       // Verify Ed25519 signature

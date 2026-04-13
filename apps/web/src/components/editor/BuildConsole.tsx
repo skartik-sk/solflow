@@ -4,14 +4,18 @@
 
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { Search, X, Trash2, Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
+import { toast } from "sonner";
 
 const LEVEL_COLORS: Record<string, string> = {
   info: "text-foreground/80",
   warn: "text-yellow-400",
   error: "text-red-400",
 };
+
+type LogLevel = "all" | "info" | "warn" | "error";
 
 function formatTime(ts: number): string {
   return new Date(ts).toLocaleTimeString("en-US", {
@@ -31,13 +35,39 @@ export function BuildConsole() {
   const deployExplorerUrl = useBuildStore((s) => s.deployExplorerUrl);
   const deployTxSignature = useBuildStore((s) => s.deployTxSignature);
   const deployTxExplorerUrl = useBuildStore((s) => s.deployTxExplorerUrl);
+  const clearLogs = useBuildStore((s) => s.clearLogs);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [search, setSearch] = useState("");
+  const [levelFilter, setLevelFilter] = useState<LogLevel>("all");
+
+  // Copy all logs to clipboard
+  const handleCopy = useCallback(async () => {
+    const text = compileLogs
+      .map((l) => `[${formatTime(l.timestamp)}] ${l.line}`)
+      .join("\n");
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    toast.success("Logs copied");
+  }, [compileLogs]);
+
+  // Filter logs by search term and level
+  const filteredLogs = useMemo(() => {
+    let logs = compileLogs;
+    if (levelFilter !== "all") {
+      logs = logs.filter((l) => l.level === levelFilter);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      logs = logs.filter((l) => l.line.toLowerCase().includes(q));
+    }
+    return logs;
+  }, [compileLogs, search, levelFilter]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [compileLogs]);
+  }, [filteredLogs]);
 
   const isIdle = compileStatus === "idle" && deployStatus === "idle";
 
@@ -111,9 +141,80 @@ export function BuildConsole() {
         )}
       </div>
 
+      {/* Filter bar */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-3 py-1">
+        {/* Search */}
+        <div className="relative flex-1">
+          <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground/50" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter logs…"
+            className="w-full rounded border border-border/40 bg-background/50 py-0.5 pl-6 pr-5 text-[11px] outline-none focus:border-primary/50"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground"
+            >
+              <X size={10} />
+            </button>
+          )}
+        </div>
+
+        {/* Level filter pills */}
+        <div className="flex rounded border border-border/40 overflow-hidden">
+          {(["all", "info", "warn", "error"] as LogLevel[]).map((lv) => (
+            <button
+              key={lv}
+              onClick={() => setLevelFilter(lv)}
+              className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                levelFilter === lv
+                  ? "bg-primary/20 text-primary"
+                  : "text-muted-foreground hover:bg-accent/50"
+              }`}
+            >
+              {lv === "all" ? "All" : lv.charAt(0).toUpperCase() + lv.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Log count */}
+        <span className="text-[10px] text-muted-foreground/50 shrink-0">
+          {filteredLogs.length}/{compileLogs.length}
+        </span>
+
+        {/* Clear */}
+        {compileLogs.length > 0 && (
+          <>
+            <button
+              onClick={handleCopy}
+              title="Copy logs to clipboard"
+              className="shrink-0 text-muted-foreground/40 hover:text-foreground transition-colors"
+            >
+              <Copy size={12} />
+            </button>
+            <button
+              onClick={clearLogs}
+              title="Clear logs"
+              className="shrink-0 text-muted-foreground/40 hover:text-red-400 transition-colors"
+            >
+              <Trash2 size={12} />
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Log lines */}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
-        {compileLogs.map((log, i) => (
+        {filteredLogs.length === 0 && compileLogs.length > 0 && (
+          <p className="text-muted-foreground/40 py-2">
+            No logs match &ldquo;{search}&rdquo;
+            {levelFilter !== "all" ? ` (${levelFilter})` : ""}
+          </p>
+        )}
+        {filteredLogs.map((log, i) => (
           <div key={i} className="flex gap-2 leading-5">
             <span className="shrink-0 text-muted-foreground/40">
               {formatTime(log.timestamp)}

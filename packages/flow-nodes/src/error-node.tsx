@@ -3,6 +3,7 @@
 // Connects from Instruction (left input via error-out handle).
 
 import React, { memo } from "react";
+import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { AlertTriangle } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
@@ -22,7 +23,7 @@ export const ErrorNode = memo(function ErrorNode({
 
   return (
     <BaseNodeShell
-      label="Error"
+      label={d.name || "Error"}
       icon={<AlertTriangle size={10} />}
       accentColor="#dc2626"
       selected={selected}
@@ -30,7 +31,7 @@ export const ErrorNode = memo(function ErrorNode({
         // ← left: receives from Instruction
         {
           id: "error-in",
-          kind: "error-out",
+          kind: "error-in",
           position: Position.Left,
           isTarget: true,
         },
@@ -47,23 +48,4 @@ export const ErrorNode = memo(function ErrorNode({
   );
 });
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground/70">{label}</span>
-      <span
-        className={`truncate max-w-[120px] text-right ${mono ? "font-mono" : ""}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
+

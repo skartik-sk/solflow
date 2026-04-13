@@ -17,7 +17,7 @@ import { generateCode } from "@solflow/codegen";
 
 export interface LocalBuildInput {
   ir: ProgramIR;
-  framework: "ANCHOR" | "PINOCCHIO";
+  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
   options: {
     release: boolean;
@@ -45,12 +45,12 @@ export interface LocalBuildResult {
 /** Write generated source files to a temp directory and return its path. */
 async function createTempProject(
   ir: ProgramIR,
-  framework: "ANCHOR" | "PINOCCHIO",
+  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR",
 ): Promise<string> {
   const dir = join(tmpdir(), `solflow-local-${randomBytes(8).toString("hex")}`);
   await mkdir(dir, { recursive: true });
 
-  const generatedFramework = framework === "ANCHOR" ? "anchor" : "pinocchio";
+  const generatedFramework = framework === "ANCHOR" ? "anchor" : framework === "QUASAR" ? "quasar" : "pinocchio";
   const generated = generateCode(ir, generatedFramework);
 
   for (const file of generated.files) {
@@ -69,6 +69,7 @@ function runCommand(
   args: string[],
   cwd: string,
   onLog: (line: string, level: "info" | "warn" | "error") => void,
+  timeoutMs: number = 10 * 60_000,
 ): Promise<{ code: number; logs: string[] }> {
   return new Promise((resolve) => {
     const logs: string[] = [];
@@ -89,8 +90,19 @@ function runCommand(
     proc.stdout.on("data", (d: Buffer) => append(d, "info"));
     proc.stderr.on("data", (d: Buffer) => append(d, "info"));
 
-    proc.on("close", (code) => resolve({ code: code ?? 1, logs }));
+    // Timeout: kill the process if it runs too long
+    const timer = setTimeout(() => {
+      proc.kill("SIGKILL");
+      onLog("Build timed out, killing process", "error");
+      resolve({ code: 1, logs: [...logs, "Build timed out"] });
+    }, timeoutMs);
+
+    proc.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code: code ?? 1, logs });
+    });
     proc.on("error", (err) => {
+      clearTimeout(timer);
       logs.push(err.message);
       onLog(`Process error: ${err.message}`, "error");
       resolve({ code: 1, logs });
@@ -182,7 +194,9 @@ export async function runLocalBuild(
   const buildCmd =
     input.framework === "ANCHOR"
       ? "anchor build"
-      : "cargo build-sbf --release";
+      : input.framework === "QUASAR"
+        ? "cargo build-sbf --release"
+        : "cargo build-sbf --release";
 
   onLog(`Running: ${buildCmd}`, "info");
 
@@ -195,7 +209,9 @@ export async function runLocalBuild(
   if (code !== 0) {
     onLog(`Build failed with exit code ${code}`, "error");
     // Clean up on failure
-    await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    await rm(workDir, { recursive: true, force: true }).catch((e) => {
+      console.warn(`[local-compiler] Failed to clean ${workDir}:`, e instanceof Error ? e.message : e);
+    });
     return {
       success: false,
       logs: allLogs,

@@ -65,8 +65,18 @@ function DiffSummary({ diff }: { diff: FlowDiff }) {
       <span className="text-[10px] text-muted-foreground">no changes</span>
     );
   }
+
+  // Build hover tooltip listing changed node names
+  const addedNames = diff.nodes.added.map((n) => `+ ${n.label}`).slice(0, 8);
+  const removedNames = diff.nodes.removed.map((n) => `- ${n.label}`).slice(0, 8);
+  const modifiedNames = diff.nodes.modified.map((n) => `~ ${n.label}`).slice(0, 8);
+  const allNames = [...addedNames, ...removedNames, ...modifiedNames];
+  const tooltip = allNames.length > 0
+    ? allNames.join("\n") + (allNames.length < stats.totalChanges ? "\n…" : "")
+    : undefined;
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2" title={tooltip}>
       <DiffBadge
         label="added"
         count={stats.addedNodes}

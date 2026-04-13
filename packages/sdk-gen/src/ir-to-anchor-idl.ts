@@ -105,6 +105,19 @@ export function irToAnchorIDL(ir: ProgramIR): AnchorIDL {
     },
   }));
 
+  // Anchor IDL requires account struct definitions in both `accounts` and `types`.
+  // Also include event struct definitions as types.
+  const eventTypes: AnchorIdlAccountDef[] = ir.events.map((ev) => ({
+    name: pascalCase(ev.name),
+    type: {
+      kind: "struct",
+      fields: ev.fields.map((f) => ({
+        name: camelCase(f.name),
+        type: solanaTypeToAnchorIdlType(f.type),
+      })),
+    },
+  }));
+
   const errors: AnchorIdlError[] = ir.errors.map((e) => ({
     code: e.code,
     name: pascalCase(e.name),
@@ -122,7 +135,7 @@ export function irToAnchorIDL(ir: ProgramIR): AnchorIDL {
     instructions,
     accounts,
     errors,
-    types: [],
+    types: [...accounts, ...eventTypes],
   };
 }
 
@@ -173,7 +186,7 @@ function solanaTypeToAnchorIdlType(type: SolanaType): unknown {
     }
     if ("enum" in type) {
       return {
-        defined: { name: "CustomEnum" },
+        defined: { name: type.enum },
       };
     }
   }

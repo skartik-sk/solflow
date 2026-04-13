@@ -34,6 +34,28 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 const inputClass =
   "w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50";
 
+const inputInvalidClass =
+  "w-full rounded-md border border-red-500/50 bg-input px-2.5 py-1.5 text-xs outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 placeholder:text-muted-foreground/50";
+
+/** Validate a snake_case identifier (not empty, matches pattern, not a Rust keyword). */
+function isValidIdentifier(value: string): boolean {
+  if (!value || !value.trim()) return false;
+  if (!/^[a-z_][a-z0-9_]*$/.test(value)) return false;
+  const keywords = new Set(["as","async","await","break","const","continue","crate","dyn","else","enum","extern","fn","for","if","impl","in","let","loop","match","mod","move","mut","pub","ref","return","self","static","struct","super","trait","type","unsafe","use","where","while","yield"]);
+  return !keywords.has(value);
+}
+
+/** Validate a PascalCase identifier (not empty, matches pattern). */
+function isValidPascalIdentifier(value: string): boolean {
+  if (!value || !value.trim()) return false;
+  return /^[A-Z][a-zA-Z0-9]*$/.test(value);
+}
+
+function ValidationHint({ show, message }: { show: boolean; message: string }) {
+  if (!show) return null;
+  return <p className="text-[10px] text-red-400 mt-0.5">{message}</p>;
+}
+
 // ─── Per-node-type forms ──────────────────────────────────────────────────────
 
 function ProgramForm({
@@ -46,15 +68,18 @@ function ProgramForm({
   const update = useFlowStore((s) => s.updateNodeData);
   const set = (partial: Partial<ProgramNodeData>) => update(nodeId, partial);
 
+  const nameInvalid = data.name ? !isValidIdentifier(data.name) : false;
+
   return (
     <div className="space-y-3">
       <FieldRow label="Program Name">
         <input
-          className={`${inputClass} font-mono`}
+          className={`${nameInvalid ? inputInvalidClass : inputClass} font-mono`}
           value={data.name ?? ""}
           onChange={(e) => set({ name: e.target.value })}
           placeholder="my_program"
         />
+        <ValidationHint show={nameInvalid} message="Must be snake_case, not a Rust keyword" />
       </FieldRow>
       <FieldRow label="Description">
         <textarea
@@ -133,15 +158,18 @@ function InstructionForm({
     });
   };
 
+  const nameInvalid = data.name ? !isValidIdentifier(data.name) : false;
+
   return (
     <div className="space-y-3">
       <FieldRow label="Instruction Name">
         <input
-          className={`${inputClass} font-mono`}
+          className={`${nameInvalid ? inputInvalidClass : inputClass} font-mono`}
           value={data.name ?? ""}
           onChange={(e) => set({ name: e.target.value })}
           placeholder="initialize"
         />
+        <ValidationHint show={nameInvalid} message="Must be snake_case, not a Rust keyword" />
       </FieldRow>
       <FieldRow label="Description">
         <textarea
@@ -429,6 +457,14 @@ function ConstraintForm({ nodeId, data }: { nodeId: string; data: ConstraintNode
 
   return (
     <div className="space-y-3">
+      <FieldRow label="Label">
+        <input
+          className={`${inputClass} font-mono`}
+          value={data.name ?? ""}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder={ct}
+        />
+      </FieldRow>
       <FieldRow label="Constraint Type">
         <select
           className={inputClass}
@@ -619,6 +655,14 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
 
   return (
     <div className="space-y-3">
+      <FieldRow label="Label">
+        <input
+          className={`${inputClass} font-mono`}
+          value={data.name ?? ""}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder={lt}
+        />
+      </FieldRow>
       <FieldRow label="Operation">
         <select className={inputClass} value={lt} onChange={(e) => set({ logicType: e.target.value as LogicType })}>
           {LOGIC_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
@@ -691,6 +735,14 @@ function CustomCodeForm({ nodeId, data }: { nodeId: string; data: CustomCodeNode
 
   return (
     <div className="space-y-3">
+      <FieldRow label="Block Name">
+        <input
+          className={`${inputClass} font-mono`}
+          value={data.name ?? ""}
+          onChange={(e) => set({ name: e.target.value })}
+          placeholder="custom_logic"
+        />
+      </FieldRow>
       <FieldRow label="Description">
         <textarea className={`${inputClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="What does this code do?" />
       </FieldRow>

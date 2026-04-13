@@ -104,10 +104,22 @@ type WSListener = (msg: WSMessage) => void;
 
 let socket: WebSocket | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_MS = 1_000;
+const MAX_RECONNECT_MS = 30_000;
 const listeners = new Set<WSListener>();
 
+function getReconnectDelay(): number {
+  // Exponential backoff with jitter: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
+  const delay = Math.min(BASE_RECONNECT_MS * Math.pow(2, reconnectAttempts), MAX_RECONNECT_MS);
+  // Add random jitter (0-25% of delay) to avoid thundering herd
+  const jitter = delay * Math.random() * 0.25;
+  return delay + jitter;
+}
+
 /**
- * Connect to the SolFlow WebSocket server.
+ * Connect to the SolStudio WebSocket server.
  * Safe to call multiple times — only one connection is maintained.
  */
 export function connectWS(): void {
@@ -130,6 +142,7 @@ export function connectWS(): void {
       clearTimeout(reconnectTimer);
       reconnectTimer = null;
     }
+    reconnectAttempts = 0; // Reset on successful connection
   });
 
   socket.addEventListener("message", (event: MessageEvent<string>) => {
@@ -143,8 +156,11 @@ export function connectWS(): void {
 
   socket.addEventListener("close", () => {
     socket = null;
-    // Reconnect after 3 seconds
-    reconnectTimer = setTimeout(() => connectWS(), 3_000);
+    if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      const delay = getReconnectDelay();
+      reconnectAttempts++;
+      reconnectTimer = setTimeout(() => connectWS(), delay);
+    }
   });
 
   socket.addEventListener("error", () => {
@@ -160,6 +176,7 @@ export function disconnectWS(): void {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  reconnectAttempts = 0;
   socket?.close();
   socket = null;
 }

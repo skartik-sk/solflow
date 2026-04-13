@@ -9,11 +9,11 @@ import { toast } from "sonner";
 
 function createSignInMessage(publicKey: string, nonce: string): string {
   const domain =
-    typeof window !== "undefined" ? window.location.host : "solflow.app";
+    typeof window !== "undefined" ? window.location.host : "solstudio.skartik.xyz";
   const uri =
     typeof window !== "undefined"
       ? window.location.origin
-      : "https://solflow.app";
+      : "https://solstudio.skartik.xyz";
   const issuedAt = new Date().toISOString();
 
   return `SolStudio wants you to sign in with your Solana account:

@@ -48,7 +48,10 @@ export function solanaTypeToRust(type: SolanaType): string {
     }
   }
 
-  return 'u64'; // safe fallback
+  if (typeof type !== 'undefined') {
+    console.warn(`[codegen] Unknown SolanaType, falling back to u64: ${JSON.stringify(type)}`);
+  }
+  return 'u64'; // fallback for unknown types
 }
 
 // ─── Size calculation (for non-dynamic types) ─────────────────────────────────
@@ -86,7 +89,7 @@ export function getTypeSize(type: SolanaType): number {
     }
     if ('defined' in type) return -1; // unknown static size
     if ('hashMap' in type) return -1; // dynamic
-    if ('enum' in type)    return 1;  // assume u8 discriminant
+    if ('enum' in type)    return type.enum.variants.length > 255 ? 2 : 1;
   }
 
   return -1;

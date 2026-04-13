@@ -51,10 +51,10 @@ export function generatePinocchio(ir: ProgramIR): {
   const errors_      = [...ir.errors].sort((a, b) => a.code - b.code);
   const events       = [...ir.events].sort((a, b) => a.name.localeCompare(b.name));
 
-  // Precompute discriminators (deterministic djb2 of "global:<ix_name>")
+  // Precompute discriminators (deterministic index-based)
   const discriminators = new Map<string, number[]>();
-  for (const ix of instructions) {
-    discriminators.set(ix.name, djb2Discriminator(`global:${ix.name}`));
+  for (let i = 0; i < instructions.length; i++) {
+    discriminators.set(instructions[i].name, pinocchioDiscriminator(i));
   }
 
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
@@ -97,8 +97,9 @@ export function generatePinocchio(ir: ProgramIR): {
       content: states.map((s) => `pub mod ${toSnakeCase(s.name)};`).join('\n') + '\n',
       language: 'rust',
     });
-    for (const state of states) {
-      const disc = djb2Discriminator(`account:${state.name}`);
+    for (let si = 0; si < states.length; si++) {
+      const state = states[si];
+      const disc = pinocchioDiscriminator(si);
       files.push({
         path: `programs/${programName}/src/state/${toSnakeCase(state.name)}.rs`,
         content: generateStateRs(state.name, state.fields, disc),
@@ -150,18 +151,17 @@ export function generatePinocchio(ir: ProgramIR): {
 // Output is deterministic but NOT identical to real Anchor discriminators
 // (which use actual SHA-256). For production use, swap with Node crypto.
 
-function djb2Discriminator(input: string): number[] {
-  let h = 5381;
-  for (let i = 0; i < input.length; i++) {
-    h = ((h << 5) + h) + input.charCodeAt(i);
-    h = h & h;
-  }
-  const u = h >>> 0;
-  const bytes: number[] = [];
-  for (let i = 0; i < 8; i++) {
-    bytes.push((u >>> (i % 4 * 8)) & 0xff);
-  }
-  return bytes;
+function pinocchioDiscriminator(index: number): number[] {
+  // Pinocchio programs define their own discriminators (no Anchor dependency).
+  // We use the index encoded as 8-byte little-endian. Deterministic and unique.
+  // If Anchor-compatibility is needed, swap with SHA-256("global:name")[..8].
+  return [
+    index & 0xff,
+    (index >> 8) & 0xff,
+    (index >> 16) & 0xff,
+    (index >> 24) & 0xff,
+    0, 0, 0, 0,
+  ];
 }
 
 function formatDiscriminator(disc: number[]): string {
@@ -372,8 +372,10 @@ function buildArgParsing(
 
   for (const arg of args) {
     const size = getTypeSize(arg.type);
+    const rustType = solanaTypeToRust(arg.type);
+
     if (size > 0) {
-      const rustType = solanaTypeToRust(arg.type);
+      // Fixed-size types
       if (rustType === 'u64' || rustType === 'i64' ||
           rustType === 'u32' || rustType === 'i32' ||
           rustType === 'u128' || rustType === 'i128' ||
@@ -386,14 +388,51 @@ function buildArgParsing(
         lines.push(`    let ${arg.name} = data[${offset}] != 0;`);
       } else if (rustType === 'Pubkey') {
         lines.push(`    let ${arg.name}: &Pubkey = unsafe {`);
-        lines.push(`        &*(data[${offset}..${offset + size}].as_ptr() as *const Pubkey)`);
+        lines.push(`        &*(data[${offset}..${offset + 32}].as_ptr() as *const Pubkey)`);
         lines.push(`    };`);
+      } else if (rustType === 'f32' || rustType === 'f64') {
+        lines.push(`    let ${arg.name} = ${rustType}::from_le_bytes(`);
+        lines.push(`        data[${offset}..${offset + size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`    );`);
       } else {
-        lines.push(`    // TODO: parse ${arg.name}: ${rustType} from data[${offset}..]`);
+        // Fixed-size unknown: read as byte array and hint
+        lines.push(`    let ${arg.name}_bytes = &data[${offset}..${offset + size}];`);
+        lines.push(`    // TODO: deserialize ${arg.name}: ${rustType} from ${size} bytes`);
       }
       offset += size;
     } else {
-      lines.push(`    // TODO: parse dynamic-length arg '${arg.name}' from data[${offset}..]`);
+      // Dynamic-size types (String, Vec, etc.)
+      if (typeof arg.type === 'string' && arg.type === 'String') {
+        // String: 4-byte length prefix + UTF-8 bytes
+        lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
+        lines.push(`        data[${offset}..${offset + 4}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`    ) as usize;`);
+        lines.push(`    let ${arg.name}_end = ${offset + 4} + ${arg.name}_len;`);
+        lines.push(`    let ${arg.name} = core::str::from_utf8(`);
+        lines.push(`        &data[${offset + 4}..${arg.name}_end]`);
+        lines.push(`    ).map_err(|_| ProgramError::InvalidInstructionData)?;`);
+        lines.push(`    let _data_offset = ${arg.name}_end; // update offset`);
+        // Note: for simplicity, we use a naming convention. In a real compiler
+        // this would need a proper offset tracking system for multiple dynamic args.
+        offset = -1; // Signal that we can't track further statically
+      } else if (typeof arg.type === 'string' && arg.type.startsWith('Vec')) {
+        // Vec: 4-byte length prefix + elements
+        lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
+        lines.push(`        data[${offset}..${offset + 4}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`    ) as usize;`);
+        lines.push(`    let ${arg.name}_data = &data[${offset + 4}..${offset + 4} + ${arg.name}_len];`);
+        lines.push(`    // TODO: deserialize Vec elements from ${arg.name}_data`);
+        offset = -1;
+      } else {
+        lines.push(`    // WARNING: dynamic-length arg '${arg.name}': ${rustType} — manual deserialization needed`);
+        offset = -1;
+      }
+
+      // If offset is invalidated by dynamic args, add a comment and stop
+      if (offset < 0) {
+        lines.push(`    // NOTE: subsequent argument offsets may be incorrect due to dynamic-length arg above`);
+        offset = 0; // Reset to avoid negative offsets
+      }
     }
   }
 
@@ -416,13 +455,14 @@ function buildInstructionBody(ix: Instruction, programName: string): string[] {
 function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
   switch (op.type) {
     case 'set-field': {
-      // Zero-copy write pattern: borrow mut data and write at field offset
+      // Use the generated state accessor method for zero-copy writes.
+      // The state module generates: StateName::set_<field>(data, value)
+      const pascalAccount = op.account.charAt(0).toUpperCase() + op.account.slice(1);
       return [
         `// Set ${op.account}.${op.field} = ${op.value}`,
         `{`,
         `    let data = &mut ${op.account}.try_borrow_mut_data()?;`,
-        `    // TODO: write ${op.field} at correct byte offset`,
-        `    let _ = (data, ${op.value});`,
+        `    ${pascalAccount}State::set_${op.field}(data, ${op.value});`,
         `}`,
       ];
     }
@@ -540,17 +580,43 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
       return [`let ${op.result} = ${op.left} ${opSym[op.operation] ?? '+'} ${op.right};`];
     }
 
-    case 'cpi':
-      return [
-        `// CPI: ${op.targetProgram}::${op.instruction}`,
-        `// TODO: build Pinocchio CPI for ${op.targetProgram}`,
+    case 'cpi': {
+      const prog = op.targetProgram;
+      const ix = op.instruction;
+      const accountMetas = op.accounts
+        .map((a) => `AccountMeta::${a.from === 'signer' ? 'new_readonly' : 'new'}(ctx.accounts.${a.to}.key(), ${a.from === 'signer' ? 'true' : 'false'})`)
+        .join(", ");
+      const dataArgs = op.data.map((d) => d.value).join(", ");
+
+      const lines: string[] = [
+        `// CPI: ${prog}::${ix}`,
       ];
+
+      if (op.signerSeeds && op.signerSeeds.length > 0) {
+        const seedParts = op.signerSeeds.map((s) => {
+          if (s.type === 'literal') return `b"${s.value}"`;
+          if (s.type === 'pubkey') return s.value;
+          return s.value;
+        }).join(", ");
+        lines.push(
+          `let seeds = &[&[${seedParts}][..]];`,
+          `let ix = ${ix}_instruction(${dataArgs || ''});`,
+          `invoke_signed(&ctx.accounts.${prog}.key(), &[${accountMetas}], &ix.data, seeds)?;`,
+        );
+      } else {
+        lines.push(
+          `let ix = ${ix}_instruction(${dataArgs || ''});`,
+          `invoke(&ctx.accounts.${prog}.key(), &[${accountMetas}], &ix.data)?;`,
+        );
+      }
+      return lines;
+    }
 
     case 'custom-code':
       return op.code.split('\n');
 
     default:
-      return [`// TODO: unimplemented op type`];
+      return [`// WARNING: unimplemented logic operation type — add a handler in codegen`];
   }
 }
 

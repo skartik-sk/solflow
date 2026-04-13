@@ -6,6 +6,7 @@
 import type { ProgramIR } from "@solflow/ir";
 import { generateAnchor } from "./generators/anchor/index";
 import { generatePinocchio } from "./generators/pinocchio/index";
+import { generateQuasar } from "./generators/quasar/index";
 import crypto from "./utils/sha256";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
@@ -27,7 +28,7 @@ export interface CodegenWarning {
 }
 
 export interface GeneratedProject {
-  framework: "anchor" | "pinocchio";
+  framework: "anchor" | "pinocchio" | "quasar";
   files: GeneratedFile[];
   warnings: CodegenWarning[];
   errors: CodegenError[];
@@ -42,7 +43,7 @@ export interface GeneratedProject {
 
 export function generateCode(
   ir: ProgramIR,
-  framework: "anchor" | "pinocchio",
+  framework: "anchor" | "pinocchio" | "quasar",
 ): GeneratedProject {
   const irHash = hashIR(ir);
 
@@ -55,11 +56,21 @@ export function generateCode(
     files = result.files;
     warnings = result.warnings;
     errors = result.errors;
-  } else {
+  } else if (framework === "quasar") {
+    const result = generateQuasar(ir);
+    files = result.files;
+    warnings = result.warnings;
+    errors = result.errors;
+  } else if (framework === "pinocchio") {
     const result = generatePinocchio(ir);
     files = result.files;
     warnings = result.warnings;
     errors = result.errors;
+  } else {
+    // Unknown framework — return error instead of silently defaulting
+    files = [];
+    warnings = [];
+    errors = [{ message: `Unknown framework: "${framework}". Supported: anchor, pinocchio, quasar` }];
   }
 
   return {

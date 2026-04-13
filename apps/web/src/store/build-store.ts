@@ -77,6 +77,7 @@ interface BuildState {
   ) => Promise<void>;
   resetProgramKeypair: (projectId: string) => Promise<string>;
   addLog: (log: BuildLogLine) => void;
+  clearLogs: () => void;
   reset: () => void;
 }
 
@@ -114,6 +115,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   ...INITIAL,
 
   addLog: (log) => set((s) => ({ compileLogs: [...s.compileLogs, log] })),
+
+  clearLogs: () => set({ compileLogs: [] }),
 
   reset: () => set(INITIAL),
 
@@ -215,6 +218,8 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       connectWS();
 
       await new Promise<void>((resolve) => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
         const unsubscribe = onJobMessage(resp.runId, (msg) => {
           if (isTestResult(msg)) {
             const data = msg.data as {
@@ -248,12 +253,13 @@ export const useBuildStore = create<BuildState>((set, get) => ({
                 total: data.total,
               },
             });
+            if (timeoutId) clearTimeout(timeoutId);
             unsubscribe();
             resolve();
           }
         });
 
-        setTimeout(() => {
+        timeoutId = setTimeout(() => {
           unsubscribe();
           resolve();
         }, 300_000);
@@ -341,7 +347,22 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           const toPubkey = new PublicKey(bal.address);
 
           // Add a small buffer on top of the deficit
-          const transferAmount = deficitLamports + 0.01 * 1e9;
+          const MAX_FUND_LAMPORTS = 5 * 1e9; // 5 SOL max auto-fund
+          const bufferLamports = 0.01 * 1e9;
+          const transferAmount = Math.min(deficitLamports + bufferLamports, MAX_FUND_LAMPORTS);
+
+          if (deficitLamports > MAX_FUND_LAMPORTS) {
+            get().addLog({
+              line: `Funding exceeds safety limit (${(deficitLamports / 1e9).toFixed(2)} SOL > ${(MAX_FUND_LAMPORTS / 1e9).toFixed(1)} SOL max). Use manual funding.`,
+              level: "error",
+              timestamp: Date.now(),
+            });
+            set({
+              deployStatus: "error",
+              deployErrors: [`Amount exceeds safety limit. Manually send ${(deficitSol)} SOL to:\n${bal.address}`],
+            });
+            return;
+          }
 
           const { blockhash, lastValidBlockHeight } =
             await connection.getLatestBlockhash("confirmed");

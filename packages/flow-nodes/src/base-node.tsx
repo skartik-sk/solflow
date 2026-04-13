@@ -15,9 +15,12 @@ export type HandleKind =
   | "data-in"
   | "data-out"
   | "constraint-in"
+  | "constraint-out"
   | "logic-in"
   | "logic-out"
+  | "event-in"
   | "event-out"
+  | "error-in"
   | "error-out";
 
 // Color per handle kind (matches the node accent colors)
@@ -29,9 +32,12 @@ const HANDLE_COLORS: Record<HandleKind, string> = {
   "data-in":         "#7c3aed",
   "data-out":        "#7c3aed",
   "constraint-in":   "#ea580c",
+  "constraint-out":  "#ea580c",
   "logic-in":        "#0d9488",
   "logic-out":       "#0d9488",
+  "event-in":        "#eab308",
   "event-out":       "#eab308",
+  "error-in":        "#dc2626",
   "error-out":       "#dc2626",
 };
 
@@ -44,9 +50,12 @@ const HANDLE_LABELS: Record<HandleKind, string> = {
   "data-in":         "Data input — connect from State",
   "data-out":        "Data output — drag to Account",
   "constraint-in":   "Constraint input — connect from Account",
+  "constraint-out":  "Constraint output — drag to Constraint",
   "logic-in":        "Logic input — connect from Instruction or Logic",
   "logic-out":       "Logic output — drag to Logic, Custom Code, or Account",
+  "event-in":        "Event input — connect from Instruction",
   "event-out":       "Event output — drag to Event",
+  "error-in":        "Error input — connect from Instruction",
   "error-out":       "Error output — drag to Error",
 };
 

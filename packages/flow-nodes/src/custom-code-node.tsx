@@ -3,11 +3,13 @@
 // The full Monaco editor is shown in the Properties Panel when selected.
 
 import React, { memo } from "react";
+import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Terminal } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
 
 export interface CustomCodeNodeData {
+  name?: string;
   code: string;
   inputs: string[];   // account/variable names this code reads
   outputs: string[];  // variable names this code produces
@@ -24,7 +26,7 @@ export const CustomCodeNode = memo(function CustomCodeNode({
 
   return (
     <BaseNodeShell
-      label="Rust Block"
+      label={d.name || "Rust Block"}
       icon={<Terminal size={10} />}
       accentColor="#374151"
       selected={selected}
@@ -78,23 +80,4 @@ export const CustomCodeNode = memo(function CustomCodeNode({
   );
 });
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground/70">{label}</span>
-      <span
-        className={`truncate max-w-[120px] text-right ${mono ? "font-mono" : ""}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
+

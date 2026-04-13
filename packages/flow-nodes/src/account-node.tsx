@@ -4,6 +4,7 @@
 // and out to Constraint (right) / State (left).
 
 import React, { memo } from "react";
+import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Wallet } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
@@ -57,6 +58,7 @@ const ACCOUNT_ACCENT: Partial<Record<AccountType, string>> = {
   "associated-token": "#0369a1",
   "system-program": "#374151",
   "token-program": "#374151",
+  program: "#6366f1",
   rent: "#374151",
   clock: "#374151",
   "unchecked-account": "#9ca3af",
@@ -82,7 +84,7 @@ export const AccountNode = memo(function AccountNode({
 
   return (
     <BaseNodeShell
-      label="Account"
+      label={d.name || "Account"}
       icon={<Wallet size={10} />}
       accentColor={accent}
       selected={selected}
@@ -96,8 +98,8 @@ export const AccountNode = memo(function AccountNode({
         },
         // → right: connects to Constraint nodes
         {
-          id: "constraint-in",
-          kind: "constraint-in",
+          id: "constraint-out",
+          kind: "constraint-out",
           position: Position.Right,
           isTarget: false,
         },

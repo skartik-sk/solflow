@@ -25,7 +25,7 @@ export const marketplaceRouter = router({
     .input(
       z.object({
         category: CATEGORY_ENUM.optional(),
-        framework: z.enum(["ANCHOR", "PINOCCHIO"]).optional(),
+        framework: z.enum(["ANCHOR", "PINOCCHIO", "QUASAR"]).optional(),
         search: z.string().optional(),
         limit: z.number().min(1).max(50).default(20),
         cursor: z.string().optional(),
@@ -317,6 +317,18 @@ export const marketplaceRouter = router({
 
       // 2. Verify the transaction on-chain
       try {
+        // Check replay: has this txSignature already been used for a different listing?
+        const existingPurchase = await ctx.prisma.marketplacePurchase.findFirst({
+          where: { txSignature: input.txSignature },
+          select: { listingId: true },
+        });
+        if (existingPurchase && existingPurchase.listingId !== input.listingId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This transaction has already been used for another purchase",
+          });
+        }
+
         const connection = new Connection(SOLANA_RPC, "confirmed");
         const tx = await connection.getTransaction(input.txSignature, {
           commitment: "confirmed",
@@ -409,4 +421,4 @@ const SOLANA_RPC =
   process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
 
 /** Treasury wallet that receives SOL payments */
-const TREASURY_WALLET = process.env.SOLFLOW_TREASURY_WALLET ?? "";
+const TREASURY_WALLET = process.env.SOLFLOW_TREASURY_WALLET || undefined;

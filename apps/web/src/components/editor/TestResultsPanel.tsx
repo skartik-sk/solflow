@@ -5,7 +5,9 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
+import { Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
+import { toast } from "sonner";
 import { useCodeStore } from "@/store/code-store";
 import { useProjectStore } from "@/store/project-store";
 import type { Instruction, Account, InstructionArg } from "@solflow/ir";
@@ -186,6 +188,15 @@ export function TestResultsPanel() {
   const total = testSummary?.total ?? testResults.length;
   const allPassed = failed === 0 && total > 0 && testStatus === "passed";
 
+  const copyResults = useCallback(async () => {
+    const lines = testResults.map(
+      (r) => `${r.status === "passed" ? "PASS" : r.status === "failed" ? "FAIL" : "SKIP"} ${r.name}${r.error ? ` — ${r.error}` : ""}${r.duration ? ` (${r.duration}ms)` : ""}`,
+    );
+    if (lines.length === 0) return;
+    await navigator.clipboard.writeText(lines.join("\n"));
+    toast.success("Test results copied");
+  }, [testResults]);
+
   // ─── empty IR ───────────────────────────────────────────────────
   if (instructions.length === 0 && testResults.length === 0) {
     return (
@@ -232,13 +243,24 @@ export function TestResultsPanel() {
         </button>
 
         {instructions.length > 0 && (
-          <button
-            onClick={runAll}
-            disabled={testStatus === "running"}
-            className="ml-auto mr-1 rounded bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          >
-            {testStatus === "running" ? "Running…" : "Run All"}
-          </button>
+          <>
+            <button
+              onClick={runAll}
+              disabled={testStatus === "running"}
+              className="ml-auto rounded bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {testStatus === "running" ? "Running…" : "Run All"}
+            </button>
+            {testResults.length > 0 && (
+              <button
+                onClick={copyResults}
+                title="Copy results to clipboard"
+                className="rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              >
+                <Copy size={12} />
+              </button>
+            )}
+          </>
         )}
       </div>
 

@@ -145,7 +145,7 @@ export async function logEvent(event: MonitoringEvent): Promise<void> {
 /** Log a code generation event for analytics. */
 export async function logCodeGenEvent(opts: {
   userId?: string;
-  framework: "anchor" | "pinocchio";
+  framework: "anchor" | "pinocchio" | "quasar";
   instructionCount: number;
   durationMs: number;
   hasErrors: boolean;
@@ -184,7 +184,7 @@ export async function logProjectSave(opts: {
 export async function logCompilationDispatched(opts: {
   userId?: string;
   projectId: string;
-  framework: "anchor" | "pinocchio";
+  framework: "anchor" | "pinocchio" | "quasar";
 }): Promise<void> {
   await logEvent({
     name: "compilation_dispatched",

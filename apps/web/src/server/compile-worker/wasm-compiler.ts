@@ -28,7 +28,7 @@ import { generateCode } from "@solflow/codegen";
 
 export interface WasmBuildInput {
   ir: ProgramIR;
-  framework: "ANCHOR" | "PINOCCHIO";
+  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
   options: {
     release: boolean;
@@ -486,7 +486,7 @@ export async function runWasmBuild(
 ): Promise<WasmBuildResult> {
   const startedAt = Date.now();
   const generatedFramework =
-    input.framework === "ANCHOR" ? "anchor" : "pinocchio";
+    input.framework === "ANCHOR" ? "anchor" : input.framework === "QUASAR" ? "quasar" : "pinocchio";
 
   // Step 1: Generate Rust source code from IR
   const generated = generateCode(input.ir, generatedFramework);
@@ -590,7 +590,11 @@ export async function runWasmBuild(
   }
 
   const buildCmd =
-    input.framework === "ANCHOR" ? "anchor build" : "cargo build-sbf --release";
+    input.framework === "ANCHOR"
+      ? "anchor build"
+      : input.framework === "QUASAR"
+        ? "cargo build-sbf --release"
+        : "cargo build-sbf --release";
 
   onLog(`[local] Running: ${buildCmd}`, "info");
 

@@ -62,7 +62,7 @@ export const StateNode = memo(function StateNode({
 
   return (
     <BaseNodeShell
-      label="State"
+      label={d.name || "State"}
       icon={<Database size={10} />}
       accentColor="#7c3aed"
       selected={selected}

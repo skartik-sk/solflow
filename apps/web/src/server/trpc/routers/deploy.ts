@@ -212,14 +212,19 @@ interface SendTxResult {
 async function tryUntilSuccess<T>(
   fn: () => Promise<T>,
   intervalMs: number,
+  maxAttempts: number = 60,
 ): Promise<T> {
-  while (true) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       return await fn();
     } catch {
+      if (attempt >= maxAttempts - 1) {
+        throw new Error(`Operation failed after ${maxAttempts} attempts`);
+      }
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   }
+  throw new Error(`Operation failed after ${maxAttempts} attempts`);
 }
 
 interface CachedBlockhash {
@@ -229,6 +234,18 @@ interface CachedBlockhash {
 }
 
 const _blockhashCache = new Map<string, CachedBlockhash>();
+
+// Periodic cleanup: remove stale blockhash cache entries every 2 minutes
+if (typeof setInterval !== "undefined") {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of _blockhashCache) {
+      if (now - entry.timestamp > BLOCKHASH_CACHE_TTL_MS * 2) {
+        _blockhashCache.delete(key);
+      }
+    }
+  }, 120_000);
+}
 
 async function getLatestBlockhash(
   connection: Connection,
@@ -298,6 +315,8 @@ async function sendAndConfirmTxWithRetries(
 // ─── Get or create the user's persistent deployer keypair ────────────────────
 
 async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
+  // Use upsert to prevent race condition from concurrent deploy requests
+  // If two requests arrive simultaneously, only one will create the keypair
   const user = await ctx.prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, deployerKeypair: true },
@@ -305,11 +324,28 @@ async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
   if (user?.deployerKeypair) {
     return Keypair.fromSecretKey(bs58.decode(user.deployerKeypair));
   }
+
   const deployerKp = Keypair.generate();
-  await ctx.prisma.user.update({
-    where: { id: userId },
-    data: { deployerKeypair: bs58.encode(deployerKp.secretKey) },
+  const encoded = bs58.encode(deployerKp.secretKey);
+
+  // Use update with a where condition that only matches if deployerKeypair is still null
+  // This prevents overwriting if another request created it in the meantime
+  const updated = await ctx.prisma.user.updateMany({
+    where: { id: userId, deployerKeypair: null },
+    data: { deployerKeypair: encoded },
   });
+
+  if (updated.count === 0) {
+    // Another concurrent request created the keypair — read it back
+    const refreshed = await ctx.prisma.user.findUnique({
+      where: { id: userId },
+      select: { deployerKeypair: true },
+    });
+    if (refreshed?.deployerKeypair) {
+      return Keypair.fromSecretKey(bs58.decode(refreshed.deployerKeypair));
+    }
+  }
+
   log("created new deployer keypair:", deployerKp.publicKey.toBase58());
   return deployerKp;
 }
@@ -1057,7 +1093,9 @@ export const deployRouter = router({
             where: { id: deploymentId },
             data: { status: "FAILED", txSignature: "failed" },
           })
-          .catch(() => {});
+          .catch((e) => {
+            console.warn(`[deploy] Failed to update deployment ${deploymentId} status:`, e instanceof Error ? e.message : e);
+          });
 
         sendProgress("error", `Deployment failed: ${errMsg}`);
 

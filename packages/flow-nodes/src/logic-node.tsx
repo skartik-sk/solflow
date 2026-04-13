@@ -4,6 +4,7 @@
 // Can also reference accounts: account-out (right).
 
 import React, { memo } from "react";
+import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { GitBranch } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
@@ -22,6 +23,7 @@ export type LogicType =
   | "cpi";
 
 export interface LogicNodeData {
+  name?: string;
   logicType: LogicType;
   // set-field
   setAccount?: string;
@@ -76,7 +78,7 @@ export const LogicNode = memo(function LogicNode({
 
   return (
     <BaseNodeShell
-      label="Logic"
+      label={d.name || label}
       icon={<GitBranch size={10} />}
       accentColor="#0d9488"
       selected={selected}
@@ -112,6 +114,32 @@ export const LogicNode = memo(function LogicNode({
             {d.setField && <Row label="field" value={d.setField} mono />}
           </>
         )}
+        {ltype === "transfer-sol" && (
+          <>
+            {d.transferFrom && <Row label="from" value={d.transferFrom} mono />}
+            {d.transferTo && <Row label="to" value={d.transferTo} mono />}
+            {d.transferAmount && <Row label="amt" value={`${d.transferAmount} lamports`} mono />}
+          </>
+        )}
+        {ltype === "transfer-token" && (
+          <>
+            {d.transferFrom && <Row label="from" value={d.transferFrom} mono />}
+            {d.transferTo && <Row label="to" value={d.transferTo} mono />}
+            {d.transferAmount && <Row label="amt" value={d.transferAmount} mono />}
+          </>
+        )}
+        {ltype === "mint-to" && (
+          <>
+            {d.transferTo && <Row label="to" value={d.transferTo} mono />}
+            {d.transferAmount && <Row label="amt" value={d.transferAmount} mono />}
+          </>
+        )}
+        {ltype === "burn" && (
+          <>
+            {d.transferFrom && <Row label="from" value={d.transferFrom} mono />}
+            {d.transferAmount && <Row label="amt" value={d.transferAmount} mono />}
+          </>
+        )}
         {ltype === "require" && d.requireCondition && (
           <Row label="cond" value={d.requireCondition} mono />
         )}
@@ -121,38 +149,25 @@ export const LogicNode = memo(function LogicNode({
         {ltype === "emit-event" && d.emitEvent && (
           <Row label="event" value={d.emitEvent} mono />
         )}
+        {ltype === "return-error" && d.returnErrorCode && (
+          <Row label="err" value={d.returnErrorCode} mono />
+        )}
         {ltype === "math" && (
           <Row
             label="expr"
-            value={`${d.mathLeft ?? "a"} ${d.mathOperation ?? "+"} ${d.mathRight ?? "b"}`}
+            value={`${d.mathLeft ?? "a"} ${d.mathOperation ?? "+"} ${d.mathRight ?? "b"} → ${d.mathResult ?? "out"}`}
             mono
           />
         )}
-        {ltype === "cpi" && d.cpiProgram && (
-          <Row label="prog" value={d.cpiProgram} mono />
+        {ltype === "cpi" && (
+          <>
+            {d.cpiProgram && <Row label="prog" value={d.cpiProgram} mono />}
+            {d.cpiInstruction && <Row label="ix" value={d.cpiInstruction} mono />}
+          </>
         )}
       </div>
     </BaseNodeShell>
   );
 });
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground/70">{label}</span>
-      <span
-        className={`truncate max-w-[120px] text-right ${mono ? "font-mono" : ""}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
+

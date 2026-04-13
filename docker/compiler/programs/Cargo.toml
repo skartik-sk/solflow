@@ -1,0 +1,46 @@
+[package]
+name = "solflow-template"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+path = "template/src/lib.rs"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+lto = "fat"
+codegen-units = 1
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+# Anchor framework
+anchor-lang = { version = "0.31.0", features = ["init-if-needed", "allow-missing-optionals", "anchor-debug"] }
+anchor-spl = { version = "0.31.0", features = ["metadata", "dex", "governance"] }
+
+# Quasar framework (zero-copy Solana programs)
+quasar-lang = "0.1"
+
+# Pinocchio (zero-dependency Solana programs)
+pinocchio = "0.8"
+pinocchio-system = "0.2"
+pinocchio-token = "0.4"
+
+# Common Solana dependencies
+solana-program = "~2.1"
+spl-token = "~6"
+spl-associated-token-account = "~6"
+spl-token-2022 = "~6"
+borsh = "~1"
+bytemuck = "~1"
+num-derive = "~0.4"
+num-traits = "~0.2"
+thiserror = "~2"

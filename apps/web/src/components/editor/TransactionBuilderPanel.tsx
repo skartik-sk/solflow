@@ -1,12 +1,23 @@
 // apps/web/src/components/editor/TransactionBuilderPanel.tsx
 // Bottom-panel "txbuilder" tab — construct, simulate, and send a transaction
-// for any instruction defined in the IR. Uses wallet adapter to sign + send.
+// for any instruction defined in the IR. Uses @solana/kit for RPC and
+// transaction building, wallet adapter for signing.
 
 "use client";
 
 import React, { useState, useCallback } from "react";
+import {
+  createSolanaRpc,
+} from "@solana/kit";
 import { useCodeStore } from "@/store/code-store";
 import { useProjectStore } from "@/store/project-store";
+import { useWallet } from "@solana/wallet-adapter-react";
+import {
+  Connection,
+  Transaction as Web3Transaction,
+  TransactionInstruction as Web3TransactionInstruction,
+  PublicKey,
+} from "@solana/web3.js";
 import type { Instruction, Account, InstructionArg } from "@solflow/ir";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -39,11 +50,93 @@ function typeLabel(type: unknown): string {
   return "unknown";
 }
 
+/** Encode instruction arguments into a Uint8Array discriminator + args. */
+function encodeInstructionData(
+  ixName: string,
+  allInstructions: Instruction[],
+  ixArgs: InstructionArg[],
+  argValues: Record<string, string>,
+): Uint8Array {
+  const ixIndex = allInstructions.findIndex((i: any) => i.name === ixName);
+
+  // 8-byte discriminator (LE index, matches codegen)
+  const discriminator = new Uint8Array(8);
+  const view = new DataView(discriminator.buffer);
+  view.setUint32(0, ixIndex >= 0 ? ixIndex : 0, true);
+
+  const argParts: Uint8Array[] = [discriminator];
+
+  for (const arg of ixArgs ?? []) {
+    const val = argValues[arg.name] ?? "0";
+    if (typeof arg.type === "string") {
+      switch (arg.type) {
+        case "u8": {
+          const b = new Uint8Array(1);
+          new DataView(b.buffer).setUint8(0, parseInt(val) || 0);
+          argParts.push(b);
+          break;
+        }
+        case "u16": {
+          const b = new Uint8Array(2);
+          new DataView(b.buffer).setUint16(0, parseInt(val) || 0, true);
+          argParts.push(b);
+          break;
+        }
+        case "u32": {
+          const b = new Uint8Array(4);
+          new DataView(b.buffer).setUint32(0, parseInt(val) || 0, true);
+          argParts.push(b);
+          break;
+        }
+        case "u64": {
+          const b = new Uint8Array(8);
+          new DataView(b.buffer).setBigUint64(0, BigInt(parseInt(val) || 0), true);
+          argParts.push(b);
+          break;
+        }
+        case "i8": {
+          const b = new Uint8Array(1);
+          new DataView(b.buffer).setInt8(0, parseInt(val) || 0);
+          argParts.push(b);
+          break;
+        }
+        case "i32": {
+          const b = new Uint8Array(4);
+          new DataView(b.buffer).setInt32(0, parseInt(val) || 0, true);
+          argParts.push(b);
+          break;
+        }
+        case "bool": {
+          argParts.push(new Uint8Array([val === "true" || val === "1" ? 1 : 0]));
+          break;
+        }
+        default: {
+          argParts.push(new Uint8Array(8));
+          break;
+        }
+      }
+    } else {
+      argParts.push(new Uint8Array(8));
+    }
+  }
+
+  // Concat all parts
+  const totalLen = argParts.reduce((s, p) => s + p.length, 0);
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const part of argParts) {
+    result.set(part, offset);
+    offset += part.length;
+  }
+  return result;
+}
+
 // ─── TxBuilderPanel ──────────────────────────────────────────────────────────
 
 export function TransactionBuilderPanel() {
   const irJson = useCodeStore((s) => s.irJson);
   const network = useProjectStore((s) => s.network);
+  const wallet = useWallet();
 
   const [selectedIx, setSelectedIx] = useState<string>("");
   const [selectedNetwork, setSelectedNetwork] = useState<Network>(
@@ -64,8 +157,8 @@ export function TransactionBuilderPanel() {
   const [sendSig, setSendSig] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const instructions: Instruction[] = irJson?.instructions ?? [];
-  const instruction = instructions.find((ix) => ix.name === selectedIx) ?? null;
+  const allInstructions: Instruction[] = irJson?.instructions ?? [];
+  const instruction = allInstructions.find((ix) => ix.name === selectedIx) ?? null;
 
   // ─── When instruction selection changes, reset fields ───────────
   const handleSelectIx = useCallback(
@@ -74,7 +167,7 @@ export function TransactionBuilderPanel() {
       setSimResult(null);
       setSendSig(null);
       setError(null);
-      const ix = instructions.find((i) => i.name === name);
+      const ix = allInstructions.find((i) => i.name === name);
       if (!ix) return;
       setAccounts(
         Object.fromEntries(ix.accounts.map((a: Account) => [a.name, ""])),
@@ -85,10 +178,34 @@ export function TransactionBuilderPanel() {
         ),
       );
     },
-    [instructions],
+    [allInstructions],
   );
 
-  // ─── Simulate ────────────────────────────────────────────────────
+  /** Build account keys shared by both simulate and send. */
+  function buildAccountKeys(ix: Instruction) {
+    return ix.accounts.map((acc: Account) => {
+      const pubkeyStr = accounts[acc.name] || "";
+      const pubkey = pubkeyStr ? new PublicKey(pubkeyStr) : PublicKey.unique();
+      const isSigner = acc.constraints.some((c) => c.type === "signer");
+      const isWritable = acc.constraints.some(
+        (c) =>
+          c.type === "mut" ||
+          c.type === "init" ||
+          c.type === "init-if-needed" ||
+          c.type === "realloc",
+      );
+      return { pubkey, isSigner, isWritable };
+    });
+  }
+
+  /** Build instruction data bytes shared by both simulate and send. */
+  function buildData(ix: Instruction): Buffer {
+    return Buffer.from(
+      encodeInstructionData(ix.name, allInstructions, ix.args ?? [], args),
+    );
+  }
+
+  // ─── Simulate using @solana/kit RPC ─────────────────────────────
   const simulate = useCallback(async () => {
     if (!instruction || !programId.trim()) {
       setError("Select an instruction and enter a program ID.");
@@ -101,99 +218,124 @@ export function TransactionBuilderPanel() {
 
     try {
       const rpcUrl = RPC_URLS[selectedNetwork];
+      // Create @solana/kit RPC for blockhash fetching
+      const rpc = createSolanaRpc(rpcUrl);
+      const connection = new Connection(rpcUrl, "confirmed");
 
-      // Build a minimal base64-encoded transaction message for simulation.
-      // We rely on the simulateTransaction RPC endpoint with base64 encoding.
-      // In production you'd use @solana/web3.js TransactionMessage — here we
-      // produce a stub transaction that the RPC can validate.
+      const programPk = new PublicKey(programId.trim());
+      const feePayerPk = payer.trim()
+        ? new PublicKey(payer.trim())
+        : wallet.publicKey ?? new PublicKey("11111111111111111111111111111111");
 
-      // For simulation without wallet, we use a zero-filled fee-payer pubkey
-      // unless the user supplied one.
-      const feePayer = payer.trim() || "11111111111111111111111111111111";
+      const keys = buildAccountKeys(instruction);
+      const data = buildData(instruction);
 
-      // Call simulateTransaction with a dummy noop to get fee info + logs
-      const resp = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getRecentBlockhash",
-          params: [{ commitment: "confirmed" }],
-        }),
+      const ix = new Web3TransactionInstruction({ keys, programId: programPk, data });
+
+      // Fetch blockhash via @solana/kit RPC
+      const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+      const tx = new Web3Transaction({
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: Number(latestBlockhash.lastValidBlockHeight),
+        feePayer: feePayerPk,
       });
-      const blockhashJson = await resp.json();
-      const blockhash: string =
-        blockhashJson?.result?.value?.blockhash ??
-        "11111111111111111111111111111111";
+      tx.add(ix);
 
-      // Surface the composed parameters as a readable preview
-      const preview = {
-        program: programId.trim(),
-        instruction: instruction.name,
-        feePayer,
-        blockhash,
-        accounts: Object.entries(accounts).map(([name, pubkey]) => ({
-          name,
-          pubkey: pubkey || "(empty)",
-          isSigner:
-            instruction.accounts
-              .find((a: Account) => a.name === name)
-              ?.constraints.some((c) => c.type === "signer") ?? false,
-          isMut:
-            instruction.accounts
-              .find((a: Account) => a.name === name)
-              ?.constraints.some((c) => c.type === "mut") ?? false,
-        })),
-        args: Object.entries(args).map(([name, value]) => ({ name, value })),
-      };
+      // Simulate via web3.js (well-typed, wallet-compatible)
+      const simulation = await connection.simulateTransaction(tx, undefined, false);
 
-      // Simulate: since we can't serialize a real Anchor ix without the SDK,
-      // we return a structured preview result
-      setSimResult({
-        success: true,
-        logs: [
-          `Program ${programId.trim()} invoke [1]`,
-          `  instruction: ${instruction.name}`,
-          ...preview.accounts.map(
-            (a) =>
-              `  account[${a.name}]: ${a.pubkey}${a.isSigner ? " (signer)" : ""}${a.isMut ? " (writable)" : ""}`,
-          ),
-          ...preview.args.map((a) => `  arg[${a.name}]: ${a.value}`),
-          `Program ${programId.trim()} success`,
-        ],
-        unitsConsumed: 2240,
-      });
+      if (simulation.value.err) {
+        setSimResult({
+          success: false,
+          logs: simulation.value.logs ?? [],
+          unitsConsumed: simulation.value.unitsConsumed ?? undefined,
+          error:
+            typeof simulation.value.err === "string"
+              ? simulation.value.err
+              : JSON.stringify(simulation.value.err),
+        });
+      } else {
+        setSimResult({
+          success: true,
+          logs: simulation.value.logs ?? [],
+          unitsConsumed: simulation.value.unitsConsumed ?? undefined,
+        });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Simulation failed");
     } finally {
       setLoading(false);
     }
-  }, [instruction, programId, selectedNetwork, payer, accounts, args]);
+  }, [instruction, programId, selectedNetwork, payer, accounts, args, allInstructions, wallet.publicKey]);
 
-  // ─── Send (stub — real send requires wallet adapter) ─────────────
+  // ─── Send (wallet adapter + @solana/kit RPC) ──────────────────
   const send = useCallback(async () => {
-    if (!instruction) return;
+    if (!instruction || !programId.trim()) {
+      setError("Select an instruction and enter a program ID.");
+      return;
+    }
+    if (!wallet.connected || !wallet.publicKey || !wallet.signTransaction) {
+      setError("Connect your wallet via the top-bar wallet button to sign and send transactions.");
+      return;
+    }
     setLoading(true);
     setError(null);
     setSendSig(null);
 
-    // In a full implementation this would:
-    // 1. Import @solana/web3.js Connection + TransactionMessage + VersionedTransaction
-    // 2. Use wallet adapter's signAndSendTransaction()
-    // 3. Confirm + show explorer link
-    //
-    // For now we show a clear message directing the user to connect a wallet.
-    await new Promise((r) => setTimeout(r, 400));
-    setLoading(false);
-    setError(
-      "Wallet adapter not connected. Connect your wallet via the top-bar wallet button to sign and send transactions.",
-    );
-  }, [instruction]);
+    try {
+      const rpcUrl = RPC_URLS[selectedNetwork];
+
+      // Use @solana/kit RPC for blockhash fetching
+      const rpc = createSolanaRpc(rpcUrl);
+      // web3.js Connection for sendRawTransaction (wallet compat)
+      const connection = new Connection(rpcUrl, "confirmed");
+
+      const programPk = new PublicKey(programId.trim());
+      const feePayerPk = wallet.publicKey;
+
+      const keys = buildAccountKeys(instruction);
+      const data = buildData(instruction);
+
+      const ix = new Web3TransactionInstruction({ keys, programId: programPk, data });
+
+      // Fetch blockhash via @solana/kit RPC
+      const { value: latestBlockhash } = await rpc.getLatestBlockhash().send();
+
+      const web3Tx = new Web3Transaction({
+        blockhash: latestBlockhash.blockhash,
+        lastValidBlockHeight: Number(latestBlockhash.lastValidBlockHeight),
+        feePayer: feePayerPk,
+      });
+      web3Tx.add(ix);
+
+      const signed = await wallet.signTransaction(web3Tx);
+      const signature = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: false,
+        preflightCommitment: "confirmed",
+      });
+
+      // Confirm via web3.js
+      await connection.confirmTransaction(
+        {
+          signature,
+          blockhash: latestBlockhash.blockhash,
+          lastValidBlockHeight: Number(latestBlockhash.lastValidBlockHeight),
+        },
+        "confirmed",
+      );
+
+      setSendSig(signature);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Send failed");
+    } finally {
+      setLoading(false);
+    }
+  }, [instruction, programId, selectedNetwork, payer, accounts, args, allInstructions, wallet]);
 
   // ─── Render ──────────────────────────────────────────────────────
 
-  if (instructions.length === 0) {
+  if (allInstructions.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Generate code first — instructions will appear here for transaction
@@ -212,7 +354,7 @@ export function TransactionBuilderPanel() {
           className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
         >
           <option value="">— select instruction —</option>
-          {instructions.map((ix) => (
+          {allInstructions.map((ix) => (
             <option key={ix.id} value={ix.name}>
               {ix.name}
             </option>

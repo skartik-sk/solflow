@@ -29,10 +29,21 @@ export interface GeneratedProject {
   warnings: CodegenWarning[];
 }
 
+// ProgramIR shape — loosely typed here to avoid circular imports from @solflow/ir.
+// Components that need full typing should import from @solflow/ir directly.
+interface ProgramIRSnapshot {
+  program?: unknown;
+  instructions?: unknown[];
+  accounts?: unknown[];
+  states?: unknown[];
+  events?: unknown[];
+  errors?: unknown[];
+  [key: string]: unknown;
+}
+
 interface CodeState {
   generatedCode: GeneratedProject | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  irJson: any | null;          // ProgramIR — typed loosely to avoid circular import
+  irJson: ProgramIRSnapshot | null;
   errors: CodegenError[];
   warnings: CodegenWarning[];
   activeFile: string | null;   // Path of the file currently shown in Monaco

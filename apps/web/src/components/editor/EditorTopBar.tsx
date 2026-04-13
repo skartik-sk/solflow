@@ -21,13 +21,15 @@ import {
   CheckCircle,
   XCircle,
   Wallet,
+  Keyboard,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useProjectStore } from "@/store/project-store";
 import { useUIStore } from "@/store/ui-store";
-import { useUndo, useRedo, useCanUndo, useCanRedo } from "@/store/flow-store";
+import { useUndo, useRedo, useCanUndo, useCanRedo, useFlowStore } from "@/store/flow-store";
 import { useBuildStore } from "@/store/build-store";
 import type { Framework, Network } from "@/store/project-store";
 
@@ -45,7 +47,7 @@ export function EditorTopBar() {
     save,
   } = useProjectStore();
 
-  const { openBottomPanelTab } = useUIStore();
+  const { openBottomPanelTab, propertiesOpen, toggleProperties } = useUIStore();
 
   const wallet = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
@@ -192,6 +194,16 @@ export function EditorTopBar() {
   };
 
   // ─── Compile button appearance ────────────────────────────────────────────
+
+  const handleSettings = () => {
+    // Find the program node and select it, then open properties panel
+    const nodes = useFlowStore.getState().nodes;
+    const programNode = nodes.find((n) => n.type === "program");
+    if (programNode) {
+      useFlowStore.getState().setSelectedNode(programNode.id);
+    }
+    if (!propertiesOpen) toggleProperties();
+  };
   const isCompiling =
     compileStatus === "queued" || compileStatus === "building";
   const compileIcon = isCompiling ? (
@@ -274,6 +286,15 @@ export function EditorTopBar() {
           </button>
         )}
 
+        {/* Project settings */}
+        <button
+          onClick={handleSettings}
+          title="Project settings"
+          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Settings size={12} />
+        </button>
+
         {/* Dirty indicator */}
         {isDirty && !isSaving && (
           <span
@@ -326,7 +347,7 @@ export function EditorTopBar() {
 
         {/* Framework toggle */}
         <div className="flex rounded-lg border border-border overflow-hidden">
-          {(["anchor", "pinocchio"] as Framework[]).map((fw) => (
+          {(["anchor", "pinocchio", "quasar"] as Framework[]).map((fw) => (
             <button
               key={fw}
               onClick={() => setFramework(fw)}
@@ -334,7 +355,9 @@ export function EditorTopBar() {
                 framework === fw
                   ? fw === "anchor"
                     ? "bg-blue-500/20 text-blue-400"
-                    : "bg-violet-500/20 text-violet-400"
+                    : fw === "pinocchio"
+                      ? "bg-violet-500/20 text-violet-400"
+                      : "bg-emerald-500/20 text-emerald-400"
                   : "text-muted-foreground hover:bg-accent"
               }`}
             >
@@ -462,6 +485,29 @@ export function EditorTopBar() {
           <RotateCcw size={12} />
         </button>
 
+        {/* Keyboard shortcuts */}
+        <div className="relative group">
+          <button
+            title="Keyboard shortcuts"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <Keyboard size={12} />
+          </button>
+          <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 hidden w-56 rounded-lg border border-border bg-card p-3 shadow-xl group-hover:block">
+            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Shortcuts
+            </p>
+            <div className="space-y-1 text-[11px]">
+              <ShortcutRow keys="Ctrl+S" label="Save" />
+              <ShortcutRow keys="Ctrl+Z" label="Undo" />
+              <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
+              <ShortcutRow keys="Ctrl+F" label="Find node" />
+              <ShortcutRow keys="Del / Bksp" label="Delete selected" />
+              <ShortcutRow keys="Shift" label="Multi-select" />
+            </div>
+          </div>
+        </div>
+
         {/* Compile */}
         <button
           onClick={handleCompile}
@@ -474,5 +520,18 @@ export function EditorTopBar() {
         </button>
       </div>
     </header>
+  );
+}
+
+// ─── Shortcut row helper ──────────────────────────────────────────────────────
+
+function ShortcutRow({ keys, label }: { keys: string; label: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-muted-foreground">{label}</span>
+      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/70">
+        {keys}
+      </kbd>
+    </div>
   );
 }

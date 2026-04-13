@@ -3,6 +3,7 @@
 // Connects from Instruction (left input via event-out handle).
 
 import React, { memo } from "react";
+import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Radio } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
@@ -29,7 +30,7 @@ export const EventNode = memo(function EventNode({
 
   return (
     <BaseNodeShell
-      label="Event"
+      label={d.name || "Event"}
       icon={<Radio size={10} />}
       accentColor="#eab308"
       selected={selected}
@@ -37,7 +38,7 @@ export const EventNode = memo(function EventNode({
         // ← left: receives from Instruction
         {
           id: "event-in",
-          kind: "event-out",
+          kind: "event-in",
           position: Position.Left,
           isTarget: true,
         },
@@ -51,23 +52,4 @@ export const EventNode = memo(function EventNode({
   );
 });
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground/70">{label}</span>
-      <span
-        className={`truncate max-w-[120px] text-right ${mono ? "font-mono" : ""}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}
+

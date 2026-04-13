@@ -18,7 +18,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [framework, setFramework] = useState<"ANCHOR" | "PINOCCHIO">("ANCHOR");
+  const [framework, setFramework] = useState<"ANCHOR" | "PINOCCHIO" | "QUASAR">("ANCHOR");
 
   const createProject = trpc.project.create.useMutation({
     onSuccess: (project) => {
@@ -108,8 +108,8 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
             <label className="mb-1.5 block text-sm font-medium">
               Framework
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              {(["ANCHOR", "PINOCCHIO"] as const).map((fw) => (
+            <div className="grid grid-cols-3 gap-2">
+              {(["ANCHOR", "PINOCCHIO", "QUASAR"] as const).map((fw) => (
                 <button
                   key={fw}
                   type="button"
@@ -118,13 +118,15 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
                     framework === fw
                       ? fw === "ANCHOR"
                         ? "border-blue-500/60 bg-blue-500/10 text-blue-400"
-                        : "border-violet-500/60 bg-violet-500/10 text-violet-400"
+                        : fw === "PINOCCHIO"
+                          ? "border-violet-500/60 bg-violet-500/10 text-violet-400"
+                          : "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
                       : "border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground"
                   }`}
                 >
-                  {fw === "ANCHOR" ? "Anchor" : "Pinocchio"}
+                  {fw === "ANCHOR" ? "Anchor" : fw === "PINOCCHIO" ? "Pinocchio" : "Quasar"}
                   <p className="mt-0.5 text-xs opacity-70">
-                    {fw === "ANCHOR" ? "High-level, safe" : "Zero-copy, fast"}
+                    {fw === "ANCHOR" ? "High-level, safe" : fw === "PINOCCHIO" ? "Zero-copy, fast" : "Zero-copy, easy"}
                   </p>
                 </button>
               ))}

@@ -61,7 +61,7 @@ export async function GET(
     );
   }
 
-  const framework = project.framework.toLowerCase() as "anchor" | "pinocchio";
+  const framework = project.framework.toLowerCase() as "anchor" | "pinocchio" | "quasar";
 
   let ir: ProgramIR;
   try {

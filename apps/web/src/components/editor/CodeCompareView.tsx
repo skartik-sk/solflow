@@ -3,10 +3,12 @@
 // CodeCompareView — side-by-side Anchor vs Pinocchio code comparison.
 // Generates both frameworks from the current IR and shows them in split panes.
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useCodeStore } from "@/store/code-store";
 import type { GeneratedFile } from "@/store/code-store";
+import { generateCode } from "@solflow/codegen";
+import type { editor as MonacoEditorTypes } from "monaco-editor";
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -17,7 +19,7 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ),
 });
 
-type Framework = "anchor" | "pinocchio";
+type Framework = "anchor" | "pinocchio" | "quasar";
 
 interface CompareState {
   anchor: GeneratedFile[] | null;
@@ -45,12 +47,16 @@ function Pane({
   activeFile,
   onSelectFile,
   color,
+  syncedEditor,
+  onEditorMount,
 }: {
   label: string;
   files: GeneratedFile[];
   activeFile: string | null;
   onSelectFile: (path: string) => void;
   color: string;
+  syncedEditor: React.MutableRefObject<MonacoEditorTypes.ICodeEditor | null>;
+  onEditorMount: (editor: MonacoEditorTypes.ICodeEditor) => void;
 }) {
   const current = files.find((f) => f.path === activeFile) ?? files[0] ?? null;
 
@@ -92,6 +98,7 @@ function Pane({
             value={current.content}
             language={detectLanguage(current.path)}
             theme="vs-dark"
+            onMount={onEditorMount}
             options={{
               readOnly: true,
               minimap: { enabled: false },
@@ -124,49 +131,77 @@ function Pane({
 
 export function CodeCompareView() {
   const irJson = useCodeStore((s) => s.irJson);
-  const [state, setState] = useState<CompareState>({
-    anchor: null,
-    pinocchio: null,
-    loading: false,
-    error: null,
-  });
   const [anchorFile, setAnchorFile] = useState<string | null>(null);
   const [pinocchioFile, setPinocchioFile] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!irJson) {
-      setState({ anchor: null, pinocchio: null, loading: false, error: null });
-      return;
+  // Scroll sync refs
+  const anchorEditorRef = useRef<MonacoEditorTypes.ICodeEditor | null>(null);
+  const pinocchioEditorRef = useRef<MonacoEditorTypes.ICodeEditor | null>(null);
+  const isSyncingScroll = useRef(false);
+
+  const onAnchorMount = useCallback(
+    (editor: MonacoEditorTypes.ICodeEditor) => {
+      anchorEditorRef.current = editor;
+      editor.onDidScrollChange((e) => {
+        if (isSyncingScroll.current) return;
+        isSyncingScroll.current = true;
+        const target = pinocchioEditorRef.current;
+        if (target) {
+          target.setScrollPosition({
+            scrollTop: e.scrollTop,
+            scrollLeft: e.scrollLeft,
+          });
+        }
+        isSyncingScroll.current = false;
+      });
+    },
+    [],
+  );
+
+  const onPinocchioMount = useCallback(
+    (editor: MonacoEditorTypes.ICodeEditor) => {
+      pinocchioEditorRef.current = editor;
+      editor.onDidScrollChange((e) => {
+        if (isSyncingScroll.current) return;
+        isSyncingScroll.current = true;
+        const target = anchorEditorRef.current;
+        if (target) {
+          target.setScrollPosition({
+            scrollTop: e.scrollTop,
+            scrollLeft: e.scrollLeft,
+          });
+        }
+        isSyncingScroll.current = false;
+      });
+    },
+    [],
+  );
+
+  // Memoize generated code — only regenerate when irJson actually changes
+  const generated = useMemo(() => {
+    if (!irJson) return null;
+    try {
+      const anchorResult = generateCode(irJson, "anchor");
+      const pinocchioResult = generateCode(irJson, "pinocchio");
+      return { anchor: anchorResult.files, pinocchio: pinocchioResult.files };
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : "Code generation failed" };
     }
-
-    setState((s) => ({ ...s, loading: true, error: null }));
-
-    Promise.all([import("@solflow/codegen")]).then(([{ generateCode }]) => {
-      try {
-        const anchorResult = generateCode(irJson, "anchor");
-        const pinocchioResult = generateCode(irJson, "pinocchio");
-
-        setState({
-          anchor: anchorResult.files,
-          pinocchio: pinocchioResult.files,
-          loading: false,
-          error: null,
-        });
-
-        setAnchorFile(anchorResult.files[0]?.path ?? null);
-        setPinocchioFile(pinocchioResult.files[0]?.path ?? null);
-      } catch (err) {
-        setState({
-          anchor: null,
-          pinocchio: null,
-          loading: false,
-          error: err instanceof Error ? err.message : "Code generation failed",
-        });
-      }
-    });
   }, [irJson]);
 
-  if (!irJson) {
+  // Reset selected files when generated output changes
+  const prevGenRef = useRef(generated);
+  useEffect(() => {
+    if (generated && "anchor" in generated && generated.anchor) {
+      if (prevGenRef.current !== generated) {
+        setAnchorFile(generated.anchor[0]?.path ?? null);
+        setPinocchioFile(generated.pinocchio?.[0]?.path ?? null);
+      }
+    }
+    prevGenRef.current = generated;
+  }, [generated]);
+
+  if (!irJson || !generated) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         Add nodes to the canvas to compare Anchor vs Pinocchio output.
@@ -174,40 +209,33 @@ export function CodeCompareView() {
     );
   }
 
-  if (state.loading) {
-    return (
-      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-border border-t-primary" />
-        Generating comparison…
-      </div>
-    );
-  }
-
-  if (state.error) {
+  if ("error" in generated) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-destructive">
-        {state.error}
+        {generated.error}
       </div>
     );
   }
-
-  if (!state.anchor || !state.pinocchio) return null;
 
   return (
     <div className="flex h-full overflow-hidden">
       <Pane
         label="Anchor"
-        files={state.anchor}
+        files={generated.anchor}
         activeFile={anchorFile}
         onSelectFile={setAnchorFile}
         color="bg-violet-500/10"
+        syncedEditor={pinocchioEditorRef}
+        onEditorMount={onAnchorMount}
       />
       <Pane
         label="Pinocchio"
-        files={state.pinocchio}
+        files={generated.pinocchio}
         activeFile={pinocchioFile}
         onSelectFile={setPinocchioFile}
         color="bg-cyan-500/10"
+        syncedEditor={anchorEditorRef}
+        onEditorMount={onPinocchioMount}
       />
     </div>
   );

@@ -45,7 +45,7 @@ export default async function EditorPage({ params }: Props) {
     <EditorShell
       projectId={project.id}
       projectName={project.name}
-      framework={project.framework.toLowerCase() as "anchor" | "pinocchio"}
+      framework={project.framework.toLowerCase() as "anchor" | "pinocchio" | "quasar"}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       flowData={project.flowData as any}
     />

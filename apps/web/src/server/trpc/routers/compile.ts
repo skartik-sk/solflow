@@ -87,7 +87,8 @@ export const compileRouter = router({
       // ── Generate code + compile locally (no Docker/Redis needed) ────────
       const framework = (project.framework?.toLowerCase() ?? "anchor") as
         | "anchor"
-        | "pinocchio";
+        | "pinocchio"
+        | "quasar";
 
       // Create compilation record as BUILDING
       const compilation = await ctx.prisma.compilation.create({

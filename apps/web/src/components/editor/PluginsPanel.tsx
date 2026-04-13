@@ -1,14 +1,84 @@
 // PluginsPanel — shows all registered plugins and lets the user enable/disable them.
+// Includes validation warnings and security indicators.
 "use client";
 
-import React from "react";
-import { Puzzle, ExternalLink, CheckCircle2, Circle } from "lucide-react";
+import React, { useMemo } from "react";
+import { Puzzle, ExternalLink, CheckCircle2, Circle, AlertTriangle, ShieldCheck, ShieldAlert } from "lucide-react";
 import { pluginRegistry } from "@solflow/plugin-sdk";
 import { usePluginStore } from "@/store/plugin-store";
+import type { SolFlowPlugin } from "@solflow/plugin-sdk";
+
+// ─── Plugin validation ──────────────────────────────────────────────────────
+
+interface ValidationWarning {
+  severity: "warn" | "error";
+  message: string;
+}
+
+function validatePlugin(plugin: SolFlowPlugin): ValidationWarning[] {
+  const warnings: ValidationWarning[] = [];
+
+  // Required metadata checks
+  if (!plugin.id || plugin.id.trim() === "") {
+    warnings.push({ severity: "error", message: "Plugin has no ID" });
+  }
+  if (!plugin.version || !/^\d+\.\d+\.\d+/.test(plugin.version)) {
+    warnings.push({ severity: "warn", message: "Version is missing or invalid semver" });
+  }
+  if (!plugin.name || plugin.name.trim() === "") {
+    warnings.push({ severity: "error", message: "Plugin has no name" });
+  }
+  if (!plugin.author || plugin.author.trim() === "") {
+    warnings.push({ severity: "warn", message: "No author specified" });
+  }
+  if (!plugin.description || plugin.description.trim() === "") {
+    warnings.push({ severity: "warn", message: "No description" });
+  }
+
+  // Node validation
+  for (const node of plugin.nodes) {
+    if (!node.type || node.type.trim() === "") {
+      warnings.push({ severity: "error", message: `Node missing type ID` });
+    }
+    if (!node.label || node.label.trim() === "") {
+      warnings.push({ severity: "warn", message: `Node "${node.type}" missing label` });
+    }
+    if (!node.toIR || typeof node.toIR !== "function") {
+      warnings.push({ severity: "error", message: `Node "${node.type}" missing toIR function` });
+    }
+    // Check for dangerously broad component references
+    if (!node.component) {
+      warnings.push({ severity: "warn", message: `Node "${node.type}" has no render component` });
+    }
+  }
+
+  // Codegen validation
+  if (!plugin.codegen || (!plugin.codegen.anchor && !plugin.codegen.pinocchio)) {
+    warnings.push({ severity: "warn", message: "No codegen hooks defined" });
+  }
+
+  // Security: check for audit rules
+  if (!plugin.auditRules || plugin.auditRules.length === 0) {
+    warnings.push({ severity: "warn", message: "No audit rules — code not security-reviewed" });
+  }
+
+  return warnings;
+}
+
+// ─── Component ──────────────────────────────────────────────────────────────
 
 export function PluginsPanel() {
   const { enabledPluginIds, togglePlugin } = usePluginStore();
   const allPlugins = pluginRegistry.getAllPlugins();
+
+  // Validate all plugins once
+  const validationMap = useMemo(() => {
+    const map = new Map<string, ValidationWarning[]>();
+    for (const plugin of allPlugins) {
+      map.set(plugin.id, validatePlugin(plugin));
+    }
+    return map;
+  }, [allPlugins]);
 
   if (allPlugins.length === 0) {
     return (
@@ -39,6 +109,11 @@ export function PluginsPanel() {
       <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-border">
         {allPlugins.map((plugin) => {
           const enabled = enabledPluginIds.includes(plugin.id);
+          const warnings = validationMap.get(plugin.id) ?? [];
+          const hasErrors = warnings.some((w) => w.severity === "error");
+          const hasAuditRules = (plugin.auditRules?.length ?? 0) > 0;
+          const isKnownAuthor = ["SolFlow", "SolFlow Team", "Community"].includes(plugin.author);
+
           return (
             <div
               key={plugin.id}
@@ -73,6 +148,21 @@ export function PluginsPanel() {
                       active
                     </span>
                   )}
+                  {/* Security badge */}
+                  {hasAuditRules ? (
+                    <span className="flex items-center gap-0.5 text-[10px] text-green-400" title="Has audit rules">
+                      <ShieldCheck size={10} />
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-0.5 text-[10px] text-yellow-400" title="No audit rules — unreviewed codegen">
+                      <ShieldAlert size={10} />
+                    </span>
+                  )}
+                  {!isKnownAuthor && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-orange-400" title="Unverified author">
+                      <AlertTriangle size={10} />
+                    </span>
+                  )}
                 </div>
                 <p className="mt-0.5 text-xs text-muted-foreground truncate">
                   {plugin.description}
@@ -83,7 +173,7 @@ export function PluginsPanel() {
                     {plugin.nodes.length} node
                     {plugin.nodes.length !== 1 ? "s" : ""}
                   </span>
-                  {plugin.website && (
+                  {plugin.website ? (
                     <a
                       href={plugin.website}
                       target="_blank"
@@ -94,8 +184,30 @@ export function PluginsPanel() {
                       <ExternalLink className="h-2.5 w-2.5" />
                       docs
                     </a>
+                  ) : (
+                    <span className="text-orange-400/60">no docs link</span>
                   )}
                 </div>
+
+                {/* Validation warnings */}
+                {warnings.length > 0 && (
+                  <div className="mt-1.5 space-y-0.5">
+                    {warnings.map((w, i) => (
+                      <div
+                        key={i}
+                        className={`flex items-start gap-1 text-[10px] ${
+                          w.severity === "error"
+                            ? "text-red-400"
+                            : "text-yellow-400/80"
+                        }`}
+                      >
+                        <AlertTriangle size={9} className="mt-0.5 shrink-0" />
+                        <span>{w.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Node list preview */}
                 {enabled && plugin.nodes.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">

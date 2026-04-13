@@ -75,22 +75,59 @@ const BORSH_SIZE: Record<string, number> = {
   Pubkey: 32,
 };
 
-/** Decode a single primitive from a DataView at `offset` */
+/** Decode a field from a DataView at `offset`. Returns value string and byte size consumed. */
 function decodeField(
   dv: DataView,
   offset: number,
   type: unknown,
+  depth = 0,
 ): { value: string; size: number } {
-  if (typeof type !== "string") {
-    // Non-primitive — just show raw hex of first 8 bytes
-    const slice: number[] = [];
-    for (let i = 0; i < Math.min(8, dv.byteLength - offset); i++)
-      slice.push(dv.getUint8(offset + i));
-    return {
-      value: `0x${slice.map((b) => b.toString(16).padStart(2, "0")).join("")}…`,
-      size: 0,
-    };
+  // Guard against deeply nested recursion
+  if (depth > 8) {
+    return { value: "(too deeply nested)", size: 0 };
   }
+
+  // ── Complex types (object descriptors) ──────────────────────────────────
+  if (typeof type === "object" && type !== null) {
+    const t = type as Record<string, unknown>;
+
+    // Vec<T>: 4-byte LE length + N items
+    if ("vec" in t) {
+      return decodeVec(dv, offset, t.vec, depth);
+    }
+
+    // Option<T>: 1-byte flag (0=None, 1=Some) + optional T
+    if ("option" in t) {
+      return decodeOption(dv, offset, t.option, depth);
+    }
+
+    // Array<T, N>: fixed-size [T; N] — no length prefix
+    if ("array" in t) {
+      const arr = t.array as unknown[];
+      const innerType = arr[0];
+      const count = typeof arr[1] === "number" ? arr[1] : 0;
+      return decodeFixedArray(dv, offset, innerType, count, depth);
+    }
+
+    // Defined type reference — show raw hex
+    if ("defined" in t) {
+      return { value: `(defined: ${t.defined})`, size: 0 };
+    }
+
+    if ("hashMap" in t) {
+      return { value: "(HashMap — not deserializable)", size: 0 };
+    }
+
+    if ("enum" in t) {
+      const variantIdx = dv.getUint8(offset);
+      return { value: `variant #${variantIdx}`, size: 1 };
+    }
+
+    // Fallback — raw hex
+    return rawHex(dv, offset);
+  }
+
+  // ── Primitive string types ──────────────────────────────────────────────
   try {
     switch (type) {
       case "bool":
@@ -128,7 +165,6 @@ function decodeField(
       case "Pubkey": {
         const bytes: number[] = [];
         for (let i = 0; i < 32; i++) bytes.push(dv.getUint8(offset + i));
-        // base58 encode (simplified — just show hex for now)
         return {
           value: `0x${bytes.map((b) => b.toString(16).padStart(2, "0")).join("")}`,
           size: 32,
@@ -147,6 +183,79 @@ function decodeField(
   } catch {
     return { value: "decode error", size: BORSH_SIZE[type as string] ?? 0 };
   }
+}
+
+/** Decode Vec<T>: 4-byte LE length prefix + N elements */
+function decodeVec(
+  dv: DataView,
+  offset: number,
+  innerType: unknown,
+  depth: number,
+): { value: string; size: number } {
+  if (offset + 4 > dv.byteLength) return { value: "(truncated)", size: 0 };
+  const len = dv.getUint32(offset, true);
+  // Safety cap — don't try to decode absurdly large vectors
+  const cap = Math.min(len, 64);
+  let pos = offset + 4;
+  const items: string[] = [];
+  for (let i = 0; i < cap; i++) {
+    if (pos >= dv.byteLength) break;
+    const { value, size } = decodeField(dv, pos, innerType, depth + 1);
+    items.push(value);
+    if (size === 0) break; // can't advance
+    pos += size;
+  }
+  const suffix = len > cap ? `, … (${len} total)` : "";
+  return { value: `[${items.join(", ")}${suffix}]`, size: pos - offset };
+}
+
+/** Decode Option<T>: 1-byte flag (0=None, 1=Some(T)) */
+function decodeOption(
+  dv: DataView,
+  offset: number,
+  innerType: unknown,
+  depth: number,
+): { value: string; size: number } {
+  if (offset + 1 > dv.byteLength) return { value: "(truncated)", size: 0 };
+  const flag = dv.getUint8(offset);
+  if (flag === 0) {
+    return { value: "None", size: 1 };
+  }
+  const { value, size } = decodeField(dv, offset + 1, innerType, depth + 1);
+  return { value: `Some(${value})`, size: 1 + size };
+}
+
+/** Decode [T; N]: fixed-size array with no length prefix */
+function decodeFixedArray(
+  dv: DataView,
+  offset: number,
+  innerType: unknown,
+  count: number,
+  depth: number,
+): { value: string; size: number } {
+  const cap = Math.min(count, 64);
+  let pos = offset;
+  const items: string[] = [];
+  for (let i = 0; i < cap; i++) {
+    if (pos >= dv.byteLength) break;
+    const { value, size } = decodeField(dv, pos, innerType, depth + 1);
+    items.push(value);
+    if (size === 0) break;
+    pos += size;
+  }
+  const suffix = count > cap ? `, … (${count} total)` : "";
+  return { value: `[${items.join(", ")}${suffix}]`, size: pos - offset };
+}
+
+/** Fallback: show first 8 bytes as hex */
+function rawHex(dv: DataView, offset: number): { value: string; size: number } {
+  const slice: number[] = [];
+  for (let i = 0; i < Math.min(8, dv.byteLength - offset); i++)
+    slice.push(dv.getUint8(offset + i));
+  return {
+    value: `0x${slice.map((b) => b.toString(16).padStart(2, "0")).join("")}…`,
+    size: 0,
+  };
 }
 
 /** Parse account data bytes against a State schema's fields (skips 8-byte Anchor discriminator) */

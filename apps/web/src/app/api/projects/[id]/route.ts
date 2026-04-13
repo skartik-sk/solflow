@@ -51,14 +51,49 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Only allow known fields — reject unknown keys
+  const allowedKeys = new Set(["name", "description", "flowData", "irData", "generatedCode", "framework"]);
+  const unknownKeys = Object.keys(body).filter((k) => !allowedKeys.has(k));
+  if (unknownKeys.length > 0) {
+    return NextResponse.json({ error: `Unknown fields: ${unknownKeys.join(", ")}` }, { status: 400 });
+  }
+
   const { name, description, flowData, irData, generatedCode, framework } = body;
+
+  // Validate field types
+  if (name !== undefined && typeof name !== "string") {
+    return NextResponse.json({ error: "name must be a string" }, { status: 400 });
+  }
+  if (description !== undefined && typeof description !== "string") {
+    return NextResponse.json({ error: "description must be a string" }, { status: 400 });
+  }
+  if (name !== undefined && (String(name).trim().length === 0 || String(name).length > 200)) {
+    return NextResponse.json({ error: "name must be 1-200 characters" }, { status: 400 });
+  }
+  if (framework !== undefined && !["ANCHOR", "PINOCCHIO", "QUASAR"].includes(framework as string)) {
+    return NextResponse.json({ error: "Invalid framework" }, { status: 400 });
+  }
+
+  // Validate flowData structure (must be object with nodes + edges if present)
+  if (flowData !== undefined && flowData !== null) {
+    if (typeof flowData !== "object" || Array.isArray(flowData)) {
+      return NextResponse.json({ error: "flowData must be an object" }, { status: 400 });
+    }
+    const fd = flowData as Record<string, unknown>;
+    if (fd.nodes !== undefined && !Array.isArray(fd.nodes)) {
+      return NextResponse.json({ error: "flowData.nodes must be an array" }, { status: 400 });
+    }
+    if (fd.edges !== undefined && !Array.isArray(fd.edges)) {
+      return NextResponse.json({ error: "flowData.edges must be an array" }, { status: 400 });
+    }
+  }
 
   const updated = await prisma.project.update({
     where: { id },
     data: {
       ...(name !== undefined && { name: String(name).trim() }),
       ...(description !== undefined && { description: String(description).trim() || null }),
-      ...(framework !== undefined && { framework: framework === "PINOCCHIO" ? "PINOCCHIO" : "ANCHOR" }),
+      ...(framework !== undefined && { framework: framework as "ANCHOR" | "PINOCCHIO" | "QUASAR" }),
       ...(flowData !== undefined && { flowData: flowData ? (flowData as any) : null }),
       ...(irData !== undefined && { irData: irData ? (irData as any) : null }),
       ...(generatedCode !== undefined && { generatedCode: generatedCode ? (generatedCode as any) : null }),

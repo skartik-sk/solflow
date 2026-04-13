@@ -3,7 +3,7 @@
 
 "use client";
 
-import React, { useCallback, useRef } from "react";
+import React, { useCallback, useRef, useState, useEffect } from "react";
 import {
   ReactFlow,
   Background,
@@ -12,6 +12,7 @@ import {
   BackgroundVariant,
   ConnectionLineType,
   useNodes,
+  useReactFlow,
   type OnConnect,
   type ReactFlowInstance,
   type DefaultEdgeOptions,
@@ -106,6 +107,143 @@ function DiffOverlayLayer() {
   );
 }
 
+// ─── Canvas search overlay ──────────────────────────────────────────────────
+
+function CanvasSearchOverlay({
+  rfInstance,
+  onClose,
+}: {
+  rfInstance: ReactFlowInstance | null;
+  onClose: () => void;
+}) {
+  const nodes = useFlowStore((s) => s.nodes);
+  const [query, setQuery] = useState("");
+  const [matchIdx, setMatchIdx] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Matching nodes
+  const matches = nodes.filter((n) => {
+    if (!query.trim()) return false;
+    const q = query.toLowerCase();
+    const data = n.data as Record<string, unknown>;
+    const name = String(data?.name ?? data?.label ?? n.type ?? "");
+    return (
+      name.toLowerCase().includes(q) ||
+      (n.type ?? "").toLowerCase().includes(q)
+    );
+  });
+
+  // Focus input on mount
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  // Jump to match
+  const focusMatch = useCallback(
+    (idx: number) => {
+      if (!rfInstance || matches.length === 0) return;
+      const node = matches[idx];
+      if (!node) return;
+      rfInstance.fitView({
+        nodes: [{ id: node.id }],
+        padding: 0.5,
+        duration: 300,
+      });
+    },
+    [rfInstance, matches],
+  );
+
+  // Navigate matches
+  const goNext = () => {
+    if (matches.length === 0) return;
+    const next = (matchIdx + 1) % matches.length;
+    setMatchIdx(next);
+    focusMatch(next);
+  };
+
+  const goPrev = () => {
+    if (matches.length === 0) return;
+    const prev = (matchIdx - 1 + matches.length) % matches.length;
+    setMatchIdx(prev);
+    focusMatch(prev);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.shiftKey ? goPrev() : goNext();
+    } else if (e.key === "Escape") {
+      onClose();
+    }
+  };
+
+  // Reset match index when query changes
+  useEffect(() => {
+    setMatchIdx(0);
+    if (matches.length > 0) focusMatch(0);
+  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5 rounded-lg border border-border bg-card shadow-lg px-2 py-1">
+      <input
+        ref={inputRef}
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder="Find node…"
+        className="w-44 bg-transparent px-1 py-0.5 text-xs outline-none placeholder:text-muted-foreground/50"
+      />
+      {query.trim() && (
+        <>
+          <span className="text-[10px] text-muted-foreground shrink-0">
+            {matches.length > 0 ? `${matchIdx + 1}/${matches.length}` : "0/0"}
+          </span>
+          <button
+            onClick={goPrev}
+            disabled={matches.length === 0}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-30 px-0.5"
+            title="Previous match (Shift+Enter)"
+          >
+            &#x25B2;
+          </button>
+          <button
+            onClick={goNext}
+            disabled={matches.length === 0}
+            className="text-muted-foreground hover:text-foreground disabled:opacity-30 px-0.5"
+            title="Next match (Enter)"
+          >
+            &#x25BC;
+          </button>
+        </>
+      )}
+      <button
+        onClick={onClose}
+        className="text-muted-foreground hover:text-foreground ml-0.5"
+        title="Close (Esc)"
+      >
+        &times;
+      </button>
+    </div>
+  );
+}
+
+// ─── Fit to screen button (must be inside ReactFlow context) ────────────────
+
+function FitViewButton() {
+  const { fitView } = useReactFlow();
+  return (
+    <button
+      onClick={() => fitView({ padding: 0.2, duration: 300 })}
+      className="absolute bottom-3 left-3 z-10 flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-lg hover:bg-accent hover:text-foreground transition-colors"
+      title="Fit to screen"
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+      </svg>
+    </button>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function FlowCanvas() {
@@ -117,11 +255,24 @@ export function FlowCanvas() {
   const [rfInstance, setRfInstance] = React.useState<ReactFlowInstance | null>(
     null,
   );
+  const [searchOpen, setSearchOpen] = useState(false);
 
   // Also register it globally so other panels (e.g. AuditPanel) can call focusNode()
   const handleInit = React.useCallback((instance: ReactFlowInstance) => {
     setRfInstance(instance);
     setRFInstance(instance);
+  }, []);
+
+  // Ctrl+F / Cmd+F to open canvas search
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "f") {
+        e.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, []);
 
   // Memoize the minimap nodeColor callback — stable reference
@@ -162,7 +313,7 @@ export function FlowCanvas() {
   );
 
   return (
-    <div ref={reactFlowWrapper} className="h-full w-full">
+    <div ref={reactFlowWrapper} className="relative h-full w-full">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -199,7 +350,16 @@ export function FlowCanvas() {
         />
         {/* Diff overlay rings — rendered inside ReactFlow so positions are in flow coords */}
         <DiffOverlayLayer />
+        {/* Fit-to-screen button */}
+        <FitViewButton />
       </ReactFlow>
+      {/* Canvas search overlay */}
+      {searchOpen && (
+        <CanvasSearchOverlay
+          rfInstance={rfInstance}
+          onClose={() => setSearchOpen(false)}
+        />
+      )}
     </div>
   );
 }

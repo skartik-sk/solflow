@@ -3,6 +3,7 @@
 // Connects downward to Instruction nodes.
 
 import React, { memo } from "react";
+import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Code2 } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
@@ -24,7 +25,7 @@ export const ProgramNode = memo(function ProgramNode({
 
   return (
     <BaseNodeShell
-      label="Program Root"
+      label={d.name || "Program Root"}
       icon={<Code2 size={10} />}
       accentColor="#4a47a3"
       selected={selected}
@@ -51,24 +52,3 @@ export const ProgramNode = memo(function ProgramNode({
     </BaseNodeShell>
   );
 });
-
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground/70">{label}</span>
-      <span
-        className={`truncate max-w-[120px] text-right ${mono ? "font-mono" : ""}`}
-      >
-        {value}
-      </span>
-    </div>
-  );
-}

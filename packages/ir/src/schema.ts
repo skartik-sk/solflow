@@ -1,5 +1,29 @@
 import { z } from "zod";
 
+// ─── Rust reserved keywords ──────────────────────────────────────────
+// These identifiers would cause compilation errors if used as field, instruction,
+// account, or state names in generated Rust code.
+const RUST_KEYWORDS = new Set([
+  "as", "async", "await", "break", "const", "continue", "crate", "dyn",
+  "else", "enum", "extern", "fn", "for", "if", "impl", "in", "let",
+  "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self",
+  "Self", "static", "struct", "super", "trait", "type", "unsafe", "use",
+  "where", "while", "yield",
+  // Additional reserved keywords
+  "abstract", "become", "box", "do", "final", "macro", "override", "priv",
+  "try", "typeof", "unsized", "virtual",
+]);
+
+/** Validates a snake_case identifier that is not a Rust keyword. */
+const safeSnakeName = z.string()
+  .regex(/^[a-z_][a-z0-9_]*$/, "Must be snake_case (letters, digits, underscores)")
+  .refine((s) => !RUST_KEYWORDS.has(s), "Rust keyword cannot be used as identifier");
+
+/** Validates a PascalCase identifier that is not a Rust keyword. */
+const safePascalName = z.string()
+  .regex(/^[A-Z][a-zA-Z0-9]*/, "Must be PascalCase")
+  .refine((s) => !RUST_KEYWORDS.has(s), "Rust keyword cannot be used as identifier");
+
 // ─── Primitive Types ───────────────────────────────────────────────
 
 export const EnumDefinitionSchema: z.ZodType<EnumDefinition> = z.lazy(() =>
@@ -81,7 +105,7 @@ export type Seed = z.infer<typeof SeedSchema>;
 // ─── Field Definition ──────────────────────────────────────────────
 
 export const FieldSchema = z.object({
-  name: z.string().regex(/^[a-z_][a-z0-9_]*$/),
+  name: safeSnakeName,
   type: SolanaTypeSchema,
   description: z.string().optional(),
   maxLen: z.number().optional(),
@@ -159,7 +183,7 @@ export type AccountType = z.infer<typeof AccountTypeSchema>;
 
 export const AccountSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().regex(/^[a-z_][a-z0-9_]*$/),
+  name: safeSnakeName,
   accountType: AccountTypeSchema,
   stateType: z.string().optional(),
   constraints: z.array(ConstraintSchema),
@@ -312,7 +336,7 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
 // ─── Instruction Definition ────────────────────────────────────────
 
 export const InstructionArgSchema = z.object({
-  name: z.string().regex(/^[a-z_][a-z0-9_]*$/),
+  name: safeSnakeName,
   type: SolanaTypeSchema,
   description: z.string().optional(),
 });
@@ -320,7 +344,7 @@ export type InstructionArg = z.infer<typeof InstructionArgSchema>;
 
 export const InstructionSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().regex(/^[a-z_][a-z0-9_]*$/),
+  name: safeSnakeName,
   description: z.string().optional(),
   discriminator: z.array(z.number()).length(8).optional(),
   args: z.array(InstructionArgSchema),
@@ -333,7 +357,7 @@ export type Instruction = z.infer<typeof InstructionSchema>;
 
 export const StateSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().regex(/^[A-Z][a-zA-Z0-9]*/),
+  name: safePascalName,
   fields: z.array(FieldSchema),
   description: z.string().optional(),
   isZeroCopy: z.boolean().default(false),
@@ -345,7 +369,7 @@ export type State = z.infer<typeof StateSchema>;
 
 export const ErrorVariantSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().regex(/^[A-Z][a-zA-Z0-9]*/),
+  name: safePascalName,
   code: z.number().int().nonnegative(),
   message: z.string(),
 });
@@ -355,7 +379,7 @@ export type ErrorVariant = z.infer<typeof ErrorVariantSchema>;
 
 export const EventSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().regex(/^[A-Z][a-zA-Z0-9]*/),
+  name: safePascalName,
   fields: z.array(FieldSchema),
   description: z.string().optional(),
 });
@@ -380,7 +404,7 @@ export type Integration = z.infer<typeof IntegrationSchema>;
 export const ProgramIRSchema = z.object({
   version: z.literal("1.0.0"),
   program: z.object({
-    name: z.string().regex(/^[a-z_][a-z0-9_]*/),
+    name: safeSnakeName,
     description: z.string().optional(),
     version: z.string(),
     programId: z.string().optional(),

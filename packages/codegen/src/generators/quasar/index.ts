@@ -1,6 +1,14 @@
-// Anchor code generator — IR → Anchor Rust source files.
-// Uses @solflow/anchor-templates for Handlebars rendering (server/Node.js context)
-// and falls back to inline string building when fs is unavailable (browser).
+// Quasar code generator — IR → Quasar Rust source files.
+// Quasar is a zero-copy, no_std Solana framework similar to Anchor but with:
+//   - quasar_lang::prelude::* instead of anchor_lang::prelude::*
+//   - Ctx instead of Context
+//   - &'info mut in type instead of #[account(mut)] attribute
+//   - #[account(discriminator = N)] required (explicit)
+//   - #[instruction(discriminator = N)] required (explicit)
+//   - seeds use field name directly (not .key().as_ref())
+//   - Address instead of Pubkey
+//   - bumps.name_seeds() for auto-generated PDA seed helpers
+//   - method-style CPI: .transfer(...).invoke() instead of CpiContext::new(...)
 
 import type {
   ProgramIR,
@@ -20,9 +28,81 @@ import {
   toKebabCase,
 } from "../../utils/type-mapper";
 
+// ─── Quasar-specific type mapper ────────────────────────────────────────────
+
+// Quasar account structs use Pod types for zero-copy access.
+// Primitives in accounts become PodU64, PodBool, etc.
+function solanaTypeToQuasarAccount(type: import("@solflow/ir").SolanaType, maxLen?: number): string {
+  if (typeof type === "string") {
+    switch (type) {
+      case "bool":   return "PodBool";
+      case "u8":     return "PodU8";
+      case "u16":    return "u16";
+      case "u32":    return "PodU32";
+      case "u64":    return "PodU64";
+      case "u128":   return "u128";
+      case "i8":     return "i8";
+      case "i16":    return "i16";
+      case "i32":    return "i32";
+      case "i64":    return "i64";
+      case "i128":   return "i128";
+      case "f32":    return "f32";
+      case "f64":    return "f64";
+      case "String": return `String<${maxLen ?? 64}>`;  // zero-copy, configurable max bytes
+      case "Pubkey": return "Address";
+    }
+  }
+  if (typeof type === "object") {
+    if ("array" in type) {
+      const [inner, size] = type.array;
+      return `[${solanaTypeToQuasarAccount(inner)}; ${size}]`;
+    }
+    if ("vec" in type) {
+      return `Vec<${solanaTypeToQuasarAccount(type.vec)}, ${maxLen ?? 128}>`;
+    }
+    if ("option" in type) {
+      return `Option<${solanaTypeToQuasarAccount(type.option)}>`;
+    }
+    if ("defined" in type) {
+      return type.defined;
+    }
+  }
+  return "u64"; // safe fallback
+}
+
+// Quasar event fields only support: bool, u8-u64, i8-i64, u128/i128, Address.
+// String, Vec, and complex types are NOT supported.
+function solanaTypeToQuasarEvent(type: import("@solflow/ir").SolanaType): string {
+  if (typeof type === "string") {
+    switch (type) {
+      case "bool":   return "bool";
+      case "u8":     return "u8";
+      case "u16":    return "u16";
+      case "u32":    return "u32";
+      case "u64":    return "u64";
+      case "u128":   return "u128";
+      case "i8":     return "i8";
+      case "i16":    return "i16";
+      case "i32":    return "i32";
+      case "i64":    return "i64";
+      case "i128":   return "i128";
+      case "Pubkey": return "Address";
+      default:       return "u64"; // fallback for unsupported types
+    }
+  }
+  return "u64"; // fallback
+}
+
+// For instruction args and non-account contexts, use standard Rust types
+function solanaTypeToQuasar(type: import("@solflow/ir").SolanaType): string {
+  const rust = solanaTypeToRust(type);
+  if (rust === "Pubkey") return "Address";
+  return rust;
+}
+
 // ─── Public entry point ────────────────────────────────────────────────────────
 
-export function generateAnchor(ir: ProgramIR): {
+export function generateQuasar(ir: ProgramIR): {
   files: GeneratedFile[];
   warnings: CodegenWarning[];
   errors: CodegenError[];
@@ -58,7 +138,7 @@ export function generateAnchor(ir: ProgramIR): {
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl),
+    content: generateCargoToml(programName, version),
     language: "toml",
   });
 
@@ -105,7 +185,7 @@ export function generateAnchor(ir: ProgramIR): {
     for (const state of states) {
       files.push({
         path: `programs/${programName}/src/state/${toSnakeFilename(state.name)}.rs`,
-        content: generateStateRs(state.name, state.fields),
+        content: generateStateRs(state.name, state.fields, state.customDiscriminator),
         language: "rust",
       });
     }
@@ -144,17 +224,12 @@ export function generateAnchor(ir: ProgramIR): {
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
 
-function generateCargoToml(
-  name: string,
-  version: string,
-  usesSpl: boolean,
-): string {
+function generateCargoToml(name: string, version: string): string {
   const kebab = toKebabCase(name);
-  const spl = usesSpl ? '\nanchor-spl = "0.32.0"' : "";
   return `[package]
 name = "${kebab}"
 version = "${version}"
-description = "Created with SolFlow"
+description = "Created with SolFlow (Quasar)"
 edition = "2021"
 
 [lib]
@@ -163,14 +238,11 @@ name = "${name}"
 
 [features]
 no-entrypoint = []
-no-idl = []
-no-log-ix-name = []
 cpi = ["no-entrypoint"]
 default = []
-idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }${spl}
+quasar-lang = "0.1"
 
 [profile.release]
 opt-level = "z"
@@ -197,23 +269,24 @@ function generateLibRs(
 
   const modLines = modules.map((m) => `pub mod ${m};`).join("\n");
   const idLine = programId
-    ? `declare_id!("${programId}");`
-    : 'declare_id!("11111111111111111111111111111111");';
+    ? `quasar_lang::declare_id!("${programId}");`
+    : `quasar_lang::declare_id!("11111111111111111111111111111111");`;
 
+  // Quasar: #[program] is just dispatch, logic lives in impl methods
   const ixLines = instructions
-    .map((ix) => {
+    .map((ix, idx) => {
       const ctx = toPascalCase(ix.name);
       const args = ix.args
         .map((a) => `${a.name}: ${solanaTypeToRust(a.type)}`)
         .join(", ");
-      const argPass = ix.args.map((a) => a.name).join(", ");
       const extraArgs = args ? `, ${args}` : "";
-      const extraPass = argPass ? `, ${argPass}` : "";
-      return `    pub fn ${ix.name}(ctx: Context<${ctx}>${extraArgs}) -> Result<()> {\n        instructions::${ix.name}::handler(ctx${extraPass})\n    }`;
+      // Quasar requires explicit discriminator
+      return `    #[instruction(discriminator = ${idx})]\n    pub fn ${ix.name}(ctx: Ctx<${ctx}>${extraArgs}) -> Result<()> {\n        instructions::${ix.name}::handler(ctx${extraArgs})\n    }`;
     })
     .join("\n\n");
 
-  return `use anchor_lang::prelude::*;
+  return `#![cfg_attr(not(test), no_std)]
+use quasar_lang::prelude::*;
 
 ${modLines}
 
@@ -267,8 +340,8 @@ function generateInstructionRs(
 
   const errorEnum = toPascalCase(programName) + "Error";
 
-  // Build imports
-  const importLines: string[] = ["use anchor_lang::prelude::*;"];
+  // Build imports — Quasar uses quasar_lang instead of anchor_lang
+  const importLines: string[] = ["use quasar_lang::prelude::*;"];
   for (const s of [...usedStates].sort())
     importLines.push(`use crate::state::${s};`);
   if (hasErrors && ir.errors.length > 0)
@@ -285,26 +358,21 @@ function generateInstructionRs(
     .join(", ");
   const extraArgs = argSig ? `, ${argSig}` : "";
 
-  const argAttr = ix.args.length > 0 ? `#[instruction(${argSig})]\n` : "";
-
-  // Build accounts struct
+  // Build accounts struct — Quasar style
   const accountFields = ix.accounts
-    .map((a) => buildAccountField(a, ix, ir))
+    .map((a) => buildQuasarAccountField(a, ix, ir))
     .join("\n\n");
-
-  // When there are no accounts, omit the 'info lifetime to avoid E0392
-  const lifetime = ix.accounts.length > 0 ? "<'info>" : "";
 
   const content = `${importLines.join("\n")}
 
-pub fn handler(ctx: Context<${ctx}>${extraArgs}) -> Result<()> {
+pub fn handler(ctx: Ctx<${toPascalCase(ix.name)}>${extraArgs}) -> Result<()> {
 ${bodyLines.map((l) => `    ${l}`).join("\n")}
 
     Ok(())
 }
 
 #[derive(Accounts)]
-${argAttr}pub struct ${ctx}${lifetime} {
+pub struct ${ctx}<'info> {
 ${accountFields}
 }
 `;
@@ -341,69 +409,42 @@ function emitLogicOp(op: LogicOperation): string[] {
 
     case "transfer-sol":
       return [
-        `let cpi_accounts = anchor_lang::system_program::Transfer {`,
-        `    from: ctx.accounts.${op.from}.to_account_info(),`,
-        `    to: ctx.accounts.${op.to}.to_account_info(),`,
-        `};`,
-        `let cpi_ctx = CpiContext::new(ctx.accounts.system_program.to_account_info(), cpi_accounts);`,
-        `anchor_lang::system_program::transfer(cpi_ctx, ${op.amount})?;`,
+        `ctx.accounts.${op.from}.transfer(ctx.accounts.${op.to}, ${op.amount})?.invoke()?;`,
       ];
 
     case "transfer-token": {
-      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
+      const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
       if (seeds) {
         return [
-          `let seeds = ${seeds[0]};`,
-          `let signer_seeds = &[&seeds[..]];`,
-          `let cpi_accounts = anchor_spl::token::Transfer {`,
-          `    from: ctx.accounts.${op.from}.to_account_info(),`,
-          `    to: ctx.accounts.${op.to}.to_account_info(),`,
-          `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-          `};`,
-          `let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds);`,
-          `anchor_spl::token::transfer(cpi_ctx, ${op.amount})?;`,
+          `let seeds = ${seeds};`,
+          `ctx.accounts.token_program`,
+          `    .transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ctx.accounts.${op.authority}, ${op.amount})`,
+          `    .invoke_signed(&seeds)?;`,
         ];
       }
       return [
-        `let cpi_accounts = anchor_spl::token::Transfer {`,
-        `    from: ctx.accounts.${op.from}.to_account_info(),`,
-        `    to: ctx.accounts.${op.to}.to_account_info(),`,
-        `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-        `};`,
-        `let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);`,
-        `anchor_spl::token::transfer(cpi_ctx, ${op.amount})?;`,
+        `ctx.accounts.token_program`,
+        `    .transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ctx.accounts.${op.authority}, ${op.amount})`,
+        `    .invoke()?;`,
       ];
     }
 
     case "mint-to": {
-      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
-      const extra = seeds
-        ? [`let seeds = ${seeds[0]};`, `let signer_seeds = &[&seeds[..]];`]
-        : [];
-      const cpiNew = seeds
-        ? `CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds)`
-        : `CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts)`;
+      const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
+      const invokeCall = seeds ? ".invoke_signed(&seeds)" : ".invoke()";
       return [
-        ...extra,
-        `let cpi_accounts = anchor_spl::token::MintTo {`,
-        `    mint: ctx.accounts.${op.mint}.to_account_info(),`,
-        `    to: ctx.accounts.${op.to}.to_account_info(),`,
-        `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-        `};`,
-        `let cpi_ctx = ${cpiNew};`,
-        `anchor_spl::token::mint_to(cpi_ctx, ${op.amount})?;`,
+        ...(seeds ? [`let seeds = ${seeds};`] : []),
+        `ctx.accounts.token_program`,
+        `    .mint_to(ctx.accounts.${op.mint}, ctx.accounts.${op.to}, ctx.accounts.${op.authority}, ${op.amount})`,
+        `    ${invokeCall}?;`,
       ];
     }
 
     case "burn":
       return [
-        `let cpi_accounts = anchor_spl::token::Burn {`,
-        `    mint: ctx.accounts.${op.mint}.to_account_info(),`,
-        `    from: ctx.accounts.${op.from}.to_account_info(),`,
-        `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-        `};`,
-        `let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);`,
-        `anchor_spl::token::burn(cpi_ctx, ${op.amount})?;`,
+        `ctx.accounts.token_program`,
+        `    .burn(ctx.accounts.${op.mint}, ctx.accounts.${op.from}, ctx.accounts.${op.authority}, ${op.amount})`,
+        `    .invoke()?;`,
       ];
 
     case "require":
@@ -452,44 +493,31 @@ function emitLogicOp(op: LogicOperation): string[] {
       const prog = op.targetProgram;
       const ix = op.instruction;
       const accountMappings = op.accounts
-        .map((a) => `${a.to}: ctx.accounts.${a.from}.to_account_info(),`)
-        .join("\n            ");
-      const dataArgs = op.data.map((d) => d.value).join(", ");
+        .map((a) => `    ${a.to}: ctx.accounts.${a.from},`)
+        .join("\n");
+      const dataArgs = op.data.map((d) => `${d.value}`).join(", ");
       const hasSignerSeeds = op.signerSeeds && op.signerSeeds.length > 0;
       const seedParts = hasSignerSeeds
         ? op.signerSeeds!.map((s) => {
             if (s.type === "literal") return `b"${s.value}"`;
-            if (s.type === "pubkey") return `ctx.accounts.${s.value}.key().as_ref()`;
-            return `ctx.accounts.${s.value}.key().as_ref()`;
+            if (s.type === "pubkey") return s.value;
+            return s.value;
           }).join(", ")
         : null;
 
       const lines: string[] = [
         `// CPI: ${prog}::${ix}`,
-        `{`,
-        `    let cpi_program = ctx.accounts.${prog}.to_account_info();`,
-        `    let cpi_accounts = ${toPascalCase(ix)}Cpi {`,
-        `            ${accountMappings}`,
-        `    };`,
+        `ctx.accounts.${prog}`,
+        `    .${ix}(${toPascalCase(ix)}Cpi {`,
+        `${accountMappings}`,
+        `    })`,
       ];
 
       if (hasSignerSeeds) {
-        lines.push(
-          `    let seeds = &[&[${seedParts}][..]];`,
-          `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts).with_signer(seeds);`,
-        );
+        lines.push(`    .invoke_signed(&[${seedParts}])?;`);
       } else {
-        lines.push(
-          `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);`,
-        );
+        lines.push(`    .invoke()?;`);
       }
-
-      if (dataArgs) {
-        lines.push(`    ${ix}(cpi_ctx, ${dataArgs})?;`);
-      } else {
-        lines.push(`    ${ix}(cpi_ctx)?;`);
-      }
-      lines.push(`}`);
       return lines;
     }
 
@@ -501,35 +529,45 @@ function emitLogicOp(op: LogicOperation): string[] {
   }
 }
 
-function buildSignerSeeds(seeds: Seed[]): string[] {
+function buildQuasarSeeds(seeds: Seed[]): string {
+  // Quasar uses field name directly instead of .key().as_ref()
   const parts = seeds.map((s) => {
     if (s.type === "literal") return `b"${s.value}"`;
-    if (s.type === "pubkey") return `ctx.accounts.${s.value}.key().as_ref()`;
+    // Quasar: field name directly, no .key().as_ref()
+    if (s.type === "pubkey") return s.value;
     return s.value;
   });
-  return [`&[${parts.join(", ")}]`];
+  return `&[${parts.join(", ")}]`;
 }
 
-// ─── Account struct field builder ─────────────────────────────────────────────
+// ─── Account struct field builder (Quasar style) ────────────────────────────
+// Key difference: mutability is in the type (&'info mut) not in #[account(mut)]
 
-function buildAccountField(
+function buildQuasarAccountField(
   account: Account,
   ix: Instruction,
   ir: ProgramIR,
 ): string {
   const lines: string[] = [];
-  const attrs = buildAccountAttributes(account, ix, ir);
+  const attrs = buildQuasarAccountAttributes(account, ix, ir);
   for (const attr of attrs) lines.push(`    ${attr}`);
 
-  const rustType = accountToRustType(account);
+  const rustType = accountToQuasarType(account);
   lines.push(`    pub ${account.name}: ${rustType},`);
   return lines.join("\n");
 }
 
-function buildAccountAttributes(
+/** Compute the space for an account by looking up its state type's fields. */
+function computeAccountSpace(account: Account, ir: ProgramIR): number {
+  if (!account.stateType) return 0;
+  const state = ir.states.find((s) => s.name === account.stateType);
+  if (!state) return 0;
+  return calculateSpace(state.fields);
+}
+function buildQuasarAccountAttributes(
   account: Account,
   ix: Instruction,
-  _ir: ProgramIR,
+  ir: ProgramIR,
 ): string[] {
   const constraints = account.constraints;
 
@@ -542,39 +580,34 @@ function buildAccountAttributes(
     }
   }
 
-  const needsMut =
-    initPayers.has(account.name) &&
-    !constraints.some(
-      (c) =>
-        c.type === "mut" || c.type === "init" || c.type === "init-if-needed",
-    );
-
-  if (!constraints.length && !needsMut) return [];
+  // In Quasar, mut is expressed in the type, not as a constraint attribute.
+  // We only need non-mut attributes here.
+  if (!constraints.length) return [];
 
   const parts: string[] = [];
-
-  if (needsMut) parts.push("mut");
 
   for (const c of constraints) {
     switch (c.type) {
       case "mut":
-        parts.push("mut");
+        // mut is in the type in Quasar, skip
         break;
       case "signer":
-        // signer is expressed in the type (Signer<'info>), not a constraint
+        // signer is in the type in Quasar, skip
         break;
       case "init": {
+        const autoSpace = computeAccountSpace(account, ir);
         const spaceStr =
           c.space === "auto"
-            ? `8 + ${account.stateType ?? "Self"}::INIT_SPACE`
+            ? String(autoSpace > 0 ? autoSpace : 8 + 32)
             : String(c.space);
         parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
         break;
       }
       case "init-if-needed": {
+        const autoSpace = computeAccountSpace(account, ir);
         const spaceStr =
           c.space === "auto"
-            ? `8 + ${account.stateType ?? "Self"}::INIT_SPACE`
+            ? String(autoSpace > 0 ? autoSpace : 8 + 32)
             : String(c.space);
         parts.push(`init_if_needed, payer = ${c.payer}, space = ${spaceStr}`);
         break;
@@ -588,9 +621,11 @@ function buildAccountAttributes(
         break;
       }
       case "seeds": {
+        // Quasar: seeds use field name directly
         const seedParts = c.seeds.map((s) => {
           if (s.type === "literal") return `b"${s.value}"`;
-          if (s.type === "pubkey") return `${s.value}.key().as_ref()`;
+          // Quasar: just the field name, not .key().as_ref()
+          if (s.type === "pubkey") return s.value;
           return s.value;
         });
         parts.push(`seeds = [${seedParts.join(", ")}]`);
@@ -628,64 +663,75 @@ function buildAccountAttributes(
   return [`#[account(${parts.join(", ")})]`];
 }
 
-function accountToRustType(account: Account): string {
+function accountToQuasarType(account: Account): string {
+  // In Quasar, mutability is expressed via &'info mut in the type
+  const isMut = account.constraints.some((c) => c.type === "mut");
+
   switch (account.accountType) {
     case "signer":
-      return `Signer<'info>`;
+      // Quasar: &'info mut Signer or &'info Signer
+      return isMut ? `&'info mut Signer` : `&'info Signer`;
     case "system-account":
-      return `SystemAccount<'info>`;
+      return isMut ? `&'info mut AccountInfo<'info>` : `&'info AccountInfo<'info>`;
     case "system-program":
-      return `Program<'info, System>`;
+      return `&'info Program<System>`;
     case "token-program":
-      return `Program<'info, anchor_spl::token::Token>`;
+      return `&'info Program<Token>`;
     case "associated-token-program":
-      return `Program<'info, anchor_spl::associated_token::AssociatedToken>`;
+      return `&'info Program<AssociatedToken>`;
     case "rent":
       return `Sysvar<'info, Rent>`;
     case "clock":
       return `Sysvar<'info, Clock>`;
     case "mint":
-      return `Account<'info, anchor_spl::token::Mint>`;
+      return isMut ? `&'info mut Mint` : `&'info Mint`;
     case "token-account":
-      return `Account<'info, anchor_spl::token::TokenAccount>`;
     case "associated-token":
-      return `Account<'info, anchor_spl::token::TokenAccount>`;
+      return isMut ? `&'info mut TokenAccount` : `&'info TokenAccount`;
     case "unchecked-account":
-      return `/// CHECK: validated by constraint\n    UncheckedAccount<'info>`;
+      return `/// CHECK: validated by constraint\n    &'info AccountInfo<'info>`;
     case "program":
       return account.stateType
-        ? `Program<'info, ${account.stateType}>`
-        : `AccountInfo<'info>`;
+        ? `&'info Program<${account.stateType}>`
+        : `&'info AccountInfo<'info>`;
     case "account":
       return account.stateType
-        ? `Account<'info, ${account.stateType}>`
-        : `AccountInfo<'info>`;
+        ? isMut
+          ? `&'info mut Account<${account.stateType}>`
+          : `&'info Account<${account.stateType}>`
+        : isMut
+          ? `&'info mut AccountInfo<'info>`
+          : `&'info AccountInfo<'info>`;
     case "custom":
-      return account.stateType ?? `AccountInfo<'info>`;
+      return account.stateType ?? `&'info AccountInfo<'info>`;
     default:
-      return `AccountInfo<'info>`;
+      return `&'info AccountInfo<'info>`;
   }
 }
 
 // ─── src/state/<name>.rs ──────────────────────────────────────────────────────
+// Quasar: #[account(discriminator = N)] is required, fields read zero-copy
 
-function generateStateRs(name: string, fields: Field[]): string {
-  const derive = "#[account]\n#[derive(InitSpace)]";
+function generateStateRs(
+  name: string,
+  fields: Field[],
+  customDiscriminator?: number[],
+): string {
+  // Quasar requires explicit discriminator
+  const discBytes = customDiscriminator ?? [1]; // default to 1 if not specified
+  const derive = `#[account(discriminator = [${discBytes.join(", ")}])]\n#[derive(Debug)]`;
 
-  const hasDynamic = fields.some((f) => isDynamic(f.type));
   const fieldLines = fields
     .map((f) => {
-      const rustType = solanaTypeToRust(f.type);
-      const maxLenAttr =
-        hasDynamic && f.maxLen != null ? `    #[max_len(${f.maxLen})]\n` : "";
+      const rustType = solanaTypeToQuasarAccount(f.type, f.maxLen);
       const doc = f.description ? `    /// ${f.description}\n` : "";
       const comment = sizeComment(f.type);
-      const sizeStr = comment ? `  // ${comment}` : "";
-      return `${doc}${maxLenAttr}    pub ${f.name}: ${rustType},${sizeStr}`;
+      const sizeStr = comment ? `  // zero-copy: ${comment}` : "";
+      return `${doc}    pub ${f.name}: ${rustType},${sizeStr}`;
     })
     .join("\n");
 
-  return `use anchor_lang::prelude::*;
+  return `use quasar_lang::prelude::*;
 
 ${derive}
 pub struct ${name} {
@@ -695,15 +741,17 @@ ${fieldLines}
 }
 
 // ─── src/errors.rs ────────────────────────────────────────────────────────────
+// Quasar: same pattern as Anchor but with quasar import
+// Error codes offset is 6000
 
 function generateErrorsRs(
   enumName: string,
   errors: ProgramIR["errors"],
 ): string {
   const variants = errors
-    .map((e) => `    #[msg("${e.message}")]\n    ${e.name},`)
+    .map((e) => `    #[msg("${e.message}")]\n    ${e.name} = ${e.code + 6000},`)
     .join("\n");
-  return `use anchor_lang::prelude::*;
+  return `use quasar_lang::prelude::*;
 
 #[error_code]
 pub enum ${enumName} {
@@ -713,17 +761,23 @@ ${variants}
 }
 
 // ─── src/events.rs ────────────────────────────────────────────────────────────
+// Quasar: same as Anchor but with explicit discriminator
 
 function generateEventsRs(events: ProgramIR["events"]): string {
   const structs = events
-    .map((e) => {
+    .map((e, idx) => {
       const fields = e.fields
-        .map((f) => `    pub ${f.name}: ${solanaTypeToRust(f.type)},`)
+        .map((f) => {
+          // Quasar events only support primitives + Address
+          const rustType = solanaTypeToQuasarEvent(f.type);
+          return `    pub ${f.name}: ${rustType},`;
+        })
         .join("\n");
-      return `#[event]\npub struct ${e.name} {\n${fields}\n}`;
+      // Quasar events need explicit discriminator
+      return `#[event(discriminator = ${idx})]\npub struct ${e.name} {\n${fields}\n}`;
     })
     .join("\n\n");
-  return `use anchor_lang::prelude::*;\n\n${structs}\n`;
+  return `use quasar_lang::prelude::*;\n\n${structs}\n`;
 }
 
 // ─── src/constants.rs ─────────────────────────────────────────────────────────
@@ -739,7 +793,7 @@ function generateConstantsRs(constants: ProgramIR["constants"]): string {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** PascalCase struct name → snake_case filename (e.g. VaultState → vault_state) */
+/** PascalCase struct name -> snake_case filename (e.g. VaultState -> vault_state) */
 function toSnakeFilename(name: string): string {
   return name
     .replace(/([A-Z])/g, "_$1")

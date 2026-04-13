@@ -240,7 +240,7 @@ export function NodePalette() {
                   : "bg-muted text-muted-foreground hover:bg-muted/80"
               }`}
             >
-              {cat.split(" ")[0]}
+              {cat.length > 14 ? cat.split("&")[0].trim() : cat}
             </button>
           ))}
         </div>
@@ -249,9 +249,21 @@ export function NodePalette() {
       {/* Node list */}
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0 && (
-          <p className="px-3 pt-4 text-center text-xs text-muted-foreground">
-            No nodes match &ldquo;{paletteSearch}&rdquo;
-          </p>
+          <div className="flex flex-col items-center justify-center gap-2 px-3 pt-8 text-center">
+            <p className="text-xs text-muted-foreground">
+              {paletteSearch.trim()
+                ? <>No nodes match &ldquo;{paletteSearch}&rdquo;</>
+                : "No nodes in this category"}
+            </p>
+            {paletteSearch.trim() && (
+              <button
+                onClick={() => setPaletteSearch("")}
+                className="text-[10px] text-primary hover:underline"
+              >
+                Clear search
+              </button>
+            )}
+          </div>
         )}
 
         {Array.from(grouped.entries()).map(([category, defs]) => (
@@ -290,6 +302,29 @@ export function NodePalette() {
           </div>
         ))}
       </div>
+
+      {/* Keyboard shortcuts hint */}
+      <div className="shrink-0 border-t border-border px-3 py-2 space-y-1">
+        <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/40">
+          Shortcuts
+        </p>
+        <div className="space-y-0.5">
+          <HintRow keys="Ctrl+F" label="Find node" />
+          <HintRow keys="Ctrl+S" label="Save" />
+          <HintRow keys="Del" label="Delete" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HintRow({ keys, label }: { keys: string; label: string }) {
+  return (
+    <div className="flex items-center justify-between text-[10px]">
+      <span className="text-muted-foreground/40">{label}</span>
+      <kbd className="rounded border border-border/40 bg-muted/50 px-1 py-0 font-mono text-[9px] text-muted-foreground/50">
+        {keys}
+      </kbd>
     </div>
   );
 }

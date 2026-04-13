@@ -9,6 +9,7 @@ import { useFlowStore } from "@/store/flow-store";
 import { useProjectStore } from "@/store/project-store";
 import { useUIStore } from "@/store/ui-store";
 import { useCodeStore } from "@/store/code-store";
+import { useBuildStore } from "@/store/build-store";
 import { focusNode } from "@/lib/rf-instance";
 import { NodePalette } from "@/components/editor/NodePalette";
 import { PropertiesPanel } from "@/components/editor/PropertiesPanel";
@@ -40,7 +41,7 @@ const FlowCanvas = dynamic(
 interface EditorShellProps {
   projectId: string;
   projectName: string;
-  framework: "anchor" | "pinocchio";
+  framework: "anchor" | "pinocchio" | "quasar";
   flowData: { nodes: Node[]; edges: Edge[] } | null;
 }
 
@@ -66,13 +67,66 @@ export function EditorShell({
   // ─── Audit state ──────────────────────────────────────────────────
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
 
+  // ─── Bottom panel resize state ────────────────────────────────────
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(256);
+  const isDraggingRef = useRef(false);
+  const startYRef = useRef(0);
+  const startHeightRef = useRef(0);
+
+  const onDragStart = useCallback(
+    (e: React.MouseEvent | React.TouchEvent) => {
+      e.preventDefault();
+      isDraggingRef.current = true;
+      const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+      startYRef.current = clientY;
+      startHeightRef.current = bottomPanelHeight;
+
+      const onMove = (ev: MouseEvent | TouchEvent) => {
+        if (!isDraggingRef.current) return;
+        const cy = "touches" in ev ? ev.touches[0].clientY : ev.clientY;
+        // Dragging UP increases panel height, DOWN decreases
+        const delta = startYRef.current - cy;
+        const next = Math.max(120, Math.min(window.innerHeight - 200, startHeightRef.current + delta));
+        setBottomPanelHeight(next);
+      };
+
+      const onUp = () => {
+        isDraggingRef.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      };
+
+      document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.addEventListener("touchmove", onMove, { passive: false });
+      document.addEventListener("touchend", onUp);
+    },
+    [bottomPanelHeight],
+  );
+
   // ─── Boot stores with server-fetched data ──────────────────────────
   useEffect(() => {
+    // Reset build state from any previous project
+    useBuildStore.getState().reset();
+
     setProject({ id: projectId, name: projectName, framework });
 
     if (flowData) {
       setFlow(flowData.nodes ?? [], flowData.edges ?? []);
     }
+
+    // Cleanup on unmount: disconnect WS, clear stale state
+    return () => {
+      import("@/lib/ws").then(({ disconnectWS }) => disconnectWS());
+      useBuildStore.getState().reset();
+      useCodeStore.getState().clear();
+    };
     // Run once on mount only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -108,7 +162,7 @@ export function EditorShell({
           .getState()
           .save()
           .catch(() => toast.error("Auto-save failed"));
-      }, 2000); // 2-second debounce
+      }, 5000); // 5-second debounce
     });
     return () => {
       unsub();
@@ -194,7 +248,16 @@ export function EditorShell({
 
       {/* ─── Bottom panel ────────────────────────────────────────── */}
       {bottomPanelOpen && (
-        <div className="flex h-64 shrink-0 flex-col border-t border-border bg-background">
+        <div className="flex shrink-0 flex-col border-t border-border bg-background" style={{ height: bottomPanelHeight }}>
+          {/* Drag handle */}
+          <div
+            onMouseDown={onDragStart}
+            onTouchStart={onDragStart}
+            className="group relative flex shrink-0 h-2 cursor-ns-resize items-center justify-center bg-card hover:bg-accent/50 transition-colors"
+            title="Drag to resize"
+          >
+            <div className="h-0.5 w-8 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
+          </div>
           {/* Tab bar */}
           <div className="flex shrink-0 items-center gap-0 border-b border-border bg-card overflow-x-auto whitespace-nowrap scrollbar-hide [&::-webkit-scrollbar]:hidden">
             {(

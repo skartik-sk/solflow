@@ -114,20 +114,35 @@ export const snapshotRouter = router({
       });
       if (!snapshot) throw new TRPCError({ code: "NOT_FOUND" });
 
-      // Create a "restore" snapshot then update the project
-      await createSnapshot(
-        ctx.prisma,
-        snapshot.projectId,
-        snapshot.flowData as unknown as FlowData,
-        `Restored from v${snapshot.version}`,
-      );
+      // Create a "restore" snapshot then update the project atomically
+      await ctx.prisma.$transaction(async (tx) => {
+        // Create backup snapshot inside the transaction
+        const count = await tx.projectSnapshot.count({
+          where: { projectId: snapshot.projectId },
+        });
+        const currentProject = await tx.project.findUnique({
+          where: { id: snapshot.projectId },
+          select: { flowData: true, irData: true },
+        });
+        await tx.projectSnapshot.create({
+          data: {
+            projectId: snapshot.projectId,
+            version: count + 1,
+            label: `Restore backup (from v${snapshot.version})`,
+            flowData: (currentProject?.flowData ?? {}) as any,
+            irData: currentProject?.irData as any ?? null,
+            flowHash: "",
+          },
+        });
 
-      await ctx.prisma.project.update({
-        where: { id: snapshot.projectId },
-        data: {
-          flowData: (snapshot.flowData ?? {}) as any,
-          irData: snapshot.irData as any,
-        },
+        // Update project to the snapshot's data
+        await tx.project.update({
+          where: { id: snapshot.projectId },
+          data: {
+            flowData: (snapshot.flowData ?? {}) as any,
+            irData: snapshot.irData as any,
+          },
+        });
       });
 
       return { success: true, flowData: snapshot.flowData };

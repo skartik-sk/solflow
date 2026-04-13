@@ -21,7 +21,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "name is required" }, { status: 400 });
   }
 
-  const fw = framework === "PINOCCHIO" ? "PINOCCHIO" : "ANCHOR";
+  const fw =
+    framework === "QUASAR" ? "QUASAR" :
+    framework === "PINOCCHIO" ? "PINOCCHIO" :
+    "ANCHOR";
 
   const project = await prisma.project.create({
     data: {

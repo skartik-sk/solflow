@@ -7,6 +7,7 @@ import { router, protectedProcedure } from "../trpc";
 import { flowToIR } from "@solflow/ir";
 import { generateCode } from "@solflow/codegen";
 import type { Node, Edge } from "@xyflow/react";
+import { createHash } from "crypto";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 
@@ -185,7 +186,7 @@ export const projectRouter = router({
         status: z
           .enum(["DRAFT", "COMPILED", "TESTED", "DEPLOYED", "ARCHIVED"])
           .optional(),
-        framework: z.enum(["ANCHOR", "PINOCCHIO"]).optional(),
+        framework: z.enum(["ANCHOR", "PINOCCHIO", "QUASAR"]).optional(),
         limit: z.number().min(1).max(50).default(20),
         cursor: z.string().optional(),
       }),
@@ -242,7 +243,7 @@ export const projectRouter = router({
       z.object({
         name: z.string().min(1).max(100),
         description: z.string().max(500).optional(),
-        framework: z.enum(["ANCHOR", "PINOCCHIO"]),
+        framework: z.enum(["ANCHOR", "PINOCCHIO", "QUASAR"]),
         templateId: z.string().optional(),
       }),
     )
@@ -296,6 +297,7 @@ export const projectRouter = router({
           nodes: z.array(z.any()),
           edges: z.array(z.any()),
         }),
+        framework: z.enum(["ANCHOR", "PINOCCHIO", "QUASAR"]).optional(),
         createSnapshot: z.boolean().default(false),
         snapshotLabel: z.string().optional(),
       }),
@@ -309,18 +311,24 @@ export const projectRouter = router({
 
       // Generate IR server-side for storage
       let irData: unknown = null;
+      let irError: string | null = null;
       try {
         irData = flowToIR(
           input.flowData.nodes as Node[],
           input.flowData.edges as Edge[],
         );
-      } catch {
-        // Non-fatal: save flow even if IR fails
+      } catch (err) {
+        irError = err instanceof Error ? err.message : "IR generation failed";
+        // Non-fatal: save flow even if IR fails, but report the error
       }
 
       await ctx.prisma.project.update({
         where: { id: input.id },
-        data: { flowData: input.flowData as any, irData: irData as any },
+        data: {
+          flowData: input.flowData as any,
+          irData: irData as any,
+          ...(input.framework && { framework: input.framework }),
+        },
       });
 
       // Create snapshot if requested
@@ -335,12 +343,12 @@ export const projectRouter = router({
             label: input.snapshotLabel,
             flowData: input.flowData as any,
             irData: irData as any,
-            flowHash: JSON.stringify(input.flowData).length.toString(), // lightweight hash
+            flowHash: createHash("sha256").update(JSON.stringify(input.flowData)).digest("hex").slice(0, 16),
           },
         });
       }
 
-      return { success: true };
+      return { success: true, irError };
     }),
 
   // ── Update project metadata ──────────────────────────────────────────────
@@ -350,7 +358,7 @@ export const projectRouter = router({
         id: z.string(),
         name: z.string().min(1).max(100).optional(),
         description: z.string().max(500).optional(),
-        framework: z.enum(["ANCHOR", "PINOCCHIO"]).optional(),
+        framework: z.enum(["ANCHOR", "PINOCCHIO", "QUASAR"]).optional(),
         status: z
           .enum(["DRAFT", "COMPILED", "TESTED", "DEPLOYED", "ARCHIVED"])
           .optional(),
@@ -387,7 +395,7 @@ export const projectRouter = router({
           nodes: z.array(z.any()),
           edges: z.array(z.any()),
         }),
-        framework: z.enum(["anchor", "pinocchio"]),
+        framework: z.enum(["anchor", "pinocchio", "quasar"]),
       }),
     )
     .mutation(async ({ input }) => {

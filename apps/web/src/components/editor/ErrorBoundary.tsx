@@ -7,6 +7,31 @@
 import React from "react";
 import { AlertTriangle, RotateCcw } from "lucide-react";
 
+// ─── External error reporting ────────────────────────────────────────────────
+// Sends errors to a configured endpoint (Sentry, Axiom, etc.) when available.
+
+async function reportError(error: Error, info: React.ErrorInfo): Promise<void> {
+  const endpoint = process.env.NEXT_PUBLIC_ERROR_REPORTING_ENDPOINT;
+  if (!endpoint) return;
+
+  try {
+    await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: error.message,
+        stack: error.stack,
+        componentStack: info.componentStack,
+        timestamp: new Date().toISOString(),
+        url: typeof window !== "undefined" ? window.location.href : undefined,
+      }),
+      keepalive: true,
+    });
+  } catch {
+    // Silently fail — error reporting should never break the app
+  }
+}
+
 interface Props {
   children: React.ReactNode;
   /** Optional label shown in the fallback UI so users know which area crashed */
@@ -29,8 +54,17 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    // In production this would go to Sentry / Axiom. For now, log to console.
-    console.error("[ErrorBoundary]", error, info.componentStack);
+    // Log to console with structured context
+    console.error("[ErrorBoundary]", {
+      message: error.message,
+      stack: error.stack,
+      componentStack: info.componentStack,
+      label: this.props.label,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Report to external error tracking if configured
+    reportError(error, info);
   }
 
   private handleReset = () => {

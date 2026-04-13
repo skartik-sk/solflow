@@ -3,12 +3,25 @@
 
 "use client";
 
+import { useCallback, useState } from "react";
+import { Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
+import { toast } from "sonner";
 
 export function BuildErrors() {
   const compileErrors = useBuildStore((s) => s.compileErrors);
   const compileWarnings = useBuildStore((s) => s.compileWarnings);
   const compileStatus = useBuildStore((s) => s.compileStatus);
+
+  const handleCopy = useCallback(async () => {
+    const lines = [
+      ...compileErrors.map((e) => `ERROR: ${e}`),
+      ...compileWarnings.map((w) => `WARN: ${w}`),
+    ];
+    if (lines.length === 0) return;
+    await navigator.clipboard.writeText(lines.join("\n"));
+    toast.success("Errors copied");
+  }, [compileErrors, compileWarnings]);
 
   if (
     compileStatus === "idle" &&
@@ -59,6 +72,15 @@ export function BuildErrors() {
               Building…
             </span>
           )}
+        {(compileErrors.length > 0 || compileWarnings.length > 0) && (
+          <button
+            onClick={handleCopy}
+            title="Copy errors to clipboard"
+            className="ml-auto text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Copy size={12} />
+          </button>
+        )}
       </div>
 
       {/* Errors */}
