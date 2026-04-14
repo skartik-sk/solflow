@@ -210,3 +210,18 @@ export function sendWS(payload: unknown): void {
     socket.send(JSON.stringify(payload));
   }
 }
+
+/**
+ * Subscribe the server to events for a specific job.
+ * If the socket is still connecting, queues the subscribe message until open.
+ */
+export function subscribeToJob(jobId: string): void {
+  const msg = { type: "subscribe" as const, jobId };
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(msg));
+  } else if (socket?.readyState === WebSocket.CONNECTING) {
+    socket.addEventListener("open", () => {
+      socket?.send(JSON.stringify(msg));
+    }, { once: true });
+  }
+}

@@ -9,7 +9,6 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { randomBytes } from "crypto";
 import type { ProgramIR } from "@solflow/ir";
-import { generateCode } from "@solflow/codegen";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +16,7 @@ export interface DockerBuildInput {
   ir: ProgramIR;
   framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
+  generatedFiles: { path: string; content: string }[];
   options: {
     release: boolean;
     verifiable: boolean;
@@ -38,19 +38,14 @@ export interface DockerBuildResult {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Write generated source files to a temp directory and return its path. */
+/** Write pre-generated source files to a temp directory and return its path. */
 async function createTempProject(
-  ir: ProgramIR,
-  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR",
+  files: { path: string; content: string }[],
 ): Promise<string> {
   const dir = join(tmpdir(), `solflow-${randomBytes(8).toString("hex")}`);
   await mkdir(dir, { recursive: true });
 
-  const generatedFramework =
-    framework === "ANCHOR" ? "anchor" : framework === "QUASAR" ? "quasar" : "pinocchio";
-  const generated = generateCode(ir, generatedFramework);
-
-  for (const file of generated.files) {
+  for (const file of files) {
     const fullPath = join(dir, file.path);
     const fileDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     await mkdir(fileDir, { recursive: true });
@@ -65,7 +60,8 @@ function getBuildCommand(framework: "ANCHOR" | "PINOCCHIO" | "QUASAR"): string {
   switch (framework) {
     case "ANCHOR":
       // Anchor: use `anchor build` which handles cargo-build-sbf + IDL generation
-      return "cd /home/builder/project/programs/* && anchor build && anchor idl parse --file src/lib.rs --o /home/builder/project/idl.json 2>/dev/null || true";
+      // IDL parse is best-effort: log failure but don't fail the overall build
+      return "cd /home/builder/project/programs/* && anchor build && (anchor idl parse --file src/lib.rs --o /home/builder/project/idl.json || echo 'WARN: IDL parse failed')";
     case "QUASAR":
       // Quasar: standard cargo build-sbf (quasar-lang is just a crate dependency)
       return "cd /home/builder/project/programs/* && cargo build-sbf --release";
@@ -142,7 +138,7 @@ export async function runDockerBuild(
   const startedAt = Date.now();
   const logs: string[] = [];
 
-  const workDir = await createTempProject(input.ir, input.framework);
+  const workDir = await createTempProject(input.generatedFiles);
   onLog(`[docker] Source files written to ${workDir}`, "info");
 
   // Determine the project subdirectory (programs/<name>/)
@@ -248,9 +244,11 @@ export async function runDockerBuild(
     });
 
     // Timeout: kill the Docker process after 10 minutes to prevent hangs
-    const dockerTimeout = setTimeout(() => {
+    const dockerTimeout = setTimeout(async () => {
       proc.kill("SIGKILL");
       onLog("[docker] Build timed out after 10 minutes, killing container", "error");
+      // Clean up temp directory on timeout (the close handler won't run since we reject first)
+      await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
       reject(new Error("Docker build timed out after 10 minutes"));
     }, 10 * 60_000);
 

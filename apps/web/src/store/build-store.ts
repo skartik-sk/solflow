@@ -85,7 +85,7 @@ interface BuildState {
 
 const INITIAL: Omit<
   BuildState,
-  "startCompile" | "startTest" | "startDeploy" | "addLog" | "resetProgramKeypair" | "reset"
+  "startCompile" | "startTest" | "startDeploy" | "addLog" | "clearLogs" | "resetProgramKeypair" | "reset"
 > = {
   compileStatus: "idle",
   compileLogs: [],
@@ -213,9 +213,10 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       set({ testRunId: resp.runId });
 
-      const { connectWS, onJobMessage, isTestResult, isTestComplete } =
+      const { connectWS, onJobMessage, isTestResult, isTestComplete, subscribeToJob } =
         await import("@/lib/ws");
       connectWS();
+      subscribeToJob(resp.runId);
 
       await new Promise<void>((resolve) => {
         let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -261,6 +262,10 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
         timeoutId = setTimeout(() => {
           unsubscribe();
+          set({
+            testStatus: "failed",
+            testLogs: [{ line: "Test timed out after 5 minutes", level: "error" as const, timestamp: Date.now() }],
+          });
           resolve();
         }, 300_000);
       });
@@ -513,6 +518,17 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       level: "info",
       timestamp: Date.now(),
     });
+
+    // Update the program node in the flow store so generated code uses new ID
+    const { useFlowStore } = await import("@/store/flow-store");
+    const nodes = useFlowStore.getState().nodes;
+    const programNode = nodes.find((n) => n.type === "program");
+    if (programNode) {
+      useFlowStore.getState().updateNodeData(programNode.id, {
+        programId: result.programId,
+      });
+    }
+
     return result.programId;
   },
 }));

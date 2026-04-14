@@ -355,7 +355,7 @@ async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
 async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
   const project = await ctx.prisma.project.findFirst({
     where: { id: projectId, userId },
-    select: { id: true, programKeypair: true },
+    select: { id: true, programKeypair: true, irData: true },
   });
   if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -414,6 +414,20 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
       code: "BAD_REQUEST",
       message: "No compiled binary found. Compile first.",
     });
+  }
+
+  // Guard against deploying a stale binary from a previous compile
+  if (project.irData && compilation.irHash) {
+    const currentHash = createHash("sha256")
+      .update(JSON.stringify(project.irData))
+      .digest("hex")
+      .slice(0, 16);
+    if (currentHash !== compilation.irHash) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Project has changed since last compile. Please recompile before deploying.",
+      });
+    }
   }
 
   const binaryBuffer = await readFile(compilation.binaryUrl);

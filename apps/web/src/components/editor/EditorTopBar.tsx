@@ -14,6 +14,7 @@ import {
   RotateCcw,
   RotateCw,
   Download,
+  Upload,
   History,
   Play,
   Hammer,
@@ -32,22 +33,23 @@ import { useUIStore } from "@/store/ui-store";
 import { useUndo, useRedo, useCanUndo, useCanRedo, useFlowStore } from "@/store/flow-store";
 import { useBuildStore } from "@/store/build-store";
 import type { Framework, Network } from "@/store/project-store";
+import { ImportDialog } from "./ImportDialog";
 
 export function EditorTopBar() {
-  const {
-    projectId,
-    projectName,
-    framework,
-    network,
-    isDirty,
-    isSaving,
-    setProjectName,
-    setFramework,
-    setNetwork,
-    save,
-  } = useProjectStore();
+  const projectId = useProjectStore((s) => s.projectId);
+  const projectName = useProjectStore((s) => s.projectName);
+  const framework = useProjectStore((s) => s.framework);
+  const network = useProjectStore((s) => s.network);
+  const isDirty = useProjectStore((s) => s.isDirty);
+  const isSaving = useProjectStore((s) => s.isSaving);
+  const setProjectName = useProjectStore((s) => s.setProjectName);
+  const setFramework = useProjectStore((s) => s.setFramework);
+  const setNetwork = useProjectStore((s) => s.setNetwork);
+  const save = useProjectStore((s) => s.save);
 
-  const { openBottomPanelTab, propertiesOpen, toggleProperties } = useUIStore();
+  const openBottomPanelTab = useUIStore((s) => s.openBottomPanelTab);
+  const propertiesOpen = useUIStore((s) => s.propertiesOpen);
+  const toggleProperties = useUIStore((s) => s.toggleProperties);
 
   const wallet = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
@@ -57,22 +59,21 @@ export function EditorTopBar() {
   const canUndo = useCanUndo();
   const canRedo = useCanRedo();
 
-  const {
-    compileStatus,
-    testStatus,
-    deployStatus,
-    deployedProgramId,
-    deployExplorerUrl,
-    deployTxExplorerUrl,
-    startCompile,
-    startTest,
-    startDeploy,
-    resetProgramKeypair,
-  } = useBuildStore();
+  const compileStatus = useBuildStore((s) => s.compileStatus);
+  const testStatus = useBuildStore((s) => s.testStatus);
+  const deployStatus = useBuildStore((s) => s.deployStatus);
+  const deployedProgramId = useBuildStore((s) => s.deployedProgramId);
+  const deployExplorerUrl = useBuildStore((s) => s.deployExplorerUrl);
+  const deployTxExplorerUrl = useBuildStore((s) => s.deployTxExplorerUrl);
+  const startCompile = useBuildStore((s) => s.startCompile);
+  const startTest = useBuildStore((s) => s.startTest);
+  const startDeploy = useBuildStore((s) => s.startDeploy);
+  const resetProgramKeypair = useBuildStore((s) => s.resetProgramKeypair);
 
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(projectName);
   const [isExporting, setIsExporting] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [, startSave] = useTransition();
 
   const commitName = () => {
@@ -403,6 +404,20 @@ export function EditorTopBar() {
           )}
           Export
         </button>
+
+        {/* Import IDL */}
+        <button
+          onClick={() => setShowImport(true)}
+          title="Import IDL"
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          <Upload size={12} />
+          Import
+        </button>
+
+        {showImport && (
+          <ImportDialog onClose={() => setShowImport(false)} />
+        )}
 
         {/* Save */}
         <button

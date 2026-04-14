@@ -39,6 +39,7 @@
     "@solflow/codegen": "workspace:*",
     "@solflow/db": "workspace:*",
     "@solflow/flow-nodes": "workspace:*",
+    "@solflow/idl-import": "workspace:*",
     "@solflow/ir": "workspace:*",
     "@solflow/plugin-sdk": "workspace:*",
     "@solflow/sdk-gen": "workspace:*",

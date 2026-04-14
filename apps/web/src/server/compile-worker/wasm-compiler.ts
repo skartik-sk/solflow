@@ -22,7 +22,6 @@ import { tmpdir } from "os";
 import { randomBytes } from "crypto";
 import { spawn } from "child_process";
 import type { ProgramIR } from "@solflow/ir";
-import { generateCode } from "@solflow/codegen";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +29,7 @@ export interface WasmBuildInput {
   ir: ProgramIR;
   framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
+  generatedFiles: { path: string; content: string }[];
   options: {
     release: boolean;
     verifiable: boolean;
@@ -485,33 +485,17 @@ export async function runWasmBuild(
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<WasmBuildResult> {
   const startedAt = Date.now();
-  const generatedFramework =
-    input.framework === "ANCHOR" ? "anchor" : input.framework === "QUASAR" ? "quasar" : "pinocchio";
 
-  // Step 1: Generate Rust source code from IR
-  const generated = generateCode(input.ir, generatedFramework);
+  // Step 1: Use pre-generated source files (generated once in compile.ts)
+  const generatedFiles = input.generatedFiles;
 
-  if (generated.errors.length > 0) {
-    return {
-      success: false,
-      logs: generated.errors.map((e) => e.message),
-      errors: generated.errors.map((e) => e.message),
-      warnings: [],
-      workDir: "",
-      binaryPath: null,
-      binarySize: null,
-      duration: Date.now() - startedAt,
-      method: "codegen-only",
-    };
-  }
-
-  onLog(`[cloud] Generated ${generated.files.length} source file(s)`, "info");
-  for (const f of generated.files) {
+  onLog(`[cloud] Using ${generatedFiles.length} pre-generated source file(s)`, "info");
+  for (const f of generatedFiles) {
     onLog(`[cloud]   ${f.path} (${f.content.length} chars)`, "info");
   }
 
   // Step 2: Try cloud build first
-  const cloudResult = await compileWithCloudBuild(generated.files, onLog);
+  const cloudResult = await compileWithCloudBuild(generatedFiles, onLog);
 
   if (cloudResult) {
     if (cloudResult.success) {
@@ -569,7 +553,7 @@ export async function runWasmBuild(
     workDir = join(tmpdir(), `solflow-local-${randomBytes(4).toString("hex")}`);
     await mkdir(workDir, { recursive: true });
 
-    for (const file of generated.files) {
+    for (const file of generatedFiles) {
       const fullPath = join(workDir, file.path);
       const fileDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
       await mkdir(fileDir, { recursive: true });

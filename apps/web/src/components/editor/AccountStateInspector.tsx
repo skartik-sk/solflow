@@ -13,12 +13,6 @@ import type { State, Field } from "@solflow/ir";
 
 type Network = "devnet" | "mainnet-beta" | "localnet";
 
-const RPC_URLS: Record<Network, string> = {
-  devnet: "https://api.devnet.solana.com",
-  "mainnet-beta": "https://api.mainnet-beta.solana.com",
-  localnet: "http://127.0.0.1:8899",
-};
-
 interface AccountInfo {
   lamports: number;
   owner: string;
@@ -52,7 +46,10 @@ function typeLabel(type: unknown): string {
     if ("option" in t) return `Option<${typeLabel(t.option)}>`;
     if ("defined" in t) return String(t.defined);
     if ("hashMap" in t) return `HashMap`;
-    if ("enum" in t) return `enum`;
+    if ("enum" in t) {
+      const enumDef = t.enum as { name?: string } | undefined;
+      return enumDef?.name ? `enum ${enumDef.name}` : "enum";
+    }
   }
   return "unknown";
 }
@@ -178,7 +175,7 @@ function decodeField(
         return { value: chars.join(""), size: 4 + len };
       }
       default:
-        return { value: "?", size: BORSH_SIZE[type] ?? 0 };
+        return { value: "?", size: BORSH_SIZE[type as string] ?? 0 };
     }
   } catch {
     return { value: "decode error", size: BORSH_SIZE[type as string] ?? 0 };
@@ -263,7 +260,16 @@ function parseAccountData(bytes: Uint8Array, state: State): ParsedField[] {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // Anchor accounts start with an 8-byte discriminator
   let offset = 8;
+  let skipped = false;
   return state.fields.map((field: Field) => {
+    if (skipped) {
+      return {
+        name: field.name,
+        type: typeLabel(field.type),
+        rawOffset: null,
+        value: "(skipped — prior field has unknown size)",
+      };
+    }
     if (offset >= bytes.byteLength) {
       return {
         name: field.name,
@@ -275,6 +281,7 @@ function parseAccountData(bytes: Uint8Array, state: State): ParsedField[] {
     const rawOffset = offset;
     const { value, size } = decodeField(dv, offset, field.type);
     offset += size;
+    if (size === 0) skipped = true;
     return { name: field.name, type: typeLabel(field.type), rawOffset, value };
   });
 }
@@ -309,13 +316,12 @@ export function AccountStateInspector() {
     setParsedFields(null);
 
     try {
-      const rpcUrl = RPC_URLS[selectedNetwork];
-      const response = await fetch(rpcUrl, {
+      // Route through server-side proxy to avoid CORS
+      const response = await fetch("/api/solana-rpc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
+          network: selectedNetwork,
           method: "getAccountInfo",
           params: [pubkey.trim(), { encoding: "base64" }],
         }),

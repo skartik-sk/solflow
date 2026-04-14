@@ -6,6 +6,7 @@
 
 import { Queue, Worker, type Job } from "bullmq";
 import type { ProgramIR } from "@solflow/ir";
+import { generateCode } from "@solflow/codegen";
 import { runDockerBuild } from "./docker-runner";
 import { collectArtifacts } from "./artifact-collector";
 import { broadcastToJob } from "@/lib/ws-broadcaster";
@@ -20,9 +21,11 @@ type PrismaJsonValue =
   | PrismaJsonValue[]
   | { [key: string]: PrismaJsonValue };
 
-/** Cast for Prisma JSON fields that have incompatible generated types */
-function asPrismaJson<T>(value: T): PrismaJsonValue {
-  return value as unknown as PrismaJsonValue;
+/** Cast for Prisma JSON fields that have incompatible generated types.
+ *  Uses `any` to bridge PrismaJsonValue (includes null) → InputJsonValue (excludes null). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function asPrismaJson<T>(value: T): any {
+  return value;
 }
 
 // ─── Redis connection config ──────────────────────────────────────────────────
@@ -115,8 +118,15 @@ export function startCompileWorker(): void {
       log(`Starting ${framework} compilation for project ${projectId}…`);
 
       try {
+        // Generate code once for the queue worker (separate from compile.ts path)
+        const genFramework = framework === "ANCHOR" ? "anchor" : framework === "QUASAR" ? "quasar" : "pinocchio";
+        const generated = generateCode(ir, genFramework);
+        if (generated.errors.length > 0) {
+          throw new Error(generated.errors.map((e) => e.message).join("; "));
+        }
+
         const result = await runDockerBuild(
-          { ir, framework, options, irHash },
+          { ir, framework, options, irHash, generatedFiles: generated.files },
           (line, level) => log(line, level),
         );
 

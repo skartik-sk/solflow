@@ -6,12 +6,11 @@
 // Keep docker-runner.ts untouched as the production path.
 
 import { spawn } from "child_process";
-import { mkdir, writeFile, readFile, rm, readdir, stat } from "fs/promises";
+import { mkdir, writeFile, rm, readdir, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { randomBytes } from "crypto";
 import type { ProgramIR } from "@solflow/ir";
-import { generateCode } from "@solflow/codegen";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,6 +18,7 @@ export interface LocalBuildInput {
   ir: ProgramIR;
   framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
+  generatedFiles: { path: string; content: string }[];
   options: {
     release: boolean;
     verifiable: boolean;
@@ -42,18 +42,14 @@ export interface LocalBuildResult {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Write generated source files to a temp directory and return its path. */
+/** Write pre-generated source files to a temp directory and return its path. */
 async function createTempProject(
-  ir: ProgramIR,
-  framework: "ANCHOR" | "PINOCCHIO" | "QUASAR",
+  files: { path: string; content: string }[],
 ): Promise<string> {
   const dir = join(tmpdir(), `solflow-local-${randomBytes(8).toString("hex")}`);
   await mkdir(dir, { recursive: true });
 
-  const generatedFramework = framework === "ANCHOR" ? "anchor" : framework === "QUASAR" ? "quasar" : "pinocchio";
-  const generated = generateCode(ir, generatedFramework);
-
-  for (const file of generated.files) {
+  for (const file of files) {
     const fullPath = join(dir, file.path);
     const fileDir = fullPath.substring(0, fullPath.lastIndexOf("/"));
     await mkdir(fileDir, { recursive: true });
@@ -175,7 +171,7 @@ export async function runLocalBuild(
   // Step 1: Write generated files to temp dir
   let workDir: string;
   try {
-    workDir = await createTempProject(input.ir, input.framework);
+    workDir = await createTempProject(input.generatedFiles);
     onLog(`Source files written to ${workDir}`, "info");
   } catch (err) {
     return {
@@ -229,10 +225,12 @@ export async function runLocalBuild(
   let binarySize: number | null = null;
 
   if (binaryPath) {
-    const stat = await readFile(binaryPath).then((b) => b.byteLength).catch(
-      () => null,
-    );
-    binarySize = stat ?? null;
+    try {
+      const fileInfo = await stat(binaryPath);
+      binarySize = fileInfo.size;
+    } catch {
+      binarySize = null;
+    }
     onLog(`Compiled binary: ${binaryPath} (${binarySize ?? "?"} bytes)`, "info");
   } else {
     onLog("Build succeeded but no .so binary found — check target/ directory", "warn");

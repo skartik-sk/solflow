@@ -1,12 +1,36 @@
 import type { ProgramIR } from "@solflow/ir";
+import { execFile } from "child_process";
 import { runWasmBuild } from "./wasm-compiler";
 import { runLocalBuild } from "./local-compiler";
 import { runDockerBuild } from "./docker-runner";
+
+// ─── Fast availability checks ────────────────────────────────────────────────
+
+/** Check if Docker CLI exists and the compiler image is available (fast, ~50ms). */
+function isDockerAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("docker", ["images", "-q", "solflow-compiler:latest"], (err, stdout) => {
+      resolve(!err && stdout.trim().length > 0);
+    });
+  });
+}
+
+/** Check if anchor CLI or cargo-build-sbf is available (fast, ~50ms). */
+function isLocalCliAvailable(): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile("which", ["anchor"], (err) => {
+      if (!err) return resolve(true);
+      execFile("which", ["cargo-build-sbf"], (err2) => resolve(!err2));
+    });
+  });
+}
 
 export interface CompileInput {
   ir: ProgramIR;
   framework: "ANCHOR" | "PINOCCHIO" | "QUASAR";
   irHash: string;
+  /** Pre-generated source files from codegen (generated once, passed to all runners) */
+  generatedFiles: { path: string; content: string }[];
   options: {
     release: boolean;
     verifiable: boolean;
@@ -32,28 +56,34 @@ export async function compileWithStrategy(
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<CompileResult> {
   // Strategy 1: Docker build (preferred — supports all 3 frameworks)
-  try {
-    const result = await runDockerBuild(input, onLog);
-    if (result.success) {
-      return {
-        success: true,
-        logs: result.logs,
-        errors: [],
-        warnings: result.warnings,
-        workDir: result.workDir,
-        binaryPath: result.binaryPath,
-        binarySize: result.binarySize,
-        duration: result.duration,
-        method: "docker",
-        idlJson: result.idlJson,
-      };
+  // Quick availability check to avoid 2-5s spawn timeout
+  const dockerReady = await isDockerAvailable();
+  if (dockerReady) {
+    try {
+      const result = await runDockerBuild(input, onLog);
+      if (result.success) {
+        return {
+          success: true,
+          logs: result.logs,
+          errors: [],
+          warnings: result.warnings,
+          workDir: result.workDir,
+          binaryPath: result.binaryPath,
+          binarySize: result.binarySize,
+          duration: result.duration,
+          method: "docker",
+          idlJson: result.idlJson,
+        };
+      }
+      onLog("[strategy] Docker build failed — trying other methods...", "warn");
+    } catch (err) {
+      onLog(
+        `[strategy] Docker build error: ${err instanceof Error ? err.message : String(err)}`,
+        "warn",
+      );
     }
-    onLog("[strategy] Docker build failed — trying other methods...", "warn");
-  } catch (err) {
-    onLog(
-      `[strategy] Docker not available: ${err instanceof Error ? err.message : String(err)}`,
-      "warn",
-    );
+  } else {
+    onLog("[strategy] Docker not available — skipping", "info");
   }
 
   // Strategy 2: WASM/cloud build

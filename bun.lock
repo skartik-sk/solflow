@@ -40,6 +40,7 @@
         "@solflow/codegen": "workspace:*",
         "@solflow/db": "workspace:*",
         "@solflow/flow-nodes": "workspace:*",
+        "@solflow/idl-import": "workspace:*",
         "@solflow/ir": "workspace:*",
         "@solflow/plugin-sdk": "workspace:*",
         "@solflow/sdk-gen": "workspace:*",
@@ -198,6 +199,20 @@
       },
       "peerDependencies": {
         "react": "^19.0.0",
+      },
+    },
+    "packages/idl-import": {
+      "name": "@solflow/idl-import",
+      "version": "0.0.0",
+      "dependencies": {
+        "@xyflow/react": "^12.5.0",
+      },
+      "devDependencies": {
+        "@solflow/eslint-config": "workspace:*",
+        "@solflow/ir": "workspace:*",
+        "@solflow/tsconfig": "workspace:*",
+        "typescript": "^5.8.0",
+        "vitest": "^3.0.0",
       },
     },
     "packages/ir": {
@@ -1307,6 +1322,8 @@
     "@solflow/eslint-config": ["@solflow/eslint-config@workspace:packages/eslint-config"],
 
     "@solflow/flow-nodes": ["@solflow/flow-nodes@workspace:packages/flow-nodes"],
+
+    "@solflow/idl-import": ["@solflow/idl-import@workspace:packages/idl-import"],
 
     "@solflow/ir": ["@solflow/ir@workspace:packages/ir"],
 

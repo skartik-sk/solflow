@@ -5,6 +5,7 @@
 // re-render when nodes move on the canvas.
 
 import { create } from "zustand";
+import type { ProgramIR } from "@solflow/ir";
 
 export interface CodegenError {
   message: string;
@@ -29,27 +30,15 @@ export interface GeneratedProject {
   warnings: CodegenWarning[];
 }
 
-// ProgramIR shape — loosely typed here to avoid circular imports from @solflow/ir.
-// Components that need full typing should import from @solflow/ir directly.
-interface ProgramIRSnapshot {
-  program?: unknown;
-  instructions?: unknown[];
-  accounts?: unknown[];
-  states?: unknown[];
-  events?: unknown[];
-  errors?: unknown[];
-  [key: string]: unknown;
-}
-
 interface CodeState {
   generatedCode: GeneratedProject | null;
-  irJson: ProgramIRSnapshot | null;
+  irJson: ProgramIR | null;
   errors: CodegenError[];
   warnings: CodegenWarning[];
   activeFile: string | null;   // Path of the file currently shown in Monaco
 
   // Actions
-  setGeneratedCode: (code: GeneratedProject, ir: unknown) => void;
+  setGeneratedCode: (code: GeneratedProject, ir: ProgramIR) => void;
   setError: (error: Error) => void;
   setActiveFile: (path: string) => void;
   clear: () => void;

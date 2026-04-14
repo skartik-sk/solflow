@@ -5,6 +5,9 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createHash } from "crypto";
+import { rm, mkdir, copyFile } from "fs/promises";
+import { join, resolve } from "path";
+import { tmpdir } from "os";
 import { router, protectedProcedure } from "../trpc";
 import { compileRateLimit } from "@/lib/rate-limit";
 import { flowToIR } from "@solflow/ir";
@@ -132,6 +135,7 @@ export const compileRouter = router({
               ir: irData as any,
               framework: project.framework,
               irHash,
+              generatedFiles: result.files,
               options: {
                 release: input.release,
                 verifiable: input.verifiable,
@@ -159,13 +163,42 @@ export const compileRouter = router({
           if (!buildResult.success) {
             buildErrors = buildResult.errors;
           }
+
+          // Copy binary to a persistent location before cleaning temp dir
+          // (deploy step reads it later — cannot be on /tmp which OS may clean)
+          if (buildResult.binaryPath && buildResult.workDir) {
+            try {
+              // Store in .solflow-builds at project root (gitignored, survives restarts)
+              const buildStoreDir = resolve(process.cwd(), ".solflow-builds");
+              await mkdir(buildStoreDir, { recursive: true });
+              const persistentName = `${compilation.id}.so`;
+              const persistentPath = join(buildStoreDir, persistentName);
+              await copyFile(buildResult.binaryPath, persistentPath);
+              binaryPath = persistentPath;
+            } catch {
+              // If copy fails, keep the original path (temp dir won't be cleaned)
+              binaryPath = buildResult.binaryPath;
+            }
+          }
+
+          // Clean up temp directory from build (binary already copied)
+          if (buildResult.workDir) {
+            await rm(buildResult.workDir, { recursive: true, force: true }).catch(() => undefined);
+          }
         } catch (buildErr) {
           // Compilation strategy exhausted — codegen only
           buildLogs.push("No compilation toolchain available — showing generated source only.");
           buildWarnings.push("Install anchor CLI and cargo-build-sbf for compilation, or enable WASM.");
         }
 
-        const success = buildErrors.length === 0;
+        // Success requires no errors AND an actual binary to deploy
+        const hasBinary = !!binaryPath;
+        const success = buildErrors.length === 0 && hasBinary;
+
+        if (!hasBinary && buildErrors.length === 0) {
+          buildLogs.push("Build exited cleanly but no .so binary was found — cannot deploy.");
+          compileMethod = "codegen-only";
+        }
 
         await ctx.prisma.compilation.update({
           where: { id: compilation.id },
@@ -204,7 +237,7 @@ export const compileRouter = router({
         return {
           jobId: compilation.id,
           codeGenerated: true,
-          binaryBuilt: success,
+          binaryBuilt: success && !!binaryPath,
           fileCount: result.files.length,
           binarySize,
           warnings: buildWarnings.length,
@@ -213,13 +246,11 @@ export const compileRouter = router({
           errors: buildErrors,
         };
       } catch (err) {
-        // Code generation failed
-        const compilation = await ctx.prisma.compilation.create({
+        // Code generation failed — update the original compilation record
+        await ctx.prisma.compilation.update({
+          where: { id: compilation.id },
           data: {
-            projectId: input.projectId,
             status: "FAILED",
-            framework: project.framework,
-            irHash,
             errors: [
               err instanceof Error ? err.message : String(err),
             ] as unknown as any,

@@ -4,7 +4,7 @@
 
 "use client";
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useCodeStore } from "@/store/code-store";
 import { useProjectStore } from "@/store/project-store";
 import { toast } from "sonner";
@@ -33,32 +33,42 @@ export function IDLPanel() {
 
   const [format, setFormat] = useState<IdlFormat>("anchor");
   const [copied, setCopied] = useState(false);
+  const [idlJson, setIdlJson] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  // Memoize IDL generation — only recompute when irJson or format actually changes
-  const idlResult = useMemo(() => {
-    if (!irJson) return { idlJson: null, error: null };
-
-    try {
-      if (format === "anchor") {
-        // Dynamic import is synchronous for already-loaded modules in bundler context
-        const { irToAnchorIDL } = require("@solflow/sdk-gen");
-        const idl = irToAnchorIDL(irJson);
-        return { idlJson: JSON.stringify(idl, null, 2), error: null };
-      } else {
-        const { irToCodamaIDL } = require("@solflow/sdk-gen");
-        const root = irToCodamaIDL(irJson);
-        return { idlJson: JSON.stringify(root, null, 2), error: null };
-      }
-    } catch (e) {
-      return {
-        idlJson: null,
-        error: e instanceof Error ? e.message : "IDL generation failed",
-      };
+  // Generate IDL asynchronously — require() doesn't exist in browser
+  useEffect(() => {
+    if (!irJson) {
+      setIdlJson(null);
+      setError(null);
+      return;
     }
-  }, [irJson, format]);
 
-  const idlJson = idlResult.idlJson;
-  const error = idlResult.error;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const sdkGen = await import("@solflow/sdk-gen");
+        if (cancelled) return;
+
+        if (format === "anchor") {
+          const idl = sdkGen.irToAnchorIDL(irJson);
+          setIdlJson(JSON.stringify(idl, null, 2));
+          setError(null);
+        } else {
+          const root = sdkGen.irToCodamaIDL(irJson);
+          setIdlJson(JSON.stringify(root, null, 2));
+          setError(null);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setIdlJson(null);
+        setError(e instanceof Error ? e.message : "IDL generation failed");
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [irJson, format]);
 
   const slug = useMemo(
     () => (projectName ?? "program").toLowerCase().replace(/\s+/g, "-"),

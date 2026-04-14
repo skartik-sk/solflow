@@ -131,23 +131,20 @@ export function EditorShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ─── Audit: subscribe to irJson changes, run in-browser rules ──────
-  useEffect(() => {
-    const unsub = useCodeStore.subscribe(async (state) => {
-      if (!state.irJson) {
-        setAuditReport(null);
-        return;
-      }
-      // Lazy import to keep bundle smaller — audit only needed when code changes
-      const { runInstantAudit } = await import("@solflow/audit");
-      try {
-        const report = runInstantAudit(state.irJson);
-        setAuditReport(report);
-      } catch {
-        // Non-fatal
-      }
-    });
-    return () => unsub();
+  // ─── Audit: run instant audit on demand (button click) ──────
+  const runInstantAudit = React.useCallback(async () => {
+    const irJson = useCodeStore.getState().irJson;
+    if (!irJson) {
+      setAuditReport(null);
+      return;
+    }
+    try {
+      const { runInstantAudit: audit } = await import("@solflow/audit");
+      const report = audit(irJson);
+      setAuditReport(report);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Instant audit failed");
+    }
   }, []);
 
   // ─── Auto-save: debounced save whenever isDirty flips to true ──────
@@ -323,6 +320,7 @@ export function EditorShell({
                 <AuditPanel
                   report={auditReport}
                   projectId={projectId}
+                  onRunInstantAudit={runInstantAudit}
                   onGoToNode={(nodeId) => {
                     useFlowStore.getState().setSelectedNode(nodeId);
                     focusNode(nodeId);
@@ -330,10 +328,11 @@ export function EditorShell({
                   onFix={async (finding) => {
                     const { getRuleById } = await import("@solflow/audit");
                     const rule = getRuleById(finding.ruleId);
-                    if (!rule?.autoFix || !useCodeStore.getState().irJson)
+                    const ir = useCodeStore.getState().irJson;
+                    if (!rule?.autoFix || !ir)
                       return;
                     const patches = rule.autoFix(
-                      useCodeStore.getState().irJson,
+                      ir,
                       finding,
                     );
                     for (const patch of patches) {
@@ -435,14 +434,27 @@ function AuditPanel({
   onGoToNode,
   onFix,
   onFullAuditResult,
+  onRunInstantAudit,
 }: {
   report: AuditReport | null;
   projectId: string;
   onGoToNode?: (nodeId: string) => void;
   onFix?: (finding: import("@solflow/audit").AuditFinding) => void;
   onFullAuditResult?: (report: AuditReport) => void;
+  onRunInstantAudit?: () => void;
 }) {
+  const [instantAuditLoading, setInstantAuditLoading] = React.useState(false);
   const [fullAuditLoading, setFullAuditLoading] = React.useState(false);
+
+  const handleInstantAudit = React.useCallback(async () => {
+    if (!onRunInstantAudit) return;
+    setInstantAuditLoading(true);
+    try {
+      await onRunInstantAudit();
+    } finally {
+      setInstantAuditLoading(false);
+    }
+  }, [onRunInstantAudit]);
 
   const runFullAudit = React.useCallback(async () => {
     setFullAuditLoading(true);
@@ -481,16 +493,24 @@ function AuditPanel({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
         <p>
-          Security audit will run automatically when you add nodes to the
-          canvas.
+          Click below to run a security audit on your program.
         </p>
-        <button
-          onClick={runFullAudit}
-          disabled={fullAuditLoading}
-          className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
-          {fullAuditLoading ? "Running…" : "Run Full Audit"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleInstantAudit}
+            disabled={instantAuditLoading}
+            className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {instantAuditLoading ? "Running…" : "Run Instant Audit"}
+          </button>
+          <button
+            onClick={runFullAudit}
+            disabled={fullAuditLoading}
+            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+          >
+            {fullAuditLoading ? "Running…" : "Run Full Audit"}
+          </button>
+        </div>
       </div>
     );
   }

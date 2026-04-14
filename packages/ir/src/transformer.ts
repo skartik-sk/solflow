@@ -38,15 +38,9 @@ function deterministicUuid(seed: string): string {
   return `${timeLow}-${timeMid}-${timeHi}-${clockSeq}-${node}`;
 }
 
-// Cache: map flow node IDs to stable UUIDs so the same flow always produces the same IR.
-const _uuidCache = new Map<string, string>();
+// Map flow node IDs to stable UUIDs — deterministic, no cache needed.
 function toUuid(nodeId: string): string {
-  let uuid = _uuidCache.get(nodeId);
-  if (!uuid) {
-    uuid = deterministicUuid(nodeId);
-    _uuidCache.set(nodeId, uuid);
-  }
-  return uuid;
+  return deterministicUuid(nodeId);
 }
 
 import type {
