@@ -1,12 +1,16 @@
-// Pinocchio code generator — IR → Pinocchio Rust source files.
+// Pinocchio v0.11 code generator — IR → Pinocchio Rust source files.
 //
-// Pinocchio programs are zero-dependency, compute-optimized Solana programs.
-// Key differences from Anchor:
-//  - Manual entrypoint! + discriminator-based dispatch
-//  - No derive macros; manual account destructuring from &[AccountInfo]
+// Pinocchio programs are no_std, zero-dependency, compute-optimized Solana programs.
+// Key concepts (v0.11 API):
+//  - #![no_std] with entrypoint! macro (sets up allocator + panic handler)
+//  - AccountView (zero-copy account access, replaces AccountInfo)
+//  - Address (32-byte program/address type, replaces Pubkey)
+//  - error::ProgramError for error handling
+//  - Manual discriminator-based instruction dispatch
 //  - Zero-copy state access via byte offsets
-//  - Explicit signer/writable checks
-//  - ProgramError::Custom(code) for errors
+//  - Explicit signer/writable checks on AccountView
+//  - CPI via pinocchio::cpi module (Signer + Seed for PDA signing)
+//  - pinocchio-system for system program CPI (Transfer, CreateAccount, etc.)
 //
 // This generator is browser-safe (no fs, no Node.js builtins).
 
@@ -19,6 +23,16 @@ import {
   toKebabCase,
   toSnakeCase,
 } from '../../utils/type-mapper';
+
+// ─── Pinocchio-specific type mapping ──────────────────────────────────────────
+// Pinocchio v0.11 uses different type names than Anchor/standard Solana SDK.
+
+function pinocchioType(type: string | object): string {
+  const rust = solanaTypeToRust(type as any);
+  // Pinocchio v0.11 uses Address instead of Pubkey
+  if (rust === 'Pubkey') return 'Address';
+  return rust;
+}
 
 // ─── Public entry point ────────────────────────────────────────────────────────
 
@@ -33,6 +47,18 @@ export function generatePinocchio(ir: ProgramIR): {
 
   const programName = ir.program.name;   // snake_case
   const version     = ir.program.version;
+  const programId   = ir.program.programId; // base58 public key (may be undefined)
+
+  // Determine if any instruction uses CPI operations
+  const usesCpi = ir.instructions.some((ix) =>
+    ix.body.some((op) =>
+      op.type === 'transfer-sol' ||
+      op.type === 'transfer-token' ||
+      op.type === 'mint-to' ||
+      op.type === 'burn' ||
+      op.type === 'cpi'
+    )
+  );
 
   // Determine if any instruction references SPL tokens
   const usesSpl = ir.instructions.some((ix) =>
@@ -60,14 +86,14 @@ export function generatePinocchio(ir: ProgramIR): {
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl),
+    content: generateCargoToml(programName, version, usesCpi, usesSpl),
     language: 'toml',
   });
 
   // ── src/lib.rs ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/src/lib.rs`,
-    content: generateLibRs(programName, instructions, states, errors_, events, discriminators),
+    content: generateLibRs(programName, programId, instructions, states, errors_, events, discriminators),
     language: 'rust',
   });
 
@@ -146,15 +172,11 @@ export function generatePinocchio(ir: ProgramIR): {
   return { files, warnings, errors };
 }
 
-// ─── Discriminator (browser-safe) ────────────────────────────────────────────
-// Mimics SHA-256("global:name")[..8] using djb2 to stay browser-safe.
-// Output is deterministic but NOT identical to real Anchor discriminators
-// (which use actual SHA-256). For production use, swap with Node crypto.
+// ─── Discriminator ─────────────────────────────────────────────────────────────
 
 function pinocchioDiscriminator(index: number): number[] {
   // Pinocchio programs define their own discriminators (no Anchor dependency).
   // We use the index encoded as 8-byte little-endian. Deterministic and unique.
-  // If Anchor-compatibility is needed, swap with SHA-256("global:name")[..8].
   return [
     index & 0xff,
     (index >> 8) & 0xff,
@@ -170,15 +192,28 @@ function formatDiscriminator(disc: number[]): string {
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
 
-function generateCargoToml(name: string, version: string, usesSpl: boolean): string {
+function generateCargoToml(name: string, version: string, usesCpi: boolean, usesSpl: boolean): string {
   const kebab = toKebabCase(name);
-  const spl = usesSpl
-    ? '\npinocchio-token = "0.3"'
+
+  // pinocchio-system is needed for system program CPI (Transfer, CreateAccount, etc.)
+  const systemDep = usesCpi
+    ? '\npinocchio-system = "0.6"'
     : '';
+
+  // pinocchio-token is needed for SPL token operations
+  const tokenDep = usesSpl
+    ? '\npinocchio-token = "0.4"'
+    : '';
+
+  // pinocchio with cpi feature if needed
+  const pinocchioDep = usesCpi
+    ? 'pinocchio = { version = "0.11", features = ["cpi"] }'
+    : 'pinocchio = "0.11"';
+
   return `[package]
 name = "${kebab}"
 version = "${version}"
-description = "Created with SolFlow (Pinocchio)"
+description = "Created with SolStudio (Pinocchio)"
 edition = "2021"
 
 [lib]
@@ -190,8 +225,8 @@ no-entrypoint = []
 default = []
 
 [dependencies]
-pinocchio = "0.7"
-pinocchio-system = "0.3"${spl}
+${pinocchioDep}
+solana-address = { version = "2.0", features = ["decode"] }${systemDep}${tokenDep}
 
 [profile.release]
 opt-level = "z"
@@ -206,6 +241,7 @@ strip = true
 
 function generateLibRs(
   programName: string,
+  programId: string | undefined,
   instructions: Instruction[],
   states: ProgramIR['states'],
   errors: ProgramIR['errors'],
@@ -220,27 +256,36 @@ function generateLibRs(
 
   const modLines = mods.map((m) => `pub mod ${m};`).join('\n');
 
+  // Use programId from IR (same pattern as Anchor codegen)
+  const idLine = programId
+    ? `solana_address::declare_id!("${programId}");`
+    : 'solana_address::declare_id!("11111111111111111111111111111112");';
+
   const matchArms = instructions.map((ix) => {
     const disc = formatDiscriminator(discriminators.get(ix.name) ?? [0,0,0,0,0,0,0,0]);
-    const comment = `// discriminator for "${ix.name}"`;
-    return `        ${disc} => {\n            ${comment}\n            instructions::${ix.name}::process(program_id, accounts, data)\n        }`;
+    return `        ${disc} => {\n            instructions::${ix.name}::process(program_id, accounts, data)\n        }`;
   }).join('\n');
 
-  return `use pinocchio::{
-    account_info::AccountInfo,
-    entrypoint,
-    program_error::ProgramError,
-    pubkey::Pubkey,
+  return `#![no_std]
+
+use pinocchio::{
+    AccountView,
+    Address,
+    error::ProgramError,
     ProgramResult,
 };
 
 ${modLines}
 
-entrypoint!(process_instruction);
+${idLine}
+
+pinocchio::program_entrypoint!(process_instruction);
+pinocchio::default_allocator!();
+pinocchio::nostd_panic_handler!();
 
 pub fn process_instruction(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
+    program_id: &Address,
+    accounts: &mut [AccountView],
     instruction_data: &[u8],
 ) -> ProgramResult {
     // Discriminator-based dispatch (first 8 bytes)
@@ -286,27 +331,31 @@ function generateInstructionRs(
     : '';
 
   // Build validation checks
-  const validationLines = buildValidationChecks(ix.accounts, errorEnum, hasErrors);
+  const validationLines = buildValidationChecks(ix.accounts);
 
   // Parse instruction args
   const argParseLines = buildArgParsing(ix.args);
   const hasArgs = ix.args.length > 0;
 
-  // Build body
-  const bodyLines = buildInstructionBody(ix, ir.program.name);
-
-  // State imports
-  const usedStates = new Set<string>();
+  // Build body — pass account→stateType mapping so set-field uses correct struct names
+  const accountToStateType = new Map<string, string>();
   for (const a of ix.accounts) {
-    if (a.stateType) usedStates.add(a.stateType);
+    if (a.stateType) accountToStateType.set(a.name, a.stateType);
+  }
+  const bodyLines = buildInstructionBody(ix, ir.program.name, accountToStateType);
+
+  // State imports — only import states actually referenced in the body
+  const usedStates = new Set<string>();
+  for (const op of ix.body) {
+    collectUsedStates(op, accountToStateType, usedStates);
   }
 
   const imports: string[] = [
     'use pinocchio::{',
-    '    account_info::AccountInfo,',
-    '    program_error::ProgramError,',
-    '    pubkey::Pubkey,',
+    '    AccountView,',
+    '    Address,',
     '    ProgramResult,',
+    '    error::ProgramError,',
     '};',
   ];
   for (const s of [...usedStates].sort()) {
@@ -319,8 +368,8 @@ function generateInstructionRs(
   const content = `${imports.join('\n')}
 
 pub fn process(
-    program_id: &Pubkey,
-    accounts: &[AccountInfo],
+    program_id: &Address,
+    accounts: &mut [AccountView],
     data: &[u8],
 ) -> ProgramResult {
 ${destructure}${validationLines}${hasArgs ? '\n' + argParseLines : ''}
@@ -335,11 +384,7 @@ ${bodyLines.map((l) => `    ${l}`).join('\n')}
 
 // ─── Account validation ───────────────────────────────────────────────────────
 
-function buildValidationChecks(
-  accounts: Account[],
-  errorEnum: string,
-  hasErrors: boolean,
-): string {
+function buildValidationChecks(accounts: Account[]): string {
   const lines: string[] = [];
 
   for (const a of accounts) {
@@ -364,15 +409,13 @@ function buildValidationChecks(
 
 // ─── Arg parsing ─────────────────────────────────────────────────────────────
 
-function buildArgParsing(
-  args: Instruction['args'],
-): string {
+function buildArgParsing(args: Instruction['args']): string {
   const lines: string[] = [`    // Parse instruction arguments`];
   let offset = 0;
 
   for (const arg of args) {
     const size = getTypeSize(arg.type);
-    const rustType = solanaTypeToRust(arg.type);
+    const rustType = pinocchioType(arg.type);
 
     if (size > 0) {
       // Fixed-size types
@@ -386,24 +429,23 @@ function buildArgParsing(
         lines.push(`    );`);
       } else if (rustType === 'bool') {
         lines.push(`    let ${arg.name} = data[${offset}] != 0;`);
-      } else if (rustType === 'Pubkey') {
-        lines.push(`    let ${arg.name}: &Pubkey = unsafe {`);
-        lines.push(`        &*(data[${offset}..${offset + 32}].as_ptr() as *const Pubkey)`);
+      } else if (rustType === 'Address') {
+        lines.push(`    let ${arg.name}: &Address = unsafe {`);
+        lines.push(`        &*(data[${offset}..${offset + 32}].as_ptr() as *const Address)`);
         lines.push(`    };`);
       } else if (rustType === 'f32' || rustType === 'f64') {
         lines.push(`    let ${arg.name} = ${rustType}::from_le_bytes(`);
         lines.push(`        data[${offset}..${offset + size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    );`);
       } else {
-        // Fixed-size unknown: read as byte array and hint
+        // Fixed-size unknown
         lines.push(`    let ${arg.name}_bytes = &data[${offset}..${offset + size}];`);
         lines.push(`    // TODO: deserialize ${arg.name}: ${rustType} from ${size} bytes`);
       }
       offset += size;
     } else {
-      // Dynamic-size types (String, Vec, etc.)
+      // Dynamic-size types
       if (typeof arg.type === 'string' && arg.type === 'String') {
-        // String: 4-byte length prefix + UTF-8 bytes
         lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
         lines.push(`        data[${offset}..${offset + 4}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    ) as usize;`);
@@ -411,12 +453,8 @@ function buildArgParsing(
         lines.push(`    let ${arg.name} = core::str::from_utf8(`);
         lines.push(`        &data[${offset + 4}..${arg.name}_end]`);
         lines.push(`    ).map_err(|_| ProgramError::InvalidInstructionData)?;`);
-        lines.push(`    let _data_offset = ${arg.name}_end; // update offset`);
-        // Note: for simplicity, we use a naming convention. In a real compiler
-        // this would need a proper offset tracking system for multiple dynamic args.
-        offset = -1; // Signal that we can't track further statically
+        offset = -1;
       } else if (typeof arg.type === 'string' && arg.type.startsWith('Vec')) {
-        // Vec: 4-byte length prefix + elements
         lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
         lines.push(`        data[${offset}..${offset + 4}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    ) as usize;`);
@@ -428,10 +466,9 @@ function buildArgParsing(
         offset = -1;
       }
 
-      // If offset is invalidated by dynamic args, add a comment and stop
       if (offset < 0) {
         lines.push(`    // NOTE: subsequent argument offsets may be incorrect due to dynamic-length arg above`);
-        offset = 0; // Reset to avoid negative offsets
+        offset = 0;
       }
     }
   }
@@ -441,59 +478,61 @@ function buildArgParsing(
 
 // ─── Instruction body ─────────────────────────────────────────────────────────
 
-function buildInstructionBody(ix: Instruction, programName: string): string[] {
+function buildInstructionBody(ix: Instruction, programName: string, accountToStateType: Map<string, string>): string[] {
   const lines: string[] = [];
   const errorEnum = toPascalCase(programName) + 'Error';
 
   for (const op of ix.body) {
-    lines.push(...emitPinocchioOp(op, errorEnum));
+    lines.push(...emitPinocchioOp(op, errorEnum, accountToStateType));
   }
 
   return lines;
 }
 
-function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
+function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>): string[] {
   switch (op.type) {
     case 'set-field': {
-      // Use the generated state accessor method for zero-copy writes.
-      // The state module generates: StateName::set_<field>(data, value)
-      const pascalAccount = op.account.charAt(0).toUpperCase() + op.account.slice(1);
+      const stateStruct = accountToStateType?.get(op.account) ?? toPascalCase(op.account);
       return [
         `// Set ${op.account}.${op.field} = ${op.value}`,
         `{`,
-        `    let data = &mut ${op.account}.try_borrow_mut_data()?;`,
-        `    ${pascalAccount}State::set_${op.field}(data, ${op.value});`,
+        `    let mut data = ${op.account}.try_borrow_mut()?;`,
+        `    ${stateStruct}::set_${op.field}(&mut data, ${op.value});`,
         `}`,
       ];
     }
 
-    case 'transfer-sol':
+    case 'transfer-sol': {
+      // Use pinocchio_system for type-safe system program CPI
       return [
         `{`,
         `    use pinocchio_system::instructions::Transfer;`,
         `    Transfer {`,
         `        from: ${op.from},`,
         `        to: ${op.to},`,
-        `        lamports: ${op.amount}.parse::<u64>().unwrap_or(0),`,
+        `        lamports: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
         `}`,
       ];
+    }
 
     case 'transfer-token': {
-      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
-      if (seeds) {
+      const seedsCode = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
+      if (seedsCode) {
         return [
           `{`,
           `    use pinocchio_token::instructions::Transfer as TokenTransfer;`,
-          `    let signer_seeds = ${seeds[0]};`,
+          `    use pinocchio::cpi::{Signer, Seed};`,
+          `    let seeds: [Seed; ${op.signerSeeds!.length}] = ${seedsCode};`,
+          `    let signer = Signer::from(&seeds);`,
           `    TokenTransfer {`,
           `        from: ${op.from},`,
           `        to: ${op.to},`,
           `        authority: ${op.authority},`,
-          `        amount: ${op.amount}.parse::<u64>().unwrap_or(0),`,
+          `        amount: ${op.amount},`,
           `    }`,
-          `    .invoke_signed(&[&signer_seeds])?;`,
+          `    .invoke_signed(&[signer])?;`,
           `}`,
         ];
       }
@@ -504,7 +543,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
         `        from: ${op.from},`,
         `        to: ${op.to},`,
         `        authority: ${op.authority},`,
-        `        amount: ${op.amount}.parse::<u64>().unwrap_or(0),`,
+        `        amount: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
         `}`,
@@ -519,7 +558,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
         `        mint: ${op.mint},`,
         `        account: ${op.to},`,
         `        mint_authority: ${op.authority},`,
-        `        amount: ${op.amount}.parse::<u64>().unwrap_or(0),`,
+        `        amount: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
         `}`,
@@ -533,7 +572,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
         `        account: ${op.from},`,
         `        mint: ${op.mint},`,
         `        authority: ${op.authority},`,
-        `        amount: ${op.amount}.parse::<u64>().unwrap_or(0),`,
+        `        amount: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
         `}`,
@@ -547,8 +586,8 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
       ];
 
     case 'if-else': {
-      const then_ = op.thenBody.flatMap((o) => emitPinocchioOp(o, errorEnum)).map((l) => `    ${l}`);
-      const else_ = op.elseBody?.flatMap((o) => emitPinocchioOp(o, errorEnum)).map((l) => `    ${l}`) ?? [];
+      const then_ = op.thenBody.flatMap((o) => emitPinocchioOp(o, errorEnum, accountToStateType)).map((l) => `    ${l}`);
+      const else_ = op.elseBody?.flatMap((o) => emitPinocchioOp(o, errorEnum, accountToStateType)).map((l) => `    ${l}`) ?? [];
       const result = [`if ${op.condition} {`, ...then_];
       if (else_.length) result.push('} else {', ...else_);
       result.push('}');
@@ -556,9 +595,11 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
     }
 
     case 'emit-event':
+      // Pinocchio doesn't have Anchor's emit! macro.
+      // Log event data using sol_log_ syscall via msg!-like pattern.
       return [
-        `// emit! is not available in Pinocchio — log as msg instead`,
-        `pinocchio::msg!("event:${op.event}");`,
+        `// Event: ${op.event} — logged via sol_log_`,
+        `// TODO: serialize and log event data using pinocchio syscalls`,
       ];
 
     case 'return-error':
@@ -581,34 +622,21 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
     }
 
     case 'cpi': {
+      // CPI is handled via pinocchio's instruction system.
+      // Generate a TODO for now — exact CPI pattern depends on target program.
       const prog = op.targetProgram;
       const ix = op.instruction;
-      const accountMetas = op.accounts
-        .map((a) => `AccountMeta::${a.from === 'signer' ? 'new_readonly' : 'new'}(ctx.accounts.${a.to}.key(), ${a.from === 'signer' ? 'true' : 'false'})`)
-        .join(", ");
-      const dataArgs = op.data.map((d) => d.value).join(", ");
-
       const lines: string[] = [
         `// CPI: ${prog}::${ix}`,
+        `// TODO: Implement CPI using pinocchio instruction types.`,
+        `// use pinocchio::{`,
+        `//     cpi::{invoke_signed, Signer},`,
+        `//     instruction::{InstructionAccount, InstructionView},`,
+        `// };`,
+        `// let instruction_accounts: [InstructionAccount; N] = [...];`,
+        `// let instruction = InstructionView { program_id, accounts: &instruction_accounts, data };`,
+        `// invoke_signed(&instruction, &[...accounts...], &[])?;`,
       ];
-
-      if (op.signerSeeds && op.signerSeeds.length > 0) {
-        const seedParts = op.signerSeeds.map((s) => {
-          if (s.type === 'literal') return `b"${s.value}"`;
-          if (s.type === 'pubkey') return s.value;
-          return s.value;
-        }).join(", ");
-        lines.push(
-          `let seeds = &[&[${seedParts}][..]];`,
-          `let ix = ${ix}_instruction(${dataArgs || ''});`,
-          `invoke_signed(&ctx.accounts.${prog}.key(), &[${accountMetas}], &ix.data, seeds)?;`,
-        );
-      } else {
-        lines.push(
-          `let ix = ${ix}_instruction(${dataArgs || ''});`,
-          `invoke(&ctx.accounts.${prog}.key(), &[${accountMetas}], &ix.data)?;`,
-        );
-      }
       return lines;
     }
 
@@ -620,13 +648,26 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string): string[] {
   }
 }
 
-function buildSignerSeeds(seeds: Seed[]): string[] {
+/// Collect state struct names actually used in instruction body ops
+function collectUsedStates(op: LogicOperation, accountToStateType: Map<string, string>, out: Set<string>): void {
+  if (op.type === 'set-field') {
+    const stateType = accountToStateType.get(op.account);
+    if (stateType) out.add(stateType);
+  }
+  if (op.type === 'if-else') {
+    for (const o of op.thenBody) collectUsedStates(o, accountToStateType, out);
+    for (const o of (op.elseBody ?? [])) collectUsedStates(o, accountToStateType, out);
+  }
+}
+
+/// Build Pinocchio v0.11 Seed array for PDA signing
+function buildSignerSeeds(seeds: Seed[]): string {
   const parts = seeds.map((s) => {
-    if (s.type === 'literal') return `b"${s.value}"`;
-    if (s.type === 'pubkey')  return `${s.value}.key().as_ref()`;
-    return s.value;
+    if (s.type === 'literal') return `Seed::from(b"${s.value}" as &[u8])`;
+    if (s.type === 'pubkey')  return `Seed::from(${s.value}.address().as_ref())`;
+    return `Seed::from(${s.value}.as_ref())`;
   });
-  return [`&[${parts.join(', ')}]`];
+  return `[${parts.join(', ')}]`;
 }
 
 // ─── src/state/<name>.rs — zero-copy layout ───────────────────────────────────
@@ -640,7 +681,7 @@ function generateStateRs(name: string, fields: Field[], discriminator: number[])
 
   for (const f of fields) {
     const size = getTypeSize(f.type);
-    const rustType = solanaTypeToRust(f.type);
+    const rustType = pinocchioType(f.type);
     fieldMeta.push({
       name: f.name,
       type: rustType,
@@ -662,19 +703,19 @@ function generateStateRs(name: string, fields: Field[], discriminator: number[])
   ).join('\n');
 
   const accessors = fieldMeta.map((fm) => {
-    if (fm.type === 'Pubkey') {
+    if (fm.type === 'Address') {
       return [
         `    /// Read ${fm.name} from raw account data`,
         `    #[inline(always)]`,
-        `    pub fn ${fm.name}(data: &[u8]) -> &Pubkey {`,
+        `    pub fn ${fm.name}(data: &[u8]) -> &Address {`,
         `        unsafe {`,
-        `            &*(data[Self::${fm.name.toUpperCase()}_OFFSET..Self::${fm.name.toUpperCase()}_OFFSET + 32].as_ptr() as *const Pubkey)`,
+        `            &*(data[Self::${fm.name.toUpperCase()}_OFFSET..Self::${fm.name.toUpperCase()}_OFFSET + 32].as_ptr() as *const Address)`,
         `        }`,
         `    }`,
         ``,
         `    /// Write ${fm.name} to raw account data`,
         `    #[inline(always)]`,
-        `    pub fn set_${fm.name}(data: &mut [u8], value: &Pubkey) {`,
+        `    pub fn set_${fm.name}(data: &mut [u8], value: &Address) {`,
         `        data[Self::${fm.name.toUpperCase()}_OFFSET..Self::${fm.name.toUpperCase()}_OFFSET + 32]`,
         `            .copy_from_slice(value.as_ref());`,
         `    }`,
@@ -711,7 +752,7 @@ function generateStateRs(name: string, fields: Field[], discriminator: number[])
 
   const discArr = `[${discriminator.join(', ')}]`;
 
-  return `use pinocchio::pubkey::Pubkey;
+  return `use pinocchio::Address;
 
 /// ${name} state account
 ///
@@ -746,7 +787,7 @@ function generateErrorsRs(enumName: string, errors: ProgramIR['errors']): string
     .map((e) => `            Self::${e.name} => "${e.message}",`)
     .join('\n');
 
-  return `use pinocchio::program_error::ProgramError;
+  return `use pinocchio::error::ProgramError;
 
 #[derive(Debug, Clone, Copy)]
 pub enum ${enumName} {
@@ -774,37 +815,41 @@ ${messages}
 function generateEventsRs(events: ProgramIR['events']): string {
   const structs = events.map((e) => {
     const fields = e.fields
-      .map((f) => `    pub ${f.name}: ${solanaTypeToRust(f.type)},`)
+      .map((f) => `    pub ${f.name}: ${pinocchioType(f.type)},`)
       .join('\n');
-    return `/// ${e.name} event\n/// Logged via pinocchio::msg! as "event:${e.name}:{{borsh_encoded}}"\npub struct ${e.name} {\n${fields}\n}`;
+    return `/// ${e.name} event\n/// Logged via sol_log_ syscall as raw data\npub struct ${e.name} {\n${fields}\n}`;
   }).join('\n\n');
-  return `use pinocchio::pubkey::Pubkey;\n\n${structs}\n`;
+  return `use pinocchio::Address;\n\n${structs}\n`;
 }
 
 // ─── src/constants.rs ─────────────────────────────────────────────────────────
 
 function generateConstantsRs(constants: ProgramIR['constants']): string {
   return constants
-    .map((c) => `pub const ${c.name}: ${solanaTypeToRust(c.type)} = ${c.value};`)
+    .map((c) => `pub const ${c.name}: ${pinocchioType(c.type)} = ${c.value};`)
     .join('\n') + '\n';
 }
 
 // ─── src/utils.rs ─────────────────────────────────────────────────────────────
 
 function generateUtilsRs(): string {
-  return `use pinocchio::{program_error::ProgramError, pubkey::Pubkey};
+  return `use pinocchio::{Address, error::ProgramError};
 
-/// Verify a PDA and return its bump
+/// Verify that an address is a valid PDA derived from the given seeds and program_id.
+///
+/// The bump seed should be included in the seeds array.
+/// Uses Address::create_program_address which is available when pinocchio's
+/// default features are enabled (includes sha2).
+#[inline(always)]
 pub fn verify_pda(
-    expected: &Pubkey,
+    expected: &Address,
     seeds: &[&[u8]],
-    program_id: &Pubkey,
-) -> Result<u8, ProgramError> {
-    let (derived, bump) = Pubkey::find_program_address(seeds, program_id);
-    if &derived != expected {
-        return Err(ProgramError::InvalidSeeds);
+    program_id: &Address,
+) -> Result<(), ProgramError> {
+    match Address::create_program_address(seeds, program_id) {
+        Ok(derived) if &derived == expected => Ok(()),
+        _ => Err(ProgramError::InvalidSeeds),
     }
-    Ok(bump)
 }
 `;
 }

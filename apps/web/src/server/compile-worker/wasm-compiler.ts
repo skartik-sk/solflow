@@ -228,9 +228,10 @@ function flattenForCloudBuild(
     }
   }
 
-  // Extract program name from lib.rs
+  // Extract program name from lib.rs — avoid "program" which clashes with #[program] macro
   const programNameMatch = libRs.match(/pub mod (\w+)\s*\{/);
-  const programName = programNameMatch ? programNameMatch[1] : "program";
+  const rawProgramName = programNameMatch ? programNameMatch[1] : "my_program";
+  const programName = rawProgramName === "program" ? "my_program" : rawProgramName;
 
   // Build the instruction fns for #[program]
   const instrFns: string[] = [];
@@ -494,8 +495,13 @@ export async function runWasmBuild(
     onLog(`[cloud]   ${f.path} (${f.content.length} chars)`, "info");
   }
 
-  // Step 2: Try cloud build first
-  const cloudResult = await compileWithCloudBuild(generatedFiles, onLog);
+  // Step 2: Try cloud build (SolPG only supports Anchor framework)
+  let cloudResult: { success: boolean; uuid: string; logs: string[]; idl: unknown } | null = null;
+  if (input.framework === "ANCHOR") {
+    cloudResult = await compileWithCloudBuild(generatedFiles, onLog);
+  } else {
+    onLog(`[cloud] Cloud build only supports Anchor — skipping for ${input.framework}`, "warn");
+  }
 
   if (cloudResult) {
     if (cloudResult.success) {
@@ -576,14 +582,24 @@ export async function runWasmBuild(
   const buildCmd =
     input.framework === "ANCHOR"
       ? "anchor build"
-      : input.framework === "QUASAR"
-        ? "cargo build-sbf --release"
-        : "cargo build-sbf --release";
+      : "cargo-build-sbf";
 
-  onLog(`[local] Running: ${buildCmd}`, "info");
+  // Anchor builds from workspace root, cargo-build-sbf needs the program subdirectory
+  const programName = input.ir.program.name;
+  const isAnchor = input.framework === "ANCHOR";
+  const buildDir = isAnchor ? workDir : join(workDir, "programs", programName);
+
+  // For non-Anchor: use --bpf-out-dir to force output to a known location
+  const outDir = join(workDir, "out");
+  if (!isAnchor) {
+    await mkdir(outDir, { recursive: true });
+  }
+  const effectiveBuildCmd = isAnchor ? buildCmd : `${buildCmd} --sbf-out-dir ${outDir}`;
+
+  onLog(`[local] Running: ${effectiveBuildCmd} in ${buildDir}`, "info");
 
   try {
-    const { code, logs } = await runCommand(buildCmd, [], workDir, onLog);
+    const { code, logs } = await runCommand(effectiveBuildCmd, [], buildDir, onLog);
     const duration = Date.now() - startedAt;
     const { errors, warnings } = parseErrors(logs);
 
@@ -605,26 +621,43 @@ export async function runWasmBuild(
       };
     }
 
-    // Find the .so binary in target/deploy/
-    const deployDir = join(workDir, "target", "deploy");
+    // Find the .so binary
     let binaryPath: string | null = null;
     let binarySize: number | null = null;
+    const { readdir } = await import("fs/promises");
 
-    try {
-      const { readdir } = await import("fs/promises");
-      const entries = await readdir(deployDir);
-      const soFile = entries.find((e) => e.endsWith(".so"));
-      if (soFile) {
-        binaryPath = join(deployDir, soFile);
-        const buf = await readFile(binaryPath);
-        binarySize = buf.byteLength;
-        onLog(
-          `[local] Compiled binary: ${binaryPath} (${binarySize} bytes)`,
-          "info",
-        );
+    // Search paths in priority order
+    const searchPaths = isAnchor
+      ? [join(workDir, "target", "deploy")]
+      : [
+          outDir, // forced output via --bpf-out-dir
+          join(workDir, "programs", programName, "target", "deploy"),
+          join(workDir, "programs", programName, "target", "sbf-solana-solana", "release"),
+          join(workDir, "target", "deploy"),
+          join(workDir, "target", "sbf-solana-solana", "release"),
+        ];
+
+    for (const dir of searchPaths) {
+      try {
+        const entries = await readdir(dir);
+        const soFile = entries.find((e) => e.endsWith(".so"));
+        if (soFile) {
+          binaryPath = join(dir, soFile);
+          const buf = await readFile(binaryPath);
+          binarySize = buf.byteLength;
+          onLog(
+            `[local] Compiled binary: ${binaryPath} (${binarySize} bytes)`,
+            "info",
+          );
+          break;
+        }
+      } catch {
+        // Directory doesn't exist, try next
       }
-    } catch {
-      onLog("[local] Build succeeded but no .so binary found", "warn");
+    }
+
+    if (!binaryPath) {
+      onLog(`[local] Build succeeded but no .so binary found. Temp dir: ${workDir}`, "warn");
     }
 
     return {

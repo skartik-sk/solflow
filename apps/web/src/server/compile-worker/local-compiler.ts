@@ -126,21 +126,41 @@ async function findFilesRecursive(dir: string, ext: string): Promise<string[]> {
 }
 
 /** Find the compiled .so binary in the project's target directory. */
-async function findSoBinary(workDir: string): Promise<string | null> {
-  // First check target/deploy/ directly (most common location)
-  const deployDir = join(workDir, "target", "deploy");
-  try {
-    const entries = await readdir(deployDir);
-    const soFile = entries.find((e) => e.endsWith(".so"));
-    if (soFile) return join(deployDir, soFile);
-  } catch {
-    // deploy dir doesn't exist, search recursively
+async function findSoBinary(workDir: string, programName?: string): Promise<string | null> {
+  // Search paths in priority order
+  const searchPaths = [
+    // Anchor workspace: target/deploy/ at project root
+    join(workDir, "target", "deploy"),
+    // Pinocchio/Quasar: target/deploy/ inside the program subdirectory
+    programName ? join(workDir, "programs", programName, "target", "deploy") : null,
+    // sbf-solana-solana release dir (cargo-build-sbf / cargo build-sbf output)
+    programName ? join(workDir, "programs", programName, "target", "sbf-solana-solana", "release") : null,
+    // bpfel-unknown-unknown (older Solana CLI versions)
+    programName ? join(workDir, "programs", programName, "target", "bpfel-unknown-unknown", "release") : null,
+    // Workspace-level sbf target
+    join(workDir, "target", "sbf-solana-solana", "release"),
+    join(workDir, "target", "bpfel-unknown-unknown", "release"),
+  ].filter(Boolean) as string[];
+
+  for (const dir of searchPaths) {
+    try {
+      const entries = await readdir(dir);
+      // Prefer exact name match, then any .so file
+      if (programName) {
+        const exactMatch = entries.find((e) => e === `${programName}.so`);
+        if (exactMatch) return join(dir, exactMatch);
+      }
+      const soFile = entries.find((e) => e.endsWith(".so"));
+      if (soFile) return join(dir, soFile);
+    } catch {
+      // Directory doesn't exist, try next
+    }
   }
 
-  // Fallback: recursive search
+  // Fallback: recursive search from workDir
   const allSoFiles = await findFilesRecursive(workDir, ".so");
-  // Prefer release builds
-  const releaseFile = allSoFiles.find((f) => f.includes("release") || f.includes("deploy"));
+  // Prefer deploy/release paths
+  const releaseFile = allSoFiles.find((f) => f.includes("deploy") || f.includes("release"));
   return releaseFile ?? allSoFiles[0] ?? null;
 }
 
@@ -187,16 +207,25 @@ export async function runLocalBuild(
   }
 
   // Step 2: Compile
-  const buildCmd =
-    input.framework === "ANCHOR"
-      ? "anchor build"
-      : input.framework === "QUASAR"
-        ? "cargo build-sbf --release"
-        : "cargo build-sbf --release";
+  const programName = input.ir.program.name;
+  const isAnchor = input.framework === "ANCHOR";
+  const buildDir = isAnchor ? workDir : join(workDir, "programs", programName);
 
-  onLog(`Running: ${buildCmd}`, "info");
+  // For non-Anchor: use --bpf-out-dir to force the .so output to a known location
+  // This eliminates the guesswork of where cargo-build-sbf puts the binary
+  const outDir = join(workDir, "out");
+  let buildCmd: string;
+  if (isAnchor) {
+    buildCmd = "anchor build";
+  } else {
+    // Create the output directory so cargo-build-sbf can write to it
+    await mkdir(outDir, { recursive: true });
+    buildCmd = `cargo-build-sbf --sbf-out-dir ${outDir}`;
+  }
 
-  const { code, logs } = await runCommand(buildCmd, [], workDir, onLog);
+  onLog(`Running: ${buildCmd} in ${buildDir}`, "info");
+
+  const { code, logs } = await runCommand(buildCmd, [], buildDir, onLog);
   allLogs.push(...logs);
 
   const duration = Date.now() - startedAt;
@@ -221,7 +250,29 @@ export async function runLocalBuild(
   }
 
   // Step 3: Find the compiled binary
-  const binaryPath = await findSoBinary(workDir);
+  // First check the forced output directory (non-Anchor), then fall back to search
+  let binaryPath: string | null = null;
+
+  if (!isAnchor) {
+    // Direct check in the forced output directory
+    try {
+      const outEntries = await readdir(outDir);
+      onLog(`out/ contents: ${outEntries.join(', ')}`, "info");
+      const soFile = outEntries.find((e) => e.endsWith(".so"));
+      if (soFile) {
+        binaryPath = join(outDir, soFile);
+      }
+    } catch {
+      onLog(`out/ directory not found at ${outDir}`, "warn");
+    }
+  }
+
+  if (!binaryPath) {
+    // Fallback: search all target directories
+    onLog(`Searching for .so in ${workDir} (program: ${programName})`, "info");
+    binaryPath = await findSoBinary(workDir, programName);
+  }
+
   let binarySize: number | null = null;
 
   if (binaryPath) {
@@ -233,7 +284,8 @@ export async function runLocalBuild(
     }
     onLog(`Compiled binary: ${binaryPath} (${binarySize ?? "?"} bytes)`, "info");
   } else {
-    onLog("Build succeeded but no .so binary found — check target/ directory", "warn");
+    // Don't delete temp dir so user can inspect manually
+    onLog(`No .so binary found. Inspect temp dir: ls -R ${workDir}`, "warn");
   }
 
   return {

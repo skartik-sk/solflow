@@ -87,10 +87,34 @@ function parseErrors(logs: string[]): { errors: string[]; warnings: string[] } {
 }
 
 /** Try to find the compiled .so binary in the build directory. */
-async function findBinary(workDir: string): Promise<{ path: string; size: number } | null> {
+async function findBinary(workDir: string, programName?: string): Promise<{ path: string; size: number } | null> {
   const { readdir, stat } = await import("fs/promises");
   const { extname } = await import("path");
 
+  // Search specific high-probability paths first, then fall back to recursive
+  const searchPaths = [
+    join(workDir, "target", "deploy"),
+    programName ? join(workDir, "programs", programName, "target", "deploy") : null,
+    programName ? join(workDir, "programs", programName, "target", "sbf-solana-solana", "release") : null,
+    join(workDir, "target", "sbf-solana-solana", "release"),
+  ].filter(Boolean) as string[];
+
+  for (const dir of searchPaths) {
+    try {
+      const entries = await readdir(dir);
+      for (const entry of entries) {
+        if (extname(entry) === ".so") {
+          const fullPath = join(dir, entry);
+          const s = await stat(fullPath);
+          return { path: fullPath, size: s.size };
+        }
+      }
+    } catch {
+      // Directory doesn't exist
+    }
+  }
+
+  // Fallback: recursive search
   async function searchDir(dir: string): Promise<{ path: string; size: number } | null> {
     let entries;
     try {
@@ -209,7 +233,7 @@ export async function runDockerBuild(
         onLog("[docker] Build succeeded", "info");
 
         // Find the compiled binary
-        const binary = await findBinary(workDir);
+        const binary = await findBinary(workDir, programDir);
         if (binary) {
           onLog(`[docker] Binary: ${binary.size} bytes`, "info");
         } else {
