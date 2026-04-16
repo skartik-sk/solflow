@@ -447,11 +447,92 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         timestamp: Date.now(),
       });
 
+      // Subscribe to real-time deploy status via WebSocket
+      const { connectWS, onWSMessage: onWS, subscribeToJob, isDeployStatus } =
+        await import("@/lib/ws");
+      connectWS();
+
+      // We'll get the deploymentId from the first WS message
+      let wsDeploymentId: string | null = null;
+      const deployUnsubscribe = onWS((msg) => {
+        if (msg.type !== "deploy-status") return;
+        const jobId = msg.jobId;
+        if (wsDeploymentId && jobId !== wsDeploymentId) return;
+
+        // Track the deployment ID from first message and subscribe to job
+        if (!wsDeploymentId) {
+          wsDeploymentId = jobId;
+          subscribeToJob(jobId);
+        }
+
+        const data = msg.data as {
+          phase: string;
+          message?: string;
+          log?: string;
+          level?: string;
+          txSig?: string;
+          txSignature?: string;
+          programId?: string;
+          explorerUrl?: string;
+          txExplorerUrl?: string;
+          written?: number;
+          totalChunks?: number;
+          missingChunks?: number;
+          verifyPass?: number;
+          error?: string;
+        };
+
+        // Log the phase message
+        const logLine = data.log || data.message || data.phase;
+        if (logLine) {
+          const level = (data.level === "error" ? "error" : data.level === "warn" ? "warn" : "info") as "info" | "warn" | "error";
+          get().addLog({ line: logLine, level, timestamp: Date.now() });
+        }
+
+        // Map server phase to deployStatus + deployPhase
+        const phaseToStatus: Record<string, DeployStatus> = {
+          funding: "deploying",
+          funded: "deploying",
+          buffer: "deploying",
+          writing: "deploying",
+          deploying: "confirming",
+          cleanup: "confirming",
+          complete: "success",
+          error: "error",
+        };
+        set({
+          deployStatus: phaseToStatus[data.phase] ?? "deploying",
+          deployPhase: data.phase,
+        });
+
+        // Track chunk write progress
+        if (data.written != null && data.totalChunks != null) {
+          set({
+            deployProgress: { current: data.written, total: data.totalChunks },
+          });
+        }
+
+        // Capture early results from WS
+        if (data.programId) set({ deployedProgramId: data.programId });
+        if (data.txSignature || data.txSig) set({ deployTxSignature: data.txSignature || data.txSig || null });
+        if (data.explorerUrl) set({ deployExplorerUrl: data.explorerUrl });
+        if (data.txExplorerUrl) set({ deployTxExplorerUrl: data.txExplorerUrl });
+
+        // Handle error phase
+        if (data.phase === "error" && data.error) {
+          set({ deployErrors: [data.error] });
+        }
+      });
+
       const result = await client.deploy.start.mutate({
         projectId,
         network,
       });
 
+      // Unsubscribe from WS after mutate completes
+      deployUnsubscribe();
+
+      // Final state from tRPC result (may already be set via WS, but ensure consistency)
       set({
         deployStatus: "success",
         deployPhase: "complete",
@@ -462,26 +543,15 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         deploymentId: result.deploymentId,
       });
 
-      get().addLog({
-        line: `Deployed! Program: ${result.programId}`,
-        level: "info",
-        timestamp: Date.now(),
-      });
-      get().addLog({
-        line: `TX: ${result.txSignature}`,
-        level: "info",
-        timestamp: Date.now(),
-      });
-      if (result.explorerUrl) {
+      // Only log if WS didn't already stream the final result
+      if (!wsDeploymentId) {
         get().addLog({
-          line: `Explorer: ${result.explorerUrl}`,
+          line: `Deployed! Program: ${result.programId}`,
           level: "info",
           timestamp: Date.now(),
         });
-      }
-      if ((result as any).txExplorerUrl) {
         get().addLog({
-          line: `TX Explorer: ${(result as any).txExplorerUrl}`,
+          line: `TX: ${result.txSignature}`,
           level: "info",
           timestamp: Date.now(),
         });

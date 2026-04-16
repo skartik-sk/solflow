@@ -349,7 +349,7 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
     }
   }
 
-  // Emit a mutable borrow for accounts that get set-field'd
+  // Track accounts that need mutable binding (set-field operations)
   const mutAccounts = new Set<string>();
   for (const op of ix.body) {
     if (op.type === "set-field") mutAccounts.add(op.account);
@@ -378,12 +378,12 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
       const fieldType = fieldKey ? fieldTypeMap?.get(fieldKey) : null;
       const isPod = fieldType && POD_TYPES.has(fieldType);
       const value = isPod ? `${fieldType}::from(${op.value})` : op.value;
-      return [`ctx.accounts.${op.account}.${op.field} = ${value};`];
+      return [`${op.account}.${op.field} = ${value};`];
     }
 
     case "transfer-sol":
       return [
-        `ctx.accounts.${op.from}.transfer(ctx.accounts.${op.to}, ${op.amount})?.invoke()?;`,
+        `ctx.accounts.system_program.transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ${op.amount}).invoke()?;`,
       ];
 
     case "transfer-token": {
@@ -422,7 +422,7 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
       ];
 
     case "require":
-      return [`require!(${op.condition}, ${op.errorCode});`];
+      return [`require!(${op.condition}, ${errorEnum}::${op.errorCode});`];
 
     case "if-else": {
       const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap)).map((l) => `        ${l}`);
@@ -442,7 +442,7 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
     }
 
     case "return-error":
-      return [`return Err(${op.errorCode}.into());`];
+      return [`return Err(${errorEnum}::${op.errorCode}.into());`];
 
     case "math": {
       const checked = op.checked;
@@ -778,7 +778,7 @@ function generateEventsRs(events: ProgramIR["events"]): string {
 function generateConstantsRs(constants: ProgramIR["constants"]): string {
   const lines = constants
     .map(
-      (c) => `pub const ${c.name}: ${solanaTypeToRust(c.type)} = ${c.value};`,
+      (c) => `pub const ${c.name}: ${solanaTypeToQuasar(c.type)} = ${c.value};`,
     )
     .join("\n");
   return `${lines}\n`;

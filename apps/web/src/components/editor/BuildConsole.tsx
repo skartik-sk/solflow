@@ -31,6 +31,7 @@ export function BuildConsole() {
   const compileLogs = useBuildStore((s) => s.compileLogs);
   const deployStatus = useBuildStore((s) => s.deployStatus);
   const deployPhase = useBuildStore((s) => s.deployPhase);
+  const deployProgress = useBuildStore((s) => s.deployProgress);
   const deployedProgramId = useBuildStore((s) => s.deployedProgramId);
   const deployExplorerUrl = useBuildStore((s) => s.deployExplorerUrl);
   const deployTxSignature = useBuildStore((s) => s.deployTxSignature);
@@ -97,6 +98,24 @@ export function BuildConsole() {
             <span className={statusColor(deployStatus)}>
               {deployPhase ?? deployStatus}
             </span>
+            {deployProgress && deployPhase === "writing" && (
+              <span className="ml-1 flex items-center gap-1.5">
+                <span className="text-muted-foreground/60">
+                  {deployProgress.current}/{deployProgress.total}
+                </span>
+                <span className="inline-flex h-1.5 w-16 overflow-hidden rounded-full bg-muted-foreground/20">
+                  <span
+                    className="rounded-full bg-yellow-400 transition-all duration-300"
+                    style={{
+                      width: `${Math.round((deployProgress.current / deployProgress.total) * 100)}%`,
+                    }}
+                  />
+                </span>
+                <span className="text-muted-foreground/50 text-[10px]">
+                  {Math.round((deployProgress.current / deployProgress.total) * 100)}%
+                </span>
+              </span>
+            )}
           </span>
         )}
         {deployedProgramId && (
@@ -236,6 +255,7 @@ function statusColor(s: string): string {
   switch (s) {
     case "success":
     case "passed":
+    case "complete":
       return "text-green-400";
     case "error":
     case "failed":
@@ -245,6 +265,10 @@ function statusColor(s: string): string {
     case "deploying":
     case "confirming":
       return "text-yellow-400";
+    case "writing":
+    case "buffer":
+    case "cleanup":
+      return "text-blue-400";
     default:
       return "text-muted-foreground";
   }
@@ -255,12 +279,16 @@ function StatusDot({ status }: { status: string }) {
     {
       success: "bg-green-400",
       passed: "bg-green-400",
+      complete: "bg-green-400",
       error: "bg-red-400",
       failed: "bg-red-400",
       building: "bg-yellow-400 animate-pulse",
       running: "bg-yellow-400 animate-pulse",
       deploying: "bg-yellow-400 animate-pulse",
       confirming: "bg-blue-400 animate-pulse",
+      writing: "bg-blue-400 animate-pulse",
+      buffer: "bg-yellow-400 animate-pulse",
+      cleanup: "bg-blue-400 animate-pulse",
       queued: "bg-muted-foreground animate-pulse",
     }[status] ?? "bg-muted-foreground";
 

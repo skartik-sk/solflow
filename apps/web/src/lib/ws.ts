@@ -32,10 +32,12 @@ export interface TestCompleteData {
 
 export interface DeployStatusData {
   phase:
-    | "preparing"
-    | "signing"
-    | "submitting"
-    | "confirming"
+    | "funding"
+    | "funded"
+    | "buffer"
+    | "writing"
+    | "deploying"
+    | "cleanup"
     | "complete"
     | "error";
   txSig?: string;
@@ -45,7 +47,14 @@ export interface DeployStatusData {
   txExplorerUrl?: string;
   error?: string;
   log?: string;
+  message?: string;
   level?: "info" | "warn" | "error";
+  current?: number;
+  total?: number;
+  written?: number;
+  totalChunks?: number;
+  missingChunks?: number;
+  verifyPass?: number;
 }
 
 export type WSMessageData =

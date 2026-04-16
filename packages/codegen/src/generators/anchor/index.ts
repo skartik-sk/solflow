@@ -277,7 +277,7 @@ function generateInstructionRs(
     importLines.push(`use crate::events::${e};`);
 
   // Build instruction body
-  const bodyLines = generateInstructionBody(ix);
+  const bodyLines = generateInstructionBody(ix, programName);
 
   // Build args signature
   const argSig = ix.args
@@ -314,8 +314,9 @@ ${accountFields}
 
 // ─── Instruction body builder ────────────────────────────────────────────────
 
-function generateInstructionBody(ix: Instruction): string[] {
+function generateInstructionBody(ix: Instruction, programName?: string): string[] {
   const lines: string[] = [];
+  const errorEnum = programName ? toPascalCase(programName) + "Error" : undefined;
 
   // Emit a mutable borrow for accounts that get set-field'd
   const mutAccounts = new Set<string>();
@@ -328,13 +329,13 @@ function generateInstructionBody(ix: Instruction): string[] {
   if (mutAccounts.size > 0) lines.push("");
 
   for (const op of ix.body) {
-    lines.push(...emitLogicOp(op));
+    lines.push(...emitLogicOp(op, errorEnum));
   }
 
   return lines;
 }
 
-function emitLogicOp(op: LogicOperation): string[] {
+function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
   switch (op.type) {
     case "set-field":
       return [`${op.account}.${op.field} = ${op.value};`];
@@ -407,12 +408,12 @@ function emitLogicOp(op: LogicOperation): string[] {
       ];
 
     case "require":
-      return [`require!(${op.condition}, ${op.errorCode});`];
+      return [`require!(${op.condition}, ${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
 
     case "if-else": {
-      const then_ = op.thenBody.flatMap(emitLogicOp).map((l) => `    ${l}`);
+      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum)).map((l) => `    ${l}`);
       const else_ =
-        op.elseBody?.flatMap(emitLogicOp).map((l) => `    ${l}`) ?? [];
+        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum)).map((l) => `    ${l}`) ?? [];
       const result = [`if ${op.condition} {`, ...then_];
       if (else_.length) result.push("} else {", ...else_);
       result.push("}");
@@ -427,7 +428,7 @@ function emitLogicOp(op: LogicOperation): string[] {
     }
 
     case "return-error":
-      return [`return err!(${op.errorCode});`];
+      return [`return err!(${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
 
     case "math": {
       const checked = op.checked;
@@ -440,7 +441,7 @@ function emitLogicOp(op: LogicOperation): string[] {
       };
       if (checked) {
         return [
-          `let ${op.result} = ${op.left}.${opMap[op.operation]}(${op.right}).ok_or(ErrorCode::AccountDidNotDeserialize)?;`,
+          `let ${op.result} = ${op.left}.${opMap[op.operation]}(${op.right}).ok_or(anchor_lang::error::ErrorCode::ArithmeticOverflow)?;`,
         ];
       }
       return [
