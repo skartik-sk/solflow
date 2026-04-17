@@ -72,6 +72,7 @@ export function generateAnchor(ir: ProgramIR): {
       states,
       errors_,
       events,
+      ir.constants,
     ),
     language: "rust",
   });
@@ -105,7 +106,7 @@ export function generateAnchor(ir: ProgramIR): {
     for (const state of states) {
       files.push({
         path: `programs/${programName}/src/state/${toSnakeFilename(state.name)}.rs`,
-        content: generateStateRs(state.name, state.fields),
+        content: generateStateRs(state.name, state.fields, state.isZeroCopy, state.customDiscriminator),
         language: "rust",
       });
     }
@@ -189,13 +190,16 @@ function generateLibRs(
   states: ReturnType<ProgramIR["states"]["map"]>[number][],
   errors: ProgramIR["errors"],
   events: ProgramIR["events"],
+  constants: ProgramIR["constants"],
 ): string {
   const modules: string[] = ["instructions"];
   if (states.length > 0) modules.push("state");
   if (errors.length > 0) modules.push("errors");
   if (events.length > 0) modules.push("events");
+  if (constants.length > 0) modules.push("constants");
 
   const modLines = modules.map((m) => `pub mod ${m};`).join("\n");
+
   const idLine = programId
     ? `declare_id!("${programId}");`
     : 'declare_id!("11111111111111111111111111111111");';
@@ -270,7 +274,7 @@ function generateInstructionRs(
   // Build imports
   const importLines: string[] = ["use anchor_lang::prelude::*;"];
   for (const s of [...usedStates].sort())
-    importLines.push(`use crate::state::${s};`);
+    importLines.push(`use crate::state::${toSnakeFilename(s)}::${s};`);
   if (hasErrors && ir.errors.length > 0)
     importLines.push(`use crate::errors::${errorEnum};`);
   for (const e of [...usedEvents].sort())
@@ -285,7 +289,7 @@ function generateInstructionRs(
     .join(", ");
   const extraArgs = argSig ? `, ${argSig}` : "";
 
-  const argAttr = ix.args.length > 0 ? `#[instruction(${argSig})]\n` : "";
+  const argAttr = ix.args.length > 0 ? `#[instruction(${ix.args.map((a) => a.name).join(", ")})]\n` : "";
 
   // Build accounts struct
   const accountFields = ix.accounts
@@ -396,16 +400,25 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
       ];
     }
 
-    case "burn":
+    case "burn": {
+      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
+      const extra = seeds
+        ? [`let seeds = ${seeds[0]};`, `let signer_seeds = &[&seeds[..]];`]
+        : [];
+      const cpiNew = seeds
+        ? `CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds)`
+        : `CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts)`;
       return [
+        ...extra,
         `let cpi_accounts = anchor_spl::token::Burn {`,
         `    mint: ctx.accounts.${op.mint}.to_account_info(),`,
         `    from: ctx.accounts.${op.from}.to_account_info(),`,
         `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
         `};`,
-        `let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);`,
+        `let cpi_ctx = ${cpiNew};`,
         `anchor_spl::token::burn(cpi_ctx, ${op.amount})?;`,
       ];
+    }
 
     case "require":
       return [`require!(${op.condition}, ${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
@@ -460,7 +473,8 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
       const seedParts = hasSignerSeeds
         ? op.signerSeeds!.map((s) => {
             if (s.type === "literal") return `b"${s.value}"`;
-            if (s.type === "pubkey") return `ctx.accounts.${s.value}.key().as_ref()`;
+            if (s.type === "pubkey" || s.type === "account-field") return `ctx.accounts.${s.value}.key().as_ref()`;
+            if (s.type === "instruction-arg") return `${s.value}.as_ref()`;
             return `ctx.accounts.${s.value}.key().as_ref()`;
           }).join(", ")
         : null;
@@ -505,7 +519,8 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
 function buildSignerSeeds(seeds: Seed[]): string[] {
   const parts = seeds.map((s) => {
     if (s.type === "literal") return `b"${s.value}"`;
-    if (s.type === "pubkey") return `ctx.accounts.${s.value}.key().as_ref()`;
+    if (s.type === "pubkey" || s.type === "account-field") return `ctx.accounts.${s.value}.key().as_ref()`;
+    if (s.type === "instruction-arg") return `${s.value}.as_ref()`;
     return s.value;
   });
   return [`&[${parts.join(", ")}]`];
@@ -521,6 +536,16 @@ function buildAccountField(
   const lines: string[] = [];
   const attrs = buildAccountAttributes(account, ix, ir);
   for (const attr of attrs) lines.push(`    ${attr}`);
+
+  if (account.accountType === "unchecked-account") {
+    const comment = account.constraints.find(c => c.type === "safety-comment");
+    lines.push(`    /// CHECK: ${comment ? comment.comment : "validated by constraint"}`);
+  } else {
+    const comment = account.constraints.find(c => c.type === "safety-comment");
+    if (comment) {
+      lines.push(`    /// Safety: ${comment.comment}`);
+    }
+  }
 
   const rustType = accountToRustType(account);
   lines.push(`    pub ${account.name}: ${rustType},`);
@@ -543,8 +568,12 @@ function buildAccountAttributes(
     }
   }
 
+  // Anchor automatically handles mutability for init'd accounts and realloc payers.
+  // Only add explicit mut when this account is an init-payer or has realloc, but
+  // doesn't already have mut/init/init-if-needed constraints.
   const needsMut =
-    initPayers.has(account.name) &&
+    (initPayers.has(account.name) ||
+      constraints.some((c) => c.type === "realloc")) &&
     !constraints.some(
       (c) =>
         c.type === "mut" || c.type === "init" || c.type === "init-if-needed",
@@ -558,16 +587,21 @@ function buildAccountAttributes(
 
   for (const c of constraints) {
     switch (c.type) {
-      case "mut":
-        parts.push("mut");
+      case "mut": {
+        // Anchor's init/init-if-needed implies mut, so skip redundant mut attribute
+        const hasInit = constraints.some((c) => c.type === "init" || c.type === "init-if-needed");
+        if (!hasInit) parts.push("mut");
         break;
+      }
       case "signer":
         // signer is expressed in the type (Signer<'info>), not a constraint
         break;
       case "init": {
         const spaceStr =
           c.space === "auto"
-            ? `8 + ${account.stateType ?? "Self"}::INIT_SPACE`
+            ? account.stateType
+              ? `8 + ${account.stateType}::INIT_SPACE`
+              : "8"
             : String(c.space);
         parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
         break;
@@ -575,7 +609,9 @@ function buildAccountAttributes(
       case "init-if-needed": {
         const spaceStr =
           c.space === "auto"
-            ? `8 + ${account.stateType ?? "Self"}::INIT_SPACE`
+            ? account.stateType
+              ? `8 + ${account.stateType}::INIT_SPACE`
+              : "8"
             : String(c.space);
         parts.push(`init_if_needed, payer = ${c.payer}, space = ${spaceStr}`);
         break;
@@ -591,11 +627,20 @@ function buildAccountAttributes(
       case "seeds": {
         const seedParts = c.seeds.map((s) => {
           if (s.type === "literal") return `b"${s.value}"`;
-          if (s.type === "pubkey") return `${s.value}.key().as_ref()`;
+          if (s.type === "pubkey" || s.type === "account-field") return `${s.value}.key().as_ref()`;
+          if (s.type === "instruction-arg") return `${s.value}.as_ref()`;
           return s.value;
         });
         parts.push(`seeds = [${seedParts.join(", ")}]`);
-        parts.push("bump");
+        // When init/init-if-needed is present, Anchor requires plain "bump" (no target).
+        // Otherwise use the explicit bump target if provided.
+        const hasInit = constraints.some((x) => x.type === "init" || x.type === "init-if-needed");
+        if (hasInit) {
+          parts.push("bump");
+        } else {
+          parts.push(c.bump ? `bump = ${c.bump}` : "bump");
+        }
+        if (c.programId) parts.push(`seeds::program = ${c.programId}`);
         break;
       }
       case "owner":
@@ -622,6 +667,21 @@ function buildAccountAttributes(
         parts.push(`constraint = ${c.expression}${err}`);
         break;
       }
+      case "mint-authority":
+        parts.push(`mint::authority = ${c.authority}`);
+        break;
+      case "mint-decimals":
+        parts.push(`mint::decimals = ${c.decimals}`);
+        break;
+      case "associated-token-authority":
+        parts.push(`associated_token::authority = ${c.authority}`);
+        break;
+      case "associated-token-mint":
+        parts.push(`associated_token::mint = ${c.mint}`);
+        break;
+      case "safety-comment":
+        // handled in accountToRustType
+        break;
     }
   }
 
@@ -650,9 +710,9 @@ function accountToRustType(account: Account): string {
     case "token-account":
       return `Account<'info, anchor_spl::token::TokenAccount>`;
     case "associated-token":
-      return `Account<'info, anchor_spl::token::TokenAccount>`;
+      return `InterfaceAccount<'info, anchor_spl::token::TokenAccount>`;
     case "unchecked-account":
-      return `/// CHECK: validated by constraint\n    UncheckedAccount<'info>`;
+      return `UncheckedAccount<'info>`;
     case "program":
       return account.stateType
         ? `Program<'info, ${account.stateType}>`
@@ -670,8 +730,18 @@ function accountToRustType(account: Account): string {
 
 // ─── src/state/<name>.rs ──────────────────────────────────────────────────────
 
-function generateStateRs(name: string, fields: Field[]): string {
-  const derive = "#[account]\n#[derive(InitSpace)]";
+function generateStateRs(name: string, fields: Field[], isZeroCopy?: boolean, customDiscriminator?: number[]): string {
+  let derive: string;
+  if (isZeroCopy) {
+    derive = "#[account(zero_copy)]\n#[derive(ZeroCopy)]";
+  } else {
+    derive = "#[account]\n#[derive(InitSpace)]";
+  }
+
+  // Custom discriminator support
+  const discriminatorAttr = customDiscriminator
+    ? `\n#[account(discriminator = [${customDiscriminator.join(", ")}])]`
+    : "";
 
   const hasDynamic = fields.some((f) => isDynamic(f.type));
   const fieldLines = fields
@@ -688,7 +758,7 @@ function generateStateRs(name: string, fields: Field[]): string {
 
   return `use anchor_lang::prelude::*;
 
-${derive}
+${derive}${discriminatorAttr}
 pub struct ${name} {
 ${fieldLines}
 }

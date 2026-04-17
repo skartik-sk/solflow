@@ -128,6 +128,46 @@ function getConnectedNodesReverse(
   );
 }
 
+/**
+ * Collect all logic + custom-code nodes reachable from a source node,
+ * following chains (A→B→C). Excludes nodes reached via if-else "else"
+ * handle (those are handled inside buildLogicBody for if-else children).
+ */
+function collectAllLogicNodes(
+  sourceId: string,
+  nodes: Node[],
+  edges: Edge[],
+): Node[] {
+  const visited = new Set<string>();
+  const result: Node[] = [];
+
+  function walk(id: string) {
+    const targets = edges
+      .filter((e) => e.source === id)
+      .map((e) => e.target);
+
+    for (const targetId of targets) {
+      if (visited.has(targetId)) continue;
+      const targetNode = nodes.find((n) => n.id === targetId);
+      if (!targetNode) continue;
+
+      if (targetNode.type === "logic" || targetNode.type === "custom-code") {
+        visited.add(targetId);
+        result.push(targetNode);
+        // Follow the chain — but skip children reached via if-else else handle
+        // (those are handled recursively inside buildLogicBody)
+        const edge = edges.find((e) => e.source === id && e.target === targetId);
+        if (!(edge?.sourceHandle === "else" || edge?.sourceHandle === "else-out")) {
+          walk(targetId);
+        }
+      }
+    }
+  }
+
+  walk(sourceId);
+  return result;
+}
+
 export function computeFlowHash(nodes: Node[], edges: Edge[]): string {
   const normalized = JSON.stringify({
     nodes: nodes
@@ -232,6 +272,31 @@ function buildConstraints(constraintNodes: Node[]): Constraint[] {
           expression: (d.expression as string) ?? "",
           errorCode: d.errorCode as string | undefined,
         };
+      case "mint-authority":
+        return {
+          type: "mint-authority" as const,
+          authority: (d.mintAuthority as string) ?? (d.authority as string) ?? "",
+        };
+      case "mint-decimals":
+        return {
+          type: "mint-decimals" as const,
+          decimals: (d.mintDecimals as number) ?? (d.decimals as number) ?? 0,
+        };
+      case "associated-token-authority":
+        return {
+          type: "associated-token-authority" as const,
+          authority: (d.associatedAuthority as string) ?? (d.authority as string) ?? "",
+        };
+      case "associated-token-mint":
+        return {
+          type: "associated-token-mint" as const,
+          mint: (d.associatedMint as string) ?? (d.mint as string) ?? "",
+        };
+      case "safety-comment":
+        return {
+          type: "safety-comment" as const,
+          comment: (d.safetyComment as string) ?? (d.comment as string) ?? "",
+        };
       default:
         return { type: "signer" as const };
     }
@@ -245,17 +310,17 @@ function buildConstraintsFromFlags(
   if (data.isInit) {
     constraints.push({
       type: "init" as const,
-      payer: (data.payer as string) ?? "authority",
+      payer: (data.payer as string) ?? "payer",
       space: (data.space as number | "auto") ?? "auto",
     });
   } else if (data.isInitIfNeeded) {
     constraints.push({
       type: "init-if-needed" as const,
-      payer: (data.payer as string) ?? "authority",
+      payer: (data.payer as string) ?? "payer",
       space: (data.space as number | "auto") ?? "auto",
     });
   }
-  if (data.isMut && !data.isInit) {
+  if (data.isMut) {
     constraints.push({ type: "mut" as const });
   }
   if (data.isSigner) {
@@ -267,6 +332,60 @@ function buildConstraintsFromFlags(
       target: (data.closeTarget as string) ?? (data.target as string) ?? "",
     });
   }
+
+  // Token account constraints
+  if (data.accountType === "token-account" && data.isInit) {
+    if (data.tokenAuthority) {
+      constraints.push({ type: "token-authority" as const, authority: data.tokenAuthority as string });
+    }
+    if (data.tokenMint) {
+      constraints.push({ type: "token-mint" as const, mint: data.tokenMint as string });
+    }
+  }
+
+  // Mint constraints
+  if (data.accountType === "mint" && data.isInit) {
+    if (data.mintAuthority) {
+      constraints.push({ type: "mint-authority" as const, authority: data.mintAuthority as string });
+    }
+    if (data.mintDecimals !== undefined) {
+      constraints.push({ type: "mint-decimals" as const, decimals: data.mintDecimals as number });
+    }
+  }
+
+  // Associated token constraints (auto-init if not already init'd)
+  if (data.accountType === "associated-token") {
+    const hasInit = data.isInit || data.isInitIfNeeded;
+    if (!hasInit) {
+      constraints.push({
+        type: "init" as const,
+        payer: (data.payer as string) ?? "payer",
+        space: "auto",
+      });
+    }
+    if (data.associatedAuthority) {
+      constraints.push({ type: "associated-token-authority" as const, authority: data.associatedAuthority as string });
+    }
+    if (data.associatedMint) {
+      constraints.push({ type: "associated-token-mint" as const, mint: data.associatedMint as string });
+    }
+  }
+
+  // Unchecked account safety comment
+  if (data.accountType === "unchecked-account" && data.safetyComment) {
+    constraints.push({ type: "safety-comment" as const, comment: data.safetyComment as string });
+  }
+
+  // PDA seeds (flag-based — when user sets seeds directly on the account node)
+  if (Array.isArray(data.seeds) && (data.seeds as unknown[]).length > 0) {
+    constraints.push({
+      type: "seeds" as const,
+      seeds: data.seeds as Seed[],
+      bump: (data.bump as string) || undefined,
+      programId: (data.programId as string) || undefined,
+    });
+  }
+
   return constraints;
 }
 
@@ -276,10 +395,25 @@ function buildAccountIR(
   stateNode: Node | undefined,
 ): Account {
   const data = accNode.data as Record<string, unknown>;
-  const constraints =
-    constraintNodes.length > 0
-      ? buildConstraints(constraintNodes)
-      : buildConstraintsFromFlags(data);
+  const flagConstraints = buildConstraintsFromFlags(data);
+  const explicitConstraints = constraintNodes.length > 0
+    ? buildConstraints(constraintNodes)
+    : [];
+
+  // Merge: flag-based constraints provide defaults, but explicit constraint
+  // nodes override them (the user explicitly configured those parameters).
+  const merged: Constraint[] = [...flagConstraints];
+  const seenTypes = new Set(flagConstraints.map((c) => c.type));
+  for (const c of explicitConstraints) {
+    const existingIdx = merged.findIndex((m) => m.type === c.type);
+    if (existingIdx >= 0) {
+      // Override flag-based with explicit constraint node parameters
+      merged[existingIdx] = c;
+    } else {
+      merged.push(c);
+      seenTypes.add(c.type);
+    }
+  }
 
   return {
     id: toUuid(accNode.id),
@@ -289,14 +423,18 @@ function buildAccountIR(
     stateType: stateNode
       ? ((stateNode.data as Record<string, unknown>).name as string)
       : (data.stateType as string | undefined),
-    constraints,
+    constraints: merged,
     description: data.description as string | undefined,
   };
 }
 
 // ─── Logic Body Builder ────────────────────────────────────────────
 
-function buildLogicBody(logicNodes: Node[]): LogicOperation[] {
+function buildLogicBody(
+  logicNodes: Node[],
+  allNodes: Node[],
+  edges: Edge[],
+): LogicOperation[] {
   return logicNodes
     .sort((a, b) => {
       const aOrder = ((a.data as Record<string, unknown>).order as number) ?? 0;
@@ -305,12 +443,152 @@ function buildLogicBody(logicNodes: Node[]): LogicOperation[] {
     })
     .map((n) => {
       const data = n.data as Record<string, unknown>;
-      return data.operation as LogicOperation;
+      const op = buildLogicOpFromNodeData(data);
+      if (op && op.type === "if-else") {
+        // Collect child logic nodes connected to this if-else node
+        const childLogicNodes = getConnectedNodes(n.id, "logic", allNodes, edges);
+        const childCustomCodeNodes = getConnectedNodes(n.id, "custom-code", allNodes, edges);
+        const allChildren = [...childLogicNodes, ...childCustomCodeNodes];
+        // Separate children into then/else based on handle
+        const thenNodes: Node[] = [];
+        const elseNodes: Node[] = [];
+        for (const child of allChildren) {
+          const edge = edges.find(
+            (e) => e.source === n.id && e.target === child.id,
+          );
+          // Check which handle the connection comes from
+          const sourceHandle = edge?.sourceHandle;
+          if (sourceHandle === "else" || sourceHandle === "else-out") {
+            elseNodes.push(child);
+          } else {
+            thenNodes.push(child);
+          }
+        }
+        op.thenBody = buildLogicBody(thenNodes, allNodes, edges);
+        op.elseBody =
+          elseNodes.length > 0
+            ? buildLogicBody(elseNodes, allNodes, edges)
+            : undefined;
+      }
+      return op;
     })
-    .filter(Boolean);
+    .filter((op): op is LogicOperation => op !== null);
+}
+
+function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation | null {
+  // If data.operation exists, use it directly (backward compat)
+  if (data.operation) return data.operation as LogicOperation;
+
+  const lt = data.logicType as string;
+  switch (lt) {
+    case "set-field":
+      return {
+        type: "set-field",
+        account: (data.setAccount as string) ?? "",
+        field: (data.setField as string) ?? "",
+        value: (data.setValue as string) ?? "",
+      };
+    case "transfer-sol":
+      return {
+        type: "transfer-sol",
+        from: (data.transferFrom as string) ?? "",
+        to: (data.transferTo as string) ?? "",
+        amount: (data.transferAmount as string) ?? "",
+      };
+    case "transfer-token":
+      return {
+        type: "transfer-token",
+        from: (data.transferFrom as string) ?? "",
+        to: (data.transferTo as string) ?? "",
+        authority: (data.transferAuthority as string) ?? "",
+        amount: (data.transferAmount as string) ?? "",
+        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+      };
+    case "mint-to":
+      return {
+        type: "mint-to",
+        mint: (data.mintTo as string) ?? "",
+        to: (data.transferTo as string) ?? "",
+        authority: (data.mintAuthority as string) ?? "",
+        amount: (data.transferAmount as string) ?? "",
+        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+      };
+    case "burn":
+      return {
+        type: "burn",
+        mint: (data.burnMint as string) ?? "",
+        from: (data.transferFrom as string) ?? "",
+        authority: (data.burnAuthority as string) ?? "",
+        amount: (data.transferAmount as string) ?? "",
+        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+      };
+    case "require":
+      return {
+        type: "require",
+        condition: (data.requireCondition as string) ?? "",
+        errorCode: (data.requireErrorCode as string) ?? "",
+      };
+    case "emit-event":
+      return {
+        type: "emit-event",
+        event: (data.emitEvent as string) ?? "",
+        fields: (data.emitFields as Record<string, string>) ?? {},
+      };
+    case "return-error":
+      return {
+        type: "return-error",
+        errorCode: (data.returnErrorCode as string) ?? "",
+      };
+    case "if-else":
+      // thenBody and elseBody are populated by buildLogicBodyFromTree when
+      // processing nested logic connections. Here we only store the condition.
+      // The caller will merge child nodes into these arrays.
+      return {
+        type: "if-else",
+        condition: (data.ifCondition as string) ?? "",
+        thenBody: [],
+        elseBody: undefined,
+      };
+    case "math":
+      return {
+        type: "math",
+        operation: (data.mathOperation as "add" | "sub" | "mul" | "div" | "mod") ?? "add",
+        left: (data.mathLeft as string) ?? "",
+        right: (data.mathRight as string) ?? "",
+        result: (data.mathResult as string) ?? "",
+        checked: (data.mathChecked as boolean) ?? false,
+      };
+    case "cpi":
+      return {
+        type: "cpi",
+        targetProgram: (data.cpiProgram as string) ?? "",
+        instruction: (data.cpiInstruction as string) ?? "",
+        accounts: (data.cpiAccounts as Array<{ from: string; to: string }>) ?? [],
+        data: (data.cpiData as Array<{ name: string; value: string }>) ?? [],
+        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+      };
+    case "custom-code":
+      return {
+        type: "custom-code",
+        code: (data.customCode as string) ?? "",
+        inputs: (data.customInputs as string[]) ?? [],
+        outputs: (data.customOutputs as string[]) ?? [],
+      };
+    default:
+      return null;
+  }
 }
 
 // ─── Instruction Builder ───────────────────────────────────────────
+
+function normalizeInstructionArgs(data: Record<string, unknown>): Instruction["args"] {
+  const raw = (data.args ?? data.instructionData ?? []) as Array<Record<string, unknown>>;
+  return raw.map((a) => ({
+    name: a.name as string,
+    type: normalizeType(a.type) as import("./schema").SolanaType,
+    description: a.description as string | undefined,
+  }));
+}
 
 function buildInstructionIR(
   ixNode: Node,
@@ -320,13 +598,8 @@ function buildInstructionIR(
   const data = ixNode.data as Record<string, unknown>;
 
   const accountNodes = getConnectedNodes(ixNode.id, "account", nodes, edges);
-  const logicNodes = getConnectedNodes(ixNode.id, "logic", nodes, edges);
-  const customCodeNodes = getConnectedNodes(
-    ixNode.id,
-    "custom-code",
-    nodes,
-    edges,
-  );
+  // Collect ALL logic + custom-code nodes, following chains (A→B→C)
+  const allLogicNodes = collectAllLogicNodes(ixNode.id, nodes, edges);
 
   const resolvedAccounts = accountNodes.map((accNode) => {
     const constraintNodes = getConnectedNodesReverse(
@@ -341,19 +614,17 @@ function buildInstructionIR(
     return buildAccountIR(accNode, constraintNodes, stateNode);
   });
 
-  const body = buildLogicBody([...logicNodes, ...customCodeNodes]);
+  const body = buildLogicBody(allLogicNodes, nodes, edges);
 
   return {
     id: toUuid(ixNode.id),
     name: (data.name as string) ?? "instruction",
     description: data.description as string | undefined,
     discriminator: data.discriminator as number[] | undefined,
-    args:
-      (data.args as Instruction["args"]) ??
-      (data.instructionData as Instruction["args"]) ??
-      [],
+    args: normalizeInstructionArgs(data),
     accounts: resolvedAccounts,
     body,
+    accessControl: (data.accessControl as "none" | "admin_only" | "custom") ?? "none",
   };
 }
 
@@ -364,13 +635,13 @@ function collectStates(nodes: Node[]): State[] {
     .filter((n) => n.type === "state")
     .map((n) => {
       const data = n.data as Record<string, unknown>;
-      // Strip fields not in IR schema (e.g. defaultValue) and normalize types
       const rawFields = (data.fields as Array<Record<string, unknown>>) ?? [];
       const fields: Field[] = rawFields.map((f) => ({
         name: f.name as string,
         type: normalizeType(f.type) as Field["type"],
         ...(f.description ? { description: f.description as string } : {}),
         ...(f.maxLen ? { maxLen: f.maxLen as number } : {}),
+        ...(f.defaultValue ? { defaultValue: f.defaultValue as string } : {}),
       }));
       return {
         id: toUuid(n.id),

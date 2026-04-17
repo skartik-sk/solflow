@@ -1,0 +1,371 @@
+{
+  "version": "1.0.0",
+  "program": {
+    "name": "escrow",
+    "description": "A token escrow program where a maker deposits token A and a taker fulfills by sending token B, with refund support",
+    "version": "0.1.0",
+    "programId": "Escrow111111111111111111111111111111111111111"
+  },
+  "instructions": [
+    {
+      "id": "e1000000-0000-0000-0000-000000000001",
+      "name": "make",
+      "description": "Create an escrow: initialize escrow PDA, set maker/taker mints, deposit token A into vault",
+      "args": [
+        { "name": "amount", "type": "u64", "description": "Amount of token A to escrow" },
+        { "name": "receive_amount", "type": "u64", "description": "Amount of token B the maker wants in return" }
+      ],
+      "accounts": [
+        {
+          "id": "e1000000-0000-0000-0000-000000000010",
+          "name": "escrow",
+          "accountType": "account",
+          "stateType": "EscrowState",
+          "constraints": [
+            { "type": "init", "payer": "maker", "space": "auto" },
+            {
+              "type": "seeds",
+              "seeds": [
+                { "type": "literal", "value": "escrow" },
+                { "type": "account-field", "value": "maker" },
+                { "type": "account-field", "value": "mint_a" }
+              ],
+              "bump": "escrow.bump"
+            }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000011",
+          "name": "maker",
+          "accountType": "signer",
+          "constraints": [{ "type": "signer" }, { "type": "mut" }]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000012",
+          "name": "maker_ta_a",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "token-authority", "authority": "maker" },
+            { "type": "token-mint", "mint": "mint_a" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000013",
+          "name": "vault_ta_a",
+          "accountType": "associated-token",
+          "constraints": [
+            { "type": "init", "payer": "maker", "space": "auto" },
+            { "type": "associated-token-authority", "authority": "escrow" },
+            { "type": "associated-token-mint", "mint": "mint_a" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000014",
+          "name": "mint_a",
+          "accountType": "mint",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000015",
+          "name": "mint_b",
+          "accountType": "mint",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000016",
+          "name": "token_program",
+          "accountType": "token-program",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000017",
+          "name": "associated_token_program",
+          "accountType": "associated-token-program",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000018",
+          "name": "system_program",
+          "accountType": "system-program",
+          "constraints": []
+        }
+      ],
+      "body": [
+        { "type": "require", "condition": "amount > 0", "errorCode": "InvalidAmount" },
+        { "type": "require", "condition": "receive_amount > 0", "errorCode": "InvalidAmount" },
+        { "type": "set-field", "account": "escrow", "field": "maker", "value": "*ctx.accounts.maker.key" },
+        { "type": "set-field", "account": "escrow", "field": "taker", "value": "Pubkey::default()" },
+        { "type": "set-field", "account": "escrow", "field": "mint_a", "value": "*ctx.accounts.mint_a.key" },
+        { "type": "set-field", "account": "escrow", "field": "mint_b", "value": "*ctx.accounts.mint_b.key" },
+        { "type": "set-field", "account": "escrow", "field": "amount", "value": "amount" },
+        { "type": "set-field", "account": "escrow", "field": "receive_amount", "value": "receive_amount" },
+        { "type": "set-field", "account": "escrow", "field": "bump", "value": "ctx.bumps.escrow" },
+        { "type": "transfer-token", "from": "maker_ta_a", "to": "vault_ta_a", "authority": "maker", "amount": "amount" },
+        { "type": "emit-event", "event": "MakeEvent", "fields": { "maker": "*ctx.accounts.maker.key", "mint_a": "*ctx.accounts.mint_a.key", "mint_b": "*ctx.accounts.mint_b.key", "amount": "amount", "receive_amount": "receive_amount" } }
+      ]
+    },
+    {
+      "id": "e1000000-0000-0000-0000-000000000002",
+      "name": "take",
+      "description": "Taker fulfills the escrow: sends token B to maker, receives token A from vault, closes escrow",
+      "args": [],
+      "accounts": [
+        {
+          "id": "e1000000-0000-0000-0000-000000000020",
+          "name": "escrow",
+          "accountType": "account",
+          "stateType": "EscrowState",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "has-one", "field": "maker", "target": "maker", "errorCode": "InvalidMaker" },
+            {
+              "type": "seeds",
+              "seeds": [
+                { "type": "literal", "value": "escrow" },
+                { "type": "account-field", "value": "maker" },
+                { "type": "account-field", "value": "mint_a" }
+              ],
+              "bump": "escrow.bump"
+            },
+            { "type": "close", "target": "taker" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000021",
+          "name": "taker",
+          "accountType": "signer",
+          "constraints": [{ "type": "signer" }, { "type": "mut" }]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000022",
+          "name": "maker",
+          "accountType": "system-account",
+          "constraints": [{ "type": "mut" }]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000023",
+          "name": "taker_ta_b",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "token-authority", "authority": "taker" },
+            { "type": "token-mint", "mint": "mint_b" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000024",
+          "name": "maker_ta_b",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "token-mint", "mint": "mint_b" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000025",
+          "name": "vault_ta_a",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "token-authority", "authority": "escrow" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000026",
+          "name": "taker_ta_a",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000027",
+          "name": "mint_a",
+          "accountType": "mint",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000028",
+          "name": "mint_b",
+          "accountType": "mint",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000029",
+          "name": "token_program",
+          "accountType": "token-program",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-00000000002a",
+          "name": "system_program",
+          "accountType": "system-program",
+          "constraints": []
+        }
+      ],
+      "body": [
+        {
+          "type": "transfer-token",
+          "from": "taker_ta_b",
+          "to": "maker_ta_b",
+          "authority": "taker",
+          "amount": "escrow.receive_amount"
+        },
+        {
+          "type": "transfer-token",
+          "from": "vault_ta_a",
+          "to": "taker_ta_a",
+          "authority": "escrow",
+          "amount": "escrow.amount",
+          "signerSeeds": [
+            { "type": "literal", "value": "escrow" },
+            { "type": "account-field", "value": "maker" },
+            { "type": "account-field", "value": "mint_a" },
+            { "type": "literal", "value": "escrow.bump" }
+          ]
+        },
+        { "type": "emit-event", "event": "TakeEvent", "fields": { "maker": "*ctx.accounts.maker.key", "taker": "*ctx.accounts.taker.key", "token_a_amount": "escrow.amount", "token_b_amount": "escrow.receive_amount" } }
+      ]
+    },
+    {
+      "id": "e1000000-0000-0000-0000-000000000003",
+      "name": "refund",
+      "description": "Maker cancels the escrow, receives deposited tokens back, escrow is closed",
+      "args": [],
+      "accounts": [
+        {
+          "id": "e1000000-0000-0000-0000-000000000030",
+          "name": "escrow",
+          "accountType": "account",
+          "stateType": "EscrowState",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "has-one", "field": "maker", "target": "maker", "errorCode": "InvalidMaker" },
+            {
+              "type": "seeds",
+              "seeds": [
+                { "type": "literal", "value": "escrow" },
+                { "type": "account-field", "value": "maker" },
+                { "type": "account-field", "value": "mint_a" }
+              ],
+              "bump": "escrow.bump"
+            },
+            { "type": "close", "target": "maker" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000031",
+          "name": "maker",
+          "accountType": "signer",
+          "constraints": [{ "type": "signer" }, { "type": "mut" }]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000032",
+          "name": "maker_ta_a",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000033",
+          "name": "vault_ta_a",
+          "accountType": "token-account",
+          "constraints": [
+            { "type": "mut" },
+            { "type": "token-authority", "authority": "escrow" }
+          ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000034",
+          "name": "token_program",
+          "accountType": "token-program",
+          "constraints": []
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000035",
+          "name": "system_program",
+          "accountType": "system-program",
+          "constraints": []
+        }
+      ],
+      "body": [
+        {
+          "type": "transfer-token",
+          "from": "vault_ta_a",
+          "to": "maker_ta_a",
+          "authority": "escrow",
+          "amount": "escrow.amount",
+          "signerSeeds": [
+            { "type": "literal", "value": "escrow" },
+            { "type": "account-field", "value": "maker" },
+            { "type": "account-field", "value": "mint_a" },
+            { "type": "literal", "value": "escrow.bump" }
+          ]
+        },
+        { "type": "emit-event", "event": "RefundEvent", "fields": { "maker": "*ctx.accounts.maker.key", "amount": "escrow.amount" } }
+      ]
+    }
+  ],
+  "states": [
+    {
+      "id": "f1000000-0000-0000-0000-000000000001",
+      "name": "EscrowState",
+      "fields": [
+        { "name": "maker", "type": "Pubkey", "description": "Address of the escrow creator" },
+        { "name": "taker", "type": "Pubkey", "description": "Intended taker address (default if anyone can take)" },
+        { "name": "mint_a", "type": "Pubkey", "description": "Token A mint (deposited by maker)" },
+        { "name": "mint_b", "type": "Pubkey", "description": "Token B mint (wanted by maker in return)" },
+        { "name": "amount", "type": "u64", "description": "Amount of token A deposited" },
+        { "name": "receive_amount", "type": "u64", "description": "Amount of token B maker expects in return" },
+        { "name": "bump", "type": "u8", "description": "PDA bump seed for signing" }
+      ]
+    }
+  ],
+  "errors": [
+    { "id": "g1000000-0000-0000-0000-000000000001", "name": "InvalidAmount", "code": 6000, "message": "Amount must be greater than 0" },
+    { "id": "g1000000-0000-0000-0000-000000000002", "name": "InvalidMaker", "code": 6001, "message": "Invalid maker account" },
+    { "id": "g1000000-0000-0000-0000-000000000003", "name": "EscrowExpired", "code": 6002, "message": "The escrow has expired" },
+    { "id": "g1000000-0000-0000-0000-000000000004", "name": "Unauthorized", "code": 6003, "message": "Only the escrow maker can perform this action" }
+  ],
+  "events": [
+    {
+      "id": "h1000000-0000-0000-0000-000000000001",
+      "name": "MakeEvent",
+      "fields": [
+        { "name": "maker", "type": "Pubkey" },
+        { "name": "mint_a", "type": "Pubkey" },
+        { "name": "mint_b", "type": "Pubkey" },
+        { "name": "amount", "type": "u64" },
+        { "name": "receive_amount", "type": "u64" }
+      ]
+    },
+    {
+      "id": "h1000000-0000-0000-0000-000000000002",
+      "name": "TakeEvent",
+      "fields": [
+        { "name": "maker", "type": "Pubkey" },
+        { "name": "taker", "type": "Pubkey" },
+        { "name": "token_a_amount", "type": "u64" },
+        { "name": "token_b_amount", "type": "u64" }
+      ]
+    },
+    {
+      "id": "h1000000-0000-0000-0000-000000000003",
+      "name": "RefundEvent",
+      "fields": [
+        { "name": "maker", "type": "Pubkey" },
+        { "name": "amount", "type": "u64" }
+      ]
+    }
+  ],
+  "integrations": [],
+  "constants": [],
+  "metadata": {
+    "createdAt": "2026-04-17T00:00:00.000Z",
+    "updatedAt": "2026-04-17T00:00:00.000Z",
+    "flowHash": "escrow_template",
+    "generatorVersion": "0.1.0"
+  }
+}

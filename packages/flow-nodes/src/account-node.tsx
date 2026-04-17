@@ -20,6 +20,7 @@ export type AccountType =
   | "unchecked-account"
   | "system-program"
   | "token-program"
+  | "associated-token-program"
   | "rent"
   | "clock"
   | "custom";
@@ -40,12 +41,22 @@ export interface AccountNodeData {
   isMut?: boolean;
   isSigner?: boolean;
   isInit?: boolean;
+  isInitIfNeeded?: boolean;
   isClose?: boolean;
   closeTarget?: string;
   payer?: string;
   space?: number | "auto";
   seeds?: SeedDefinition[];
   description?: string;
+  stateType?: string;
+  tokenAuthority?: string;
+  tokenMint?: string;
+  mintAuthority?: string;
+  mintDecimals?: number;
+  associatedAuthority?: string;
+  associatedMint?: string;
+  safetyComment?: string;
+  bump?: string;
   [key: string]: unknown;
 }
 
@@ -58,6 +69,7 @@ const ACCOUNT_ACCENT: Partial<Record<AccountType, string>> = {
   "associated-token": "#0369a1",
   "system-program": "#374151",
   "token-program": "#374151",
+  "associated-token-program": "#374151",
   program: "#6366f1",
   rent: "#374151",
   clock: "#374151",
@@ -80,6 +92,7 @@ export const AccountNode = memo(function AccountNode({
   if (d.isMut) badges.push("mut");
   if (d.isSigner) badges.push("signer");
   if (d.isInit) badges.push("init");
+  if (d.isInitIfNeeded) badges.push("init-if-needed");
   if (d.isClose) badges.push("close");
 
   return (

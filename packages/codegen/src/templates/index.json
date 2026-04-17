@@ -1,0 +1,47 @@
+{
+  "version": "1.0.0",
+  "templates": [
+    {
+      "id": "token-vault",
+      "name": "Token Vault",
+      "description": "A token vault program where users create PDA-backed vaults to deposit, withdraw, and manage SPL tokens with proper access control and events.",
+      "category": "defi",
+      "tags": ["vault", "spl-token", "pda", "deposit", "withdraw"],
+      "path": "vault/template.json",
+      "difficulty": "intermediate",
+      "instructions": ["initialize", "deposit", "withdraw", "close_vault"],
+      "features": [
+        "PDA accounts with seeds",
+        "SPL token transfers",
+        "Associated token account creation",
+        "has-one constraint for access control",
+        "Signer seeds for PDA-signed withdrawals",
+        "Close constraint with rent reclaim",
+        "Checked math operations",
+        "Events for all state changes",
+        "Custom error codes"
+      ]
+    },
+    {
+      "id": "escrow",
+      "name": "Token Escrow",
+      "description": "A trustless token escrow enabling atomic swaps between two SPL tokens. Maker deposits token A, taker sends token B, both sides settle atomically.",
+      "category": "defi",
+      "tags": ["escrow", "swap", "spl-token", "atomic", "pda", "associated-token"],
+      "path": "escrow/template.json",
+      "difficulty": "advanced",
+      "instructions": ["make", "take", "refund"],
+      "features": [
+        "PDA accounts with multi-seed derivation",
+        "SPL token transfers in both directions",
+        "Associated token account initialization",
+        "has-one constraint for maker verification",
+        "Signer seeds for PDA-signed token transfers",
+        "Close constraint on take and refund",
+        "Events for all escrow lifecycle stages",
+        "Custom error codes",
+        "Multiple instruction arguments"
+      ]
+    }
+  ]
+}

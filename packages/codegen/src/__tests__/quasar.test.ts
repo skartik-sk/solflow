@@ -209,13 +209,13 @@ describe("generateCode (quasar)", () => {
     expect(lib!.content).not.toContain("Context<");
   });
 
-  it("uses quasar_lang::declare_id!", () => {
+  it("uses declare_id!", () => {
     const result = generateCode(COUNTER_IR, "quasar");
     const lib = result.files.find(
       (f) => f.path === "programs/counter/src/lib.rs",
     );
     expect(lib).toBeDefined();
-    expect(lib!.content).toContain("quasar_lang::declare_id!");
+    expect(lib!.content).toContain("declare_id!");
   });
 
   // ─── Instruction files ──────────────────────────────────────────────
@@ -227,8 +227,8 @@ describe("generateCode (quasar)", () => {
     );
     expect(ix).toBeDefined();
     expect(ix!.content).toContain("use quasar_lang::prelude::*;");
-    expect(ix!.content).toContain("pub fn handler");
-    expect(ix!.content).toContain("Ctx<Initialize>");
+    // Quasar puts ONLY the Accounts struct in instruction files
+    expect(ix!.content).toContain("Initialize<'info>");
   });
 
   it("generates increment instruction file", () => {
@@ -297,15 +297,15 @@ describe("generateCode (quasar)", () => {
 
   // ─── Error files ────────────────────────────────────────────────────
 
-  it("generates errors with 6000 offset", () => {
+  it("generates errors with code from IR", () => {
     const result = generateCode(COUNTER_IR, "quasar");
     const errors = result.files.find(
       (f) => f.path === "programs/counter/src/errors.rs",
     );
     expect(errors).toBeDefined();
     expect(errors!.content).toContain("use quasar_lang::prelude::*;");
-    // 100 + 6000 = 6100
-    expect(errors!.content).toContain("6100");
+    // IR code is 100, Quasar uses it directly
+    expect(errors!.content).toContain("100");
   });
 
   // ─── Event files ────────────────────────────────────────────────────

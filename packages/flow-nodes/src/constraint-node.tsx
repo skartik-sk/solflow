@@ -7,6 +7,7 @@ import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Shield } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
+import type { SeedDefinition } from "./account-node";
 
 export type ConstraintType =
   | "signer"
@@ -20,7 +21,12 @@ export type ConstraintType =
   | "address"
   | "token-authority"
   | "token-mint"
+  | "mint-authority"
+  | "mint-decimals"
+  | "associated-token-authority"
+  | "associated-token-mint"
   | "realloc"
+  | "safety-comment"
   | "custom";
 
 export interface ConstraintNodeData {
@@ -36,8 +42,9 @@ export interface ConstraintNodeData {
   hasOneTarget?: string;
   hasOneErrorCode?: string;
   // seeds
-  seeds?: string; // comma-separated seed expressions
+  seeds?: SeedDefinition[];
   bump?: string;
+  programId?: string;
   // owner
   owner?: string;
   // address
@@ -46,10 +53,20 @@ export interface ConstraintNodeData {
   tokenAuthority?: string;
   // token-mint
   tokenMint?: string;
+  // mint-authority
+  mintAuthority?: string;
+  // mint-decimals
+  mintDecimals?: number;
+  // associated-token-authority
+  associatedAuthority?: string;
+  // associated-token-mint
+  associatedMint?: string;
   // realloc
   reallocSpace?: number;
   reallocPayer?: string;
   reallocZeroInit?: boolean;
+  // safety-comment
+  safetyComment?: string;
   // custom
   expression?: string;
   errorCode?: string;
@@ -96,7 +113,7 @@ export const ConstraintNode = memo(function ConstraintNode({
           </>
         )}
         {d.constraintType === "seeds" && d.seeds && (
-          <Row label="seeds" value={d.seeds} mono />
+          <Row label="seeds" value={Array.isArray(d.seeds) ? d.seeds.map((s) => s.type === "literal" ? `"${s.value}"` : s.value).join(", ") : String(d.seeds)} mono />
         )}
         {d.constraintType === "owner" && d.owner && (
           <Row label="owner" value={d.owner} mono />

@@ -65,6 +65,11 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
     // Report to external error tracking if configured
     reportError(error, info);
+
+    // Auto-recover from chunk load errors after a brief delay
+    if (error.message?.includes("Loading chunk") || error.name === "ChunkLoadError") {
+      setTimeout(() => this.handleReset(), 1500);
+    }
   }
 
   private handleReset = () => {

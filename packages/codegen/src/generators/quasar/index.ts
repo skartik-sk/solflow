@@ -46,14 +46,14 @@ function solanaTypeToQuasarAccount(type: import("@solflow/ir").SolanaType, maxLe
     switch (type) {
       case "bool":   return "PodBool";
       case "u8":     return "u8";
-      case "u16":    return "u16";
+      case "u16":    return "PodU16";
       case "u32":    return "PodU32";
       case "u64":    return "PodU64";
       case "u128":   return "u128";
       case "i8":     return "i8";
-      case "i16":    return "i16";
-      case "i32":    return "i32";
-      case "i64":    return "i64";
+      case "i16":    return "PodI16";
+      case "i32":    return "PodI32";
+      case "i64":    return "PodI64";
       case "i128":   return "i128";
       case "f32":    return "f32";
       case "f64":    return "f64";
@@ -75,6 +75,13 @@ function solanaTypeToQuasarAccount(type: import("@solflow/ir").SolanaType, maxLe
     if ("defined" in type) {
       return type.defined;
     }
+    if ("hashMap" in type) {
+      const [k, v] = type.hashMap;
+      return `HashMap<${solanaTypeToQuasarAccount(k, maxLen)}, ${solanaTypeToQuasarAccount(v, maxLen)}>`;
+    }
+    if ("enum" in type) {
+      return type.enum.name;
+    }
   }
   return "u64";
 }
@@ -95,17 +102,20 @@ function solanaTypeToQuasarEvent(type: import("@solflow/ir").SolanaType): string
       case "i64":    return "i64";
       case "i128":   return "i128";
       case "Pubkey": return "Address";
-      default:       return "u64";
+      case "f32":    return "f32";
+      case "f64":    return "f64";
+      default:       return "u64 /* WARNING: unsupported event field type */";
     }
   }
-  return "u64";
+  return "u64 /* WARNING: complex types not supported in Quasar events */";
 }
 
 // For instruction args: standard Rust types with Pubkey → Address
 function solanaTypeToQuasar(type: import("@solflow/ir").SolanaType): string {
   const rust = solanaTypeToRust(type);
   if (rust === "Pubkey") return "Address";
-  return rust;
+  // Handle nested Pubkey inside container types (Vec<Pubkey>, Option<Pubkey>, etc.)
+  return rust.replace(/Pubkey/g, "Address");
 }
 
 // ─── Public entry point ────────────────────────────────────────────────────────
@@ -123,6 +133,24 @@ export function generateQuasar(ir: ProgramIR): {
   const programId = ir.program.programId;
   const version = ir.program.version;
 
+  // Determine if any instruction uses SPL tokens
+  const usesSpl = ir.instructions.some((ix) =>
+    ix.accounts.some(
+      (a) =>
+        a.accountType === "token-account" ||
+        a.accountType === "mint" ||
+        a.accountType === "associated-token" ||
+        a.accountType === "token-program" ||
+        a.accountType === "associated-token-program",
+    ) ||
+    ix.body.some(
+      (op) =>
+        op.type === "transfer-token" ||
+        op.type === "mint-to" ||
+        op.type === "burn",
+    )
+  );
+
   // Sort everything deterministically
   const instructions = [...ir.instructions].sort((a, b) =>
     a.name.localeCompare(b.name),
@@ -134,14 +162,14 @@ export function generateQuasar(ir: ProgramIR): {
   // Pre-compute state discriminators (index + 1, since 0 is reserved)
   const stateDiscriminators = new Map<string, number[]>();
   for (let i = 0; i < states.length; i++) {
-    const disc = states[i].customDiscriminator ?? [i + 1];
+    const disc = states[i].customDiscriminator ?? [(i + 1) & 0xff, ((i + 1) >> 8) & 0xff, 0, 0, 0, 0, 0, 0];
     stateDiscriminators.set(states[i].name, disc);
   }
 
   // ── Cargo.toml
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version),
+    content: generateCargoToml(programName, version, usesSpl),
     language: "toml",
   });
 
@@ -229,8 +257,9 @@ export function generateQuasar(ir: ProgramIR): {
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
 
-function generateCargoToml(name: string, version: string): string {
+function generateCargoToml(name: string, version: string, usesSpl: boolean): string {
   const kebab = toKebabCase(name);
+  const splDep = usesSpl ? '\nquasar-spl = "0.0"' : "";
   return `[package]
 name = "${kebab}"
 version = "${version}"
@@ -248,7 +277,7 @@ default = ["alloc"]
 alloc = []
 
 [dependencies]
-quasar-lang = "0.0"
+quasar-lang = "0.0"${splDep}
 
 [profile.release]
 opt-level = "z"
@@ -276,6 +305,7 @@ function generateLibRs(
   if (states.length > 0) modules.push("state");
   if (errors.length > 0) modules.push("errors");
   if (events.length > 0) modules.push("events");
+  if (ir.constants.length > 0) modules.push("constants");
 
   const modLines = modules.map((m) => `pub mod ${m};`).join("\n");
 
@@ -286,6 +316,14 @@ function generateLibRs(
       return `pub use instructions::${ix.name}::${ctx};`;
     })
     .join("\n");
+
+  // Re-export event types and error enum at crate root for use in #[program]
+  const eventReExports = events.length > 0
+    ? `pub use events::{${events.map((e) => e.name).join(", ")}};`
+    : "";
+  const errorReExport = errors.length > 0
+    ? `pub use errors::${toPascalCase(programName)}Error;`
+    : "";
 
   const address = programId ?? "11111111111111111111111111111111";
 
@@ -311,12 +349,18 @@ ${bodyStr}
     })
     .join("\n\n");
 
+  const reExportLines = [
+    reExports,
+    eventReExports,
+    errorReExport,
+  ].filter(Boolean).join("\n");
+
   return `#![cfg_attr(not(test), no_std)]
 use quasar_lang::prelude::*;
 
 ${modLines}
 
-${reExports}
+${reExportLines}
 
 declare_id!("${address}");
 
@@ -376,6 +420,8 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
       const stateType = accountToStateType?.get(op.account);
       const fieldKey = stateType ? `${stateType}.${op.field}` : null;
       const fieldType = fieldKey ? fieldTypeMap?.get(fieldKey) : null;
+      // Only wrap in Pod type if we found the field type in IR and it's a Pod type.
+      // If state type is not in IR (external crate), use raw assignment.
       const isPod = fieldType && POD_TYPES.has(fieldType);
       const value = isPod ? `${fieldType}::from(${op.value})` : op.value;
       return [`${op.account}.${op.field} = ${value};`];
@@ -414,12 +460,22 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
       ];
     }
 
-    case "burn":
+    case "burn": {
+      const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
+      if (seeds) {
+        return [
+          `let seeds = ${seeds};`,
+          `ctx.accounts.token_program`,
+          `    .burn(ctx.accounts.${op.mint}, ctx.accounts.${op.from}, ctx.accounts.${op.authority}, ${op.amount})`,
+          `    .invoke_signed(&seeds)?;`,
+        ];
+      }
       return [
         `ctx.accounts.token_program`,
         `    .burn(ctx.accounts.${op.mint}, ctx.accounts.${op.from}, ctx.accounts.${op.authority}, ${op.amount})`,
         `    .invoke()?;`,
       ];
+    }
 
     case "require":
       return [`require!(${op.condition}, ${errorEnum}::${op.errorCode});`];
@@ -474,12 +530,13 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
           }).join(", ")
         : null;
 
+      const dataArgs = op.data.map((d) => d.value).join(", ");
       const lines: string[] = [
         `// CPI: ${prog}::${ix}`,
         `ctx.accounts.${prog}`,
         `    .${ix}(${toPascalCase(ix)}Cpi {`,
         `${accountMappings}`,
-        `    })`,
+        `    }${dataArgs ? `, ${dataArgs}` : ""})`,
       ];
 
       if (hasSignerSeeds) {
@@ -571,6 +628,16 @@ function buildQuasarAccountField(
   const attrs = buildQuasarAccountAttributes(account, ix, ir);
   for (const attr of attrs) lines.push(`    ${attr}`);
 
+  if (account.accountType === "unchecked-account") {
+    const comment = account.constraints.find(c => c.type === "safety-comment");
+    lines.push(`    /// CHECK: ${comment ? comment.comment : "validated by constraint"}`);
+  } else {
+    const comment = account.constraints.find(c => c.type === "safety-comment");
+    if (comment) {
+      lines.push(`    /// Safety: ${comment.comment}`);
+    }
+  }
+
   const rustType = accountToQuasarType(account);
   lines.push(`    pub ${account.name}: ${rustType},`);
   return lines.join("\n");
@@ -628,11 +695,14 @@ function buildQuasarAccountAttributes(
       case "seeds": {
         const seedParts = c.seeds.map((s) => {
           if (s.type === "literal") return `b"${s.value}"`;
-          if (s.type === "pubkey") return s.value;
+          // Quasar seeds use field names directly (NOT .key().as_ref())
+          if (s.type === "pubkey" || s.type === "account-field") return `${s.value}.key().as_ref()`;
+          if (s.type === "instruction-arg") return s.value;
           return s.value;
         });
         parts.push(`seeds = [${seedParts.join(", ")}]`);
-        parts.push("bump");
+        parts.push(c.bump ? `bump = ${c.bump}` : "bump");
+        if (c.programId) parts.push(`seeds::program = ${c.programId}`);
         break;
       }
       case "owner":
@@ -659,6 +729,21 @@ function buildQuasarAccountAttributes(
         parts.push(`constraint = ${c.expression}${err}`);
         break;
       }
+      case "mint-authority":
+        parts.push(`mint::authority = ${c.authority}`);
+        break;
+      case "mint-decimals":
+        parts.push(`mint::decimals = ${c.decimals}`);
+        break;
+      case "associated-token-authority":
+        parts.push(`associated_token::authority = ${c.authority}`);
+        break;
+      case "associated-token-mint":
+        parts.push(`associated_token::mint = ${c.mint}`);
+        break;
+      case "safety-comment":
+        // handled in type
+        break;
     }
   }
 
@@ -689,10 +774,14 @@ function accountToQuasarType(account: Account): string {
     case "mint":
       return needsMut ? `&'info mut Mint` : `&'info Mint`;
     case "token-account":
-    case "associated-token":
       return needsMut ? `&'info mut TokenAccount` : `&'info TokenAccount`;
-    case "unchecked-account":
-      return `/// CHECK: validated by constraint\n    &'info AccountInfo<'info>`;
+    case "associated-token":
+      return needsMut ? `&'info mut InterfaceAccount<TokenAccount>` : `&'info InterfaceAccount<TokenAccount>`;
+    case "unchecked-account": {
+      const comment = account.constraints.find(c => c.type === "safety-comment");
+      // The doc comment is emitted separately in buildQuasarAccountField
+      return needsMut ? `&'info mut AccountInfo<'info>` : `&'info AccountInfo<'info>`;
+    }
     case "program":
       return account.stateType
         ? `&'info Program<${account.stateType}>`
@@ -706,7 +795,14 @@ function accountToQuasarType(account: Account): string {
           ? `&'info mut AccountInfo<'info>`
           : `&'info AccountInfo<'info>`;
     case "custom":
-      return account.stateType ?? `&'info AccountInfo<'info>`;
+      if (account.stateType) {
+        return needsMut
+          ? `&'info mut ${account.stateType}`
+          : `&'info ${account.stateType}`;
+      }
+      return needsMut
+        ? `&'info mut AccountInfo<'info>`
+        : `&'info AccountInfo<'info>`;
     default:
       return `&'info AccountInfo<'info>`;
   }
@@ -721,18 +817,27 @@ function generateStateRs(
 ): string {
   const derive = `#[account(discriminator = [${discriminator.join(", ")}])]`;
 
+  // When isZeroCopy is false, use standard types instead of Pod types
   const fieldLines = fields
     .map((f) => {
+      // Quasar always uses Pod types for state structs (zero-copy by nature)
       const rustType = solanaTypeToQuasarAccount(f.type, f.maxLen);
       const doc = f.description ? `    /// ${f.description}\n` : "";
       return `${doc}    pub ${f.name}: ${rustType},`;
     })
     .join("\n");
 
+  // Check if any field needs lifetime (String<'a, N> or Vec<'a, T, N>)
+  const needsLifetime = fields.some((f) => {
+    const t = solanaTypeToQuasarAccount(f.type, f.maxLen);
+    return t.includes("'a");
+  });
+  const lifetime = needsLifetime ? "<'a>" : "";
+
   return `use quasar_lang::prelude::*;
 
 ${derive}
-pub struct ${name} {
+pub struct ${name}${lifetime} {
 ${fieldLines}
 }
 `;
@@ -745,7 +850,7 @@ function generateErrorsRs(
   errors: ProgramIR["errors"],
 ): string {
   const variants = errors
-    .map((e) => `    ${e.name} = ${e.code + 6000},`)
+    .map((e) => `    ${e.name} = ${e.code},`)
     .join("\n");
   return `use quasar_lang::prelude::*;
 

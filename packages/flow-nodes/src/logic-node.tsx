@@ -20,7 +20,8 @@ export type LogicType =
   | "emit-event"
   | "return-error"
   | "math"
-  | "cpi";
+  | "cpi"
+  | "custom-code";
 
 export interface LogicNodeData {
   name?: string;
@@ -40,6 +41,7 @@ export interface LogicNodeData {
   ifCondition?: string;
   // emit-event
   emitEvent?: string;
+  emitFields?: Record<string, string>;
   // return-error
   returnErrorCode?: string;
   // math
@@ -51,6 +53,16 @@ export interface LogicNodeData {
   // cpi
   cpiProgram?: string;
   cpiInstruction?: string;
+  // token operations
+  transferAuthority?: string;
+  mintTo?: string;
+  mintAuthority?: string;
+  burnMint?: string;
+  burnAuthority?: string;
+  // custom-code
+  customCode?: string;
+  customInputs?: string[];
+  customOutputs?: string[];
   [key: string]: unknown;
 }
 
@@ -66,6 +78,7 @@ const LOGIC_LABELS: Record<LogicType, string> = {
   "return-error":   "Return Error",
   "math":           "Math",
   "cpi":            "CPI",
+  "custom-code":    "Custom Code",
 };
 
 export const LogicNode = memo(function LogicNode({
@@ -130,12 +143,14 @@ export const LogicNode = memo(function LogicNode({
         )}
         {ltype === "mint-to" && (
           <>
+            {d.mintTo && <Row label="mint" value={d.mintTo} mono />}
             {d.transferTo && <Row label="to" value={d.transferTo} mono />}
             {d.transferAmount && <Row label="amt" value={d.transferAmount} mono />}
           </>
         )}
         {ltype === "burn" && (
           <>
+            {d.burnMint && <Row label="mint" value={d.burnMint} mono />}
             {d.transferFrom && <Row label="from" value={d.transferFrom} mono />}
             {d.transferAmount && <Row label="amt" value={d.transferAmount} mono />}
           </>

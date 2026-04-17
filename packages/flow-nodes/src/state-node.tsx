@@ -15,19 +15,26 @@ export type SolanaTypePrimitive =
   | "String"
   | "Pubkey";
 
+export interface EnumDefinition {
+  name: string;
+  variants: Array<{ name: string; fields?: SolanaType[] }>;
+}
+
 export type SolanaType =
   | SolanaTypePrimitive
   | { array: [SolanaType, number] }
   | { vec: SolanaType }
   | { option: SolanaType }
   | { defined: string }
-  | { hashMap: [SolanaType, SolanaType] };
+  | { hashMap: [SolanaType, SolanaType] }
+  | { enum: EnumDefinition };
 
 export interface StateField {
   name: string;
   type: SolanaType;
   description?: string;
   defaultValue?: string;
+  maxLen?: number;
 }
 
 export interface StateNodeData {
@@ -47,6 +54,7 @@ function typeLabel(t: SolanaType): string {
   if ("defined" in t) return t.defined;
   if ("hashMap" in t)
     return `HashMap<${typeLabel(t.hashMap[0])},${typeLabel(t.hashMap[1])}>`;
+  if ("enum" in t) return t.enum.name;
   return "?";
 }
 

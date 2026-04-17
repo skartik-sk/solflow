@@ -20,6 +20,16 @@ function cn(...inputs: ClassValue[]) {
 }
 
 // ─── Dynamic Monaco import (no SSR) ──────────────────────────────────────────
+// Configure Monaco to load from CDN — avoids Next.js chunk splitting issues
+// with Monaco's AMD worker loader.
+
+import { loader } from "@monaco-editor/react";
+
+if (typeof window !== "undefined") {
+  loader.config({
+    paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs" },
+  });
+}
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,

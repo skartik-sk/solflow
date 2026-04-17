@@ -10,6 +10,14 @@ import type { GeneratedFile } from "@/store/code-store";
 import { generateCode } from "@solflow/codegen";
 import type { editor as MonacoEditorTypes } from "monaco-editor";
 
+import { loader as monacoLoader } from "@monaco-editor/react";
+
+if (typeof window !== "undefined") {
+  monacoLoader.config({
+    paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs" },
+  });
+}
+
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
   loading: () => (

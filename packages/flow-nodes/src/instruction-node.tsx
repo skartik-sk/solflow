@@ -7,10 +7,11 @@ import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Zap } from "lucide-react";
 import { BaseNodeShell } from "./base-node";
+import type { SolanaType } from "./state-node";
 
 export interface InstructionField {
   name: string;
-  type: string;
+  type: SolanaType;
   description?: string;
 }
 

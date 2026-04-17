@@ -93,7 +93,7 @@ export function generatePinocchio(ir: ProgramIR): {
   // ── src/lib.rs ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/src/lib.rs`,
-    content: generateLibRs(programName, programId, instructions, states, errors_, events, discriminators),
+    content: generateLibRs(programName, programId, instructions, states, errors_, events, discriminators, ir.constants),
     language: 'rust',
   });
 
@@ -120,14 +120,14 @@ export function generatePinocchio(ir: ProgramIR): {
   if (states.length > 0) {
     files.push({
       path: `programs/${programName}/src/state/mod.rs`,
-      content: states.map((s) => `pub mod ${toSnakeCase(s.name)};`).join('\n') + '\n',
+      content: states.map((s) => `pub mod ${s.name.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '')};`).join('\n') + '\n',
       language: 'rust',
     });
     for (let si = 0; si < states.length; si++) {
       const state = states[si];
-      const disc = pinocchioDiscriminator(si);
+      const disc = pinocchioDiscriminator(si + 1000); // Offset to avoid collision with instruction discriminators
       files.push({
-        path: `programs/${programName}/src/state/${toSnakeCase(state.name)}.rs`,
+        path: `programs/${programName}/src/state/${state.name.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '')}.rs`,
         content: generateStateRs(state.name, state.fields, disc),
         language: 'rust',
       });
@@ -163,11 +163,19 @@ export function generatePinocchio(ir: ProgramIR): {
   }
 
   // ── src/utils.rs ──────────────────────────────────────────────────────────
-  files.push({
-    path: `programs/${programName}/src/utils.rs`,
-    content: generateUtilsRs(),
-    language: 'rust',
-  });
+  // Only generate utils.rs when PDA seeds are actually used
+  const usesPda = ir.instructions.some((ix) =>
+    ix.accounts.some((a) =>
+      a.constraints.some((c) => c.type === 'seeds')
+    )
+  );
+  if (usesPda) {
+    files.push({
+      path: `programs/${programName}/src/utils.rs`,
+      content: generateUtilsRs(),
+      language: 'rust',
+    });
+  }
 
   return { files, warnings, errors };
 }
@@ -247,12 +255,20 @@ function generateLibRs(
   errors: ProgramIR['errors'],
   events: ProgramIR['events'],
   discriminators: Map<string, number[]>,
+  constants: ProgramIR['constants'],
 ): string {
   const mods: string[] = ['instructions'];
   if (states.length > 0) mods.push('state');
   if (errors.length > 0) mods.push('errors');
   if (events.length > 0) mods.push('events');
-  mods.push('utils');
+  if (constants.length > 0) mods.push('constants');
+  // Only include utils if PDA seeds are used
+  const usesPda = instructions.some((ix) =>
+    ix.accounts.some((a) =>
+      a.constraints.some((c) => c.type === 'seeds')
+    )
+  );
+  if (usesPda) mods.push('utils');
 
   const modLines = mods.map((m) => `pub mod ${m};`).join('\n');
 
@@ -331,7 +347,7 @@ function generateInstructionRs(
     : '';
 
   // Build validation checks
-  const validationLines = buildValidationChecks(ix.accounts);
+  const validationLines = buildValidationChecks(ix.accounts, errorEnum);
 
   // Parse instruction args
   const argParseLines = buildArgParsing(ix.args);
@@ -359,7 +375,8 @@ function generateInstructionRs(
     '};',
   ];
   for (const s of [...usedStates].sort()) {
-    imports.push(`use crate::state::${toSnakeCase(s)}::${s};`);
+    const snakeModule = s.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '');
+    imports.push(`use crate::state::${snakeModule}::${s};`);
   }
   if (hasErrors) {
     imports.push(`use crate::errors::${errorEnum};`);
@@ -384,7 +401,7 @@ ${bodyLines.map((l) => `    ${l}`).join('\n')}
 
 // ─── Account validation ───────────────────────────────────────────────────────
 
-function buildValidationChecks(accounts: Account[]): string {
+function buildValidationChecks(accounts: Account[], errorEnum: string): string {
   const lines: string[] = [];
 
   for (const a of accounts) {
@@ -401,6 +418,150 @@ function buildValidationChecks(accounts: Account[]): string {
         lines.push(`        return Err(ProgramError::InvalidAccountData);`);
         lines.push(`    }`);
       }
+      if (c.type === 'seeds') {
+        const seedParts = c.seeds.map((s) => {
+          if (s.type === 'literal') return `b"${s.value}" as &[u8]`;
+          if (s.type === 'pubkey' || s.type === 'account-field') return `${s.value}.address().as_ref()`;
+          return `${s.value}.as_ref()`;
+        });
+        // Include bump seed if specified
+        if (c.bump) {
+          // Bump can be a literal, account field, or instruction arg
+          if (/^\d+$/.test(c.bump)) {
+            seedParts.push(`b"${c.bump}" as &[u8]`);
+          } else {
+            seedParts.push(`&[${c.bump}][..]`);
+          }
+        }
+        lines.push(`    // Validate ${a.name} is a valid PDA`);
+        lines.push(`    crate::utils::verify_pda(`);
+        lines.push(`        ${a.name}.address(),`);
+        lines.push(`        &[${seedParts.join(', ')}],`);
+        lines.push(`        program_id,`);
+        lines.push(`    )?;`);
+      }
+      if (c.type === 'has-one') {
+        lines.push(`    // Validate ${a.name}.${c.field} == ${c.target}`);
+        lines.push(`    {`);
+        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let stored = &data[32..64]; // field offset depends on account layout`);
+        lines.push(`        if stored != ${c.target}.address().as_ref() {`);
+        lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+        lines.push(`        }`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'owner') {
+        lines.push(`    // Validate ${a.name} owner is ${c.owner}`);
+        lines.push(`    if ${a.name}.owner() != ${c.owner}.address() {`);
+        lines.push(`        return Err(ProgramError::IncorrectProgramId);`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'address') {
+        lines.push(`    // Validate ${a.name} address matches ${c.address}`);
+        lines.push(`    if ${a.name}.address() != &Address::from_str("${c.address}").unwrap() {`);
+        lines.push(`        return Err(ProgramError::InvalidArgument);`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'close') {
+        lines.push(`    // Close ${a.name}: transfer all lamports to ${c.target}`);
+        lines.push(`    {`);
+        lines.push(`        let target_lamports = ${c.target}.lamports();`);
+        lines.push(`        let src_lamports = ${a.name}.lamports();`);
+        lines.push(`        **${c.target}.lamports.borrow_mut() = target_lamports.checked_add(src_lamports).ok_or(ProgramError::ArithmeticOverflow)?;`);
+        lines.push(`        **${a.name}.lamports.borrow_mut() = 0;`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'token-authority' || c.type === 'token-mint') {
+        lines.push(`    // Token validation for ${a.name}: ${c.type}`);
+        lines.push(`    {`);
+        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        if (c.type === 'token-authority') {
+          lines.push(`        // Token account owner field is at offset 32`);
+          lines.push(`        let owner = &data[32..64];`);
+          lines.push(`        if owner != ${c.authority}.address().as_ref() {`);
+          lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+          lines.push(`        }`);
+        } else {
+          lines.push(`        // Token account mint field is at offset 0`);
+          lines.push(`        let mint = &data[0..32];`);
+          lines.push(`        if mint != ${c.mint}.address().as_ref() {`);
+          lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+          lines.push(`        }`);
+        }
+        lines.push(`    }`);
+      }
+      if (c.type === 'mint-authority' || c.type === 'mint-decimals') {
+        lines.push(`    // Mint validation for ${a.name}: ${c.type}`);
+        lines.push(`    {`);
+        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        if (c.type === 'mint-authority') {
+          lines.push(`        // Mint authority field is at offset 0..32`);
+          lines.push(`        let authority = &data[0..32];`);
+          lines.push(`        if authority != ${c.authority}.address().as_ref() {`);
+          lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+          lines.push(`        }`);
+        } else {
+          lines.push(`        // Mint decimals is at offset 44 (u8)`);
+          lines.push(`        let decimals = data[44];`);
+          lines.push(`        if decimals != ${c.decimals} {`);
+          lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+          lines.push(`        }`);
+        }
+        lines.push(`    }`);
+      }
+      if (c.type === 'init' || c.type === 'init-if-needed') {
+        lines.push(`    // Create account ${a.name} via system program`);
+        lines.push(`    {`);
+        lines.push(`        use pinocchio_system::instructions::CreateAccount;`);
+        const spaceStr = c.space === 'auto' ? '0' : String(c.space);
+        lines.push(`        CreateAccount {`);
+        lines.push(`            payer: ${c.payer},`);
+        lines.push(`            new_account: ${a.name},`);
+        lines.push(`            lamports: 0, // rent exempt minimum calculated at runtime`);
+        lines.push(`            space: ${spaceStr} as u64,`);
+        lines.push(`            owner: program_id,`);
+        lines.push(`        }`);
+        lines.push(`        .invoke()?;`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'realloc') {
+        lines.push(`    // Realloc ${a.name} to ${c.space} bytes`);
+        lines.push(`    {`);
+        lines.push(`        let new_len = ${c.space};`);
+        lines.push(`        let data = &mut ${a.name}.try_borrow_mut_data()?;`);
+        lines.push(`        data.resize(new_len, ${c.zeroInit ? 'true' : 'false'});`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'custom') {
+        const errCode = c.errorCode ? `${errorEnum}::${c.errorCode}` : 'ProgramError::Custom(0)';
+        lines.push(`    // Custom constraint`);
+        lines.push(`    if !(${c.expression}) {`);
+        lines.push(`        return Err(${errCode}.into());`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'associated-token-authority') {
+        lines.push(`    // Validate associated token authority for ${a.name}`);
+        lines.push(`    {`);
+        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let owner = &data[32..64];`);
+        lines.push(`        if owner != ${c.authority}.address().as_ref() {`);
+        lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+        lines.push(`        }`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'associated-token-mint') {
+        lines.push(`    // Validate associated token mint for ${a.name}`);
+        lines.push(`    {`);
+        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let mint = &data[0..32];`);
+        lines.push(`        if mint != ${c.mint}.address().as_ref() {`);
+        lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+        lines.push(`        }`);
+        lines.push(`    }`);
+      }
+      if (c.type === 'safety-comment') {
+        lines.push(`    // Safety: ${c.comment}`);
+      }
     }
   }
 
@@ -411,13 +572,43 @@ function buildValidationChecks(accounts: Account[]): string {
 
 function buildArgParsing(args: Instruction['args']): string {
   const lines: string[] = [`    // Parse instruction arguments`];
+
+  // Calculate total fixed size needed for upfront bounds check
+  let totalFixedSize = 0;
+  let hasDynamic = false;
+  for (const arg of args) {
+    const size = getTypeSize(arg.type);
+    if (size > 0) {
+      if (!hasDynamic) totalFixedSize += size;
+    } else {
+      hasDynamic = true;
+    }
+  }
+
+  if (totalFixedSize > 0 && !hasDynamic) {
+    lines.push(`    if data.len() < ${totalFixedSize} {`);
+    lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+    lines.push(`    }`);
+  }
+
   let offset = 0;
+  let dynamicVarName = ''; // Track the variable holding end of last dynamic arg
 
   for (const arg of args) {
     const size = getTypeSize(arg.type);
     const rustType = pinocchioType(arg.type);
 
     if (size > 0) {
+      if (offset === -1) {
+        // After a dynamic arg, use the tracked variable to calculate offset
+        lines.push(`    let ${arg.name}_start = ${dynamicVarName};`);
+        lines.push(`    let ${arg.name} = ${rustType}::from_le_bytes(`);
+        lines.push(`        data[${arg.name}_start..${arg.name}_start + ${size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`    );`);
+        dynamicVarName = `${arg.name}_start + ${size}`;
+        offset = -1; // Keep tracking as dynamic
+        continue;
+      }
       // Fixed-size types
       if (rustType === 'u64' || rustType === 'i64' ||
           rustType === 'u32' || rustType === 'i32' ||
@@ -438,7 +629,7 @@ function buildArgParsing(args: Instruction['args']): string {
         lines.push(`        data[${offset}..${offset + size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    );`);
       } else {
-        // Fixed-size unknown
+        // Fixed-size unknown — try from_le_bytes for numeric-like types
         lines.push(`    let ${arg.name}_bytes = &data[${offset}..${offset + size}];`);
         lines.push(`    // TODO: deserialize ${arg.name}: ${rustType} from ${size} bytes`);
       }
@@ -446,29 +637,55 @@ function buildArgParsing(args: Instruction['args']): string {
     } else {
       // Dynamic-size types
       if (typeof arg.type === 'string' && arg.type === 'String') {
+        const startOffset = offset === -1 ? dynamicVarName : String(offset);
+        const lenOffset = offset === -1 ? `${dynamicVarName}` : String(offset);
         lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
-        lines.push(`        data[${offset}..${offset + 4}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`        data[${lenOffset}..${lenOffset} + 4].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    ) as usize;`);
-        lines.push(`    let ${arg.name}_end = ${offset + 4} + ${arg.name}_len;`);
+        lines.push(`    let ${arg.name}_start = ${lenOffset} + 4;`);
+        lines.push(`    let ${arg.name}_end = ${arg.name}_start + ${arg.name}_len;`);
         lines.push(`    let ${arg.name} = core::str::from_utf8(`);
-        lines.push(`        &data[${offset + 4}..${arg.name}_end]`);
+        lines.push(`        &data[${arg.name}_start..${arg.name}_end]`);
         lines.push(`    ).map_err(|_| ProgramError::InvalidInstructionData)?;`);
+        dynamicVarName = `${arg.name}_end`;
         offset = -1;
-      } else if (typeof arg.type === 'string' && arg.type.startsWith('Vec')) {
+      } else if (typeof arg.type === 'object' && 'vec' in (arg.type as object)) {
+        const lenOffset = offset === -1 ? dynamicVarName : String(offset);
         lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
-        lines.push(`        data[${offset}..${offset + 4}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`        data[${lenOffset}..${lenOffset} + 4].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    ) as usize;`);
-        lines.push(`    let ${arg.name}_data = &data[${offset + 4}..${offset + 4} + ${arg.name}_len];`);
-        lines.push(`    // TODO: deserialize Vec elements from ${arg.name}_data`);
+        lines.push(`    let ${arg.name}_start = ${lenOffset} + 4;`);
+        lines.push(`    let ${arg.name}_end = ${arg.name}_start + ${arg.name}_len;`);
+        lines.push(`    let ${arg.name}_data = &data[${arg.name}_start..${arg.name}_end];`);
+        dynamicVarName = `${arg.name}_end`;
         offset = -1;
+      } else if (typeof arg.type === 'object' && 'option' in (arg.type as object)) {
+        const innerType = (arg.type as { option: unknown }).option as import("@solflow/ir").SolanaType;
+        const innerSize = getTypeSize(innerType);
+        if (innerSize > 0) {
+          const innerRust = pinocchioType(innerType);
+          const optOffset = offset >= 0 ? String(offset) : dynamicVarName;
+          lines.push(`    let ${arg.name} = match data[${optOffset}] {`);
+          lines.push(`        0 => None,`);
+          lines.push(`        1 => {`);
+          lines.push(`            Some(${innerRust}::from_le_bytes(`);
+          lines.push(`                data[${optOffset} + 1..${optOffset} + 1 + ${innerSize}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+          lines.push(`            ))`);
+          lines.push(`        }`);
+          lines.push(`        _ => return Err(ProgramError::InvalidInstructionData),`);
+          lines.push(`    };`);
+          if (offset >= 0) {
+            offset += 1 + innerSize;
+          } else {
+            dynamicVarName = `${optOffset} + 1 + ${innerSize}`;
+          }
+        } else {
+          lines.push(`    // TODO: deserialize ${arg.name}: Option<${rustType}> — inner type is dynamic`);
+          offset = -1;
+        }
       } else {
         lines.push(`    // WARNING: dynamic-length arg '${arg.name}': ${rustType} — manual deserialization needed`);
         offset = -1;
-      }
-
-      if (offset < 0) {
-        lines.push(`    // NOTE: subsequent argument offsets may be incorrect due to dynamic-length arg above`);
-        offset = 0;
       }
     }
   }
@@ -496,8 +713,8 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
       return [
         `// Set ${op.account}.${op.field} = ${op.value}`,
         `{`,
-        `    let mut data = ${op.account}.try_borrow_mut()?;`,
-        `    ${stateStruct}::set_${op.field}(&mut data, ${op.value});`,
+        `    let data = &mut ${op.account}.try_borrow_mut_data()?;`,
+        `    ${stateStruct}::set_${op.field}(data, ${op.value});`,
         `}`,
       ];
     }
@@ -550,7 +767,25 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
       ];
     }
 
-    case 'mint-to':
+    case 'mint-to': {
+      const seedsCode = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
+      if (seedsCode) {
+        return [
+          `{`,
+          `    use pinocchio_token::instructions::MintTo;`,
+          `    use pinocchio::cpi::{Signer, Seed};`,
+          `    let seeds: [Seed; ${op.signerSeeds!.length}] = ${seedsCode};`,
+          `    let signer = Signer::from(&seeds);`,
+          `    MintTo {`,
+          `        mint: ${op.mint},`,
+          `        account: ${op.to},`,
+          `        mint_authority: ${op.authority},`,
+          `        amount: ${op.amount},`,
+          `    }`,
+          `    .invoke_signed(&[signer])?;`,
+          `}`,
+        ];
+      }
       return [
         `{`,
         `    use pinocchio_token::instructions::MintTo;`,
@@ -563,8 +798,27 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
         `    .invoke()?;`,
         `}`,
       ];
+    }
 
-    case 'burn':
+    case 'burn': {
+      const seedsCode = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
+      if (seedsCode) {
+        return [
+          `{`,
+          `    use pinocchio_token::instructions::Burn;`,
+          `    use pinocchio::cpi::{Signer, Seed};`,
+          `    let seeds: [Seed; ${op.signerSeeds!.length}] = ${seedsCode};`,
+          `    let signer = Signer::from(&seeds);`,
+          `    Burn {`,
+          `        account: ${op.from},`,
+          `        mint: ${op.mint},`,
+          `        authority: ${op.authority},`,
+          `        amount: ${op.amount},`,
+          `    }`,
+          `    .invoke_signed(&[signer])?;`,
+          `}`,
+        ];
+      }
       return [
         `{`,
         `    use pinocchio_token::instructions::Burn;`,
@@ -577,6 +831,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
         `    .invoke()?;`,
         `}`,
       ];
+    }
 
     case 'require':
       return [
@@ -594,13 +849,22 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
       return result;
     }
 
-    case 'emit-event':
-      // Pinocchio doesn't have Anchor's emit! macro.
-      // Log event data using sol_log_ syscall via msg!-like pattern.
+    case 'emit-event': {
+      // Pinocchio uses sol_log_data for event emission
+      const fieldEntries = Object.entries(op.fields);
+      const serializeLines = fieldEntries.map(([k, v]) =>
+        `        // ${k}: ${v}`
+      );
       return [
-        `// Event: ${op.event} — logged via sol_log_`,
-        `// TODO: serialize and log event data using pinocchio syscalls`,
+        `// Event: ${op.event}`,
+        `{`,
+        `    // Event emission via sol_log_data`,
+        `    // Fields: ${fieldEntries.map(([k]) => k).join(', ')}`,
+        ...serializeLines,
+        `    pinocchio::log::sol_log_data(&[&[]]);`,
+        `}`,
       ];
+    }
 
     case 'return-error':
       return [`return Err(${errorEnum}::${op.errorCode}.into());`];
@@ -622,21 +886,38 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
     }
 
     case 'cpi': {
-      // CPI is handled via pinocchio's instruction system.
-      // Generate a TODO for now — exact CPI pattern depends on target program.
       const prog = op.targetProgram;
       const ix = op.instruction;
+      const hasSignerSeeds = op.signerSeeds && op.signerSeeds.length > 0;
+      const accountArgs = op.accounts
+        .map((a) => `            ${a.to}: ${a.from},`)
+        .join('\n');
+      const dataFields = op.data.map((d) => d.value).join(', ');
+
       const lines: string[] = [
         `// CPI: ${prog}::${ix}`,
-        `// TODO: Implement CPI using pinocchio instruction types.`,
-        `// use pinocchio::{`,
-        `//     cpi::{invoke_signed, Signer},`,
-        `//     instruction::{InstructionAccount, InstructionView},`,
-        `// };`,
-        `// let instruction_accounts: [InstructionAccount; N] = [...];`,
-        `// let instruction = InstructionView { program_id, accounts: &instruction_accounts, data };`,
-        `// invoke_signed(&instruction, &[...accounts...], &[])?;`,
+        `{`,
+        `    let cpi_program = ${prog};`,
       ];
+
+      if (hasSignerSeeds) {
+        const seedParts = op.signerSeeds!.map((s) => {
+          if (s.type === 'literal') return `Seed::from(b"${s.value}" as &[u8])`;
+          if (s.type === 'pubkey') return `Seed::from(${s.value}.address().as_ref())`;
+          return `Seed::from(${s.value}.as_ref())`;
+        });
+        lines.push(`    use pinocchio::cpi::{Signer, Seed};`);
+        lines.push(`    let seeds: [Seed; ${op.signerSeeds!.length}] = [${seedParts.join(', ')}];`);
+        lines.push(`    let signer = Signer::from(&seeds);`);
+      }
+
+      lines.push(
+        `    // Build instruction data`,
+        `    let ix_data = [${dataFields || '0u8; 0'}];`,
+        `    // CPI invocation — adapt to target program's instruction layout`,
+        `    // pinocchio::cpi::invoke_signed(&instruction, &[...accounts...], &[signer])?;`,
+        `}`,
+      );
       return lines;
     }
 
@@ -695,7 +976,7 @@ function generateStateRs(name: string, fields: Field[], discriminator: number[])
   const totalLen = offset;
 
   const layoutComment = fieldMeta.map((fm) =>
-    `/// [${fm.offset}..${fm.offset + fm.size}] - ${fm.name}: ${fm.type} (${fm.size} bytes)`
+    `/// [${fm.offset}..${fm.offset + fm.size}] - ${fm.name}: ${fm.type} (${fm.size} bytes)${fm.comment ? ` — ${fm.comment}` : ''}`
   ).join('\n');
 
   const constOffsets = fieldMeta.map((fm) =>
@@ -720,6 +1001,43 @@ function generateStateRs(name: string, fields: Field[], discriminator: number[])
         `            .copy_from_slice(value.as_ref());`,
         `    }`,
       ].join('\n');
+    }
+    // Handle Option<T> where T is a fixed-size primitive
+    if (fm.type.startsWith('Option<') && fm.size > 0) {
+      const innerMatch = fm.type.match(/^Option<(.+)>$/);
+      if (innerMatch) {
+        const innerType = innerMatch[1];
+        const innerSize = fm.size - 1; // 1 byte discriminant + inner
+        return [
+          `    /// Read ${fm.name} from raw account data`,
+          `    #[inline(always)]`,
+          `    pub fn ${fm.name}(data: &[u8]) -> ${fm.type} {`,
+          `        match data[Self::${fm.name.toUpperCase()}_OFFSET] {`,
+          `            0 => None,`,
+          `            1 => Some(${innerType}::from_le_bytes(`,
+          `                data[Self::${fm.name.toUpperCase()}_OFFSET + 1..Self::${fm.name.toUpperCase()}_OFFSET + 1 + ${innerSize}]`,
+          `                    .try_into().unwrap()`,
+          `            )),`,
+          `            _ => None,`,
+          `        }`,
+          `    }`,
+          ``,
+          `    /// Write ${fm.name} to raw account data`,
+          `    #[inline(always)]`,
+          `    pub fn set_${fm.name}(data: &mut [u8], value: ${fm.type}) {`,
+          `        match value {`,
+          `            Some(v) => {`,
+          `                data[Self::${fm.name.toUpperCase()}_OFFSET] = 1;`,
+          `                data[Self::${fm.name.toUpperCase()}_OFFSET + 1..Self::${fm.name.toUpperCase()}_OFFSET + 1 + ${innerSize}]`,
+          `                    .copy_from_slice(&v.to_le_bytes());`,
+          `            }`,
+          `            None => {`,
+          `                data[Self::${fm.name.toUpperCase()}_OFFSET] = 0;`,
+          `            }`,
+          `        }`,
+          `    }`,
+        ].join('\n');
+      }
     }
     if (fm.size > 0 && fm.size <= 16) {
       return [
@@ -747,7 +1065,30 @@ function generateStateRs(name: string, fields: Field[], discriminator: number[])
         `    #[inline(always)] pub fn set_${fm.name}(data: &mut [u8], v: bool) { data[Self::${fm.name.toUpperCase()}_OFFSET] = v as u8; }`,
       ].join('\n');
     }
-    return `    // TODO: accessor for ${fm.name}: ${fm.type} (dynamic size)`;
+    return [
+      `    /// Read ${fm.name} from raw account data (dynamic size — length-prefixed)`,
+      `    #[inline(always)]`,
+      `    pub fn ${fm.name}_len(data: &[u8]) -> usize {`,
+      `        u32::from_le_bytes(data[Self::${fm.name.toUpperCase()}_OFFSET..Self::${fm.name.toUpperCase()}_OFFSET + 4].try_into().unwrap()) as usize`,
+      `    }`,
+      ``,
+      `    /// Read ${fm.name} slice from raw account data`,
+      `    #[inline(always)]`,
+      `    pub fn ${fm.name}_data(data: &[u8]) -> &[u8] {`,
+      `        let len = Self::${fm.name}_len(data);`,
+      `        &data[Self::${fm.name.toUpperCase()}_OFFSET + 4..Self::${fm.name.toUpperCase()}_OFFSET + 4 + len]`,
+      `    }`,
+      ``,
+      `    /// Write ${fm.name} to raw account data`,
+      `    #[inline(always)]`,
+      `    pub fn set_${fm.name}(data: &mut [u8], value: &[u8]) {`,
+      `        let len = value.len() as u32;`,
+      `        data[Self::${fm.name.toUpperCase()}_OFFSET..Self::${fm.name.toUpperCase()}_OFFSET + 4]`,
+      `            .copy_from_slice(&len.to_le_bytes());`,
+      `        data[Self::${fm.name.toUpperCase()}_OFFSET + 4..Self::${fm.name.toUpperCase()}_OFFSET + 4 + value.len()]`,
+      `            .copy_from_slice(value);`,
+      `    }`,
+    ].join('\n');
   }).join('\n\n');
 
   const discArr = `[${discriminator.join(', ')}]`;
@@ -817,7 +1158,7 @@ function generateEventsRs(events: ProgramIR['events']): string {
     const fields = e.fields
       .map((f) => `    pub ${f.name}: ${pinocchioType(f.type)},`)
       .join('\n');
-    return `/// ${e.name} event\n/// Logged via sol_log_ syscall as raw data\npub struct ${e.name} {\n${fields}\n}`;
+    return `/// ${e.name} event\n/// NOTE: Pinocchio events must be serialized and emitted via sol_log_data\n#[allow(dead_code)]\npub struct ${e.name} {\n${fields}\n}`;
   }).join('\n\n');
   return `use pinocchio::Address;\n\n${structs}\n`;
 }

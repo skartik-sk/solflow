@@ -109,6 +109,7 @@ export const FieldSchema = z.object({
   type: SolanaTypeSchema,
   description: z.string().optional(),
   maxLen: z.number().optional(),
+  defaultValue: z.string().optional(),
 });
 export type Field = z.infer<typeof FieldSchema>;
 
@@ -158,6 +159,11 @@ export const ConstraintSchema = z.discriminatedUnion("type", [
     expression: z.string(),
     errorCode: z.string().optional(),
   }),
+  z.object({ type: z.literal("mint-authority"), authority: z.string() }),
+  z.object({ type: z.literal("mint-decimals"), decimals: z.number().int().min(0).max(9) }),
+  z.object({ type: z.literal("associated-token-authority"), authority: z.string() }),
+  z.object({ type: z.literal("associated-token-mint"), mint: z.string() }),
+  z.object({ type: z.literal("safety-comment"), comment: z.string() }),
 ]);
 export type Constraint = z.infer<typeof ConstraintSchema>;
 
@@ -223,6 +229,7 @@ export type LogicOperation =
       from: string;
       authority: string;
       amount: string;
+      signerSeeds?: Seed[];
     }
   | { type: "require"; condition: string; errorCode: string }
   | {
@@ -287,6 +294,7 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
       from: z.string(),
       authority: z.string(),
       amount: z.string(),
+      signerSeeds: z.array(SeedSchema).optional(),
     }),
     z.object({
       type: z.literal("require"),
@@ -350,8 +358,10 @@ export const InstructionSchema = z.object({
   args: z.array(InstructionArgSchema),
   accounts: z.array(AccountSchema),
   body: z.array(LogicOperationSchema),
+  accessControl: z.enum(["none", "admin_only", "custom"]).default("none"),
 });
 export type Instruction = z.infer<typeof InstructionSchema>;
+export type AccessControl = Instruction["accessControl"];
 
 // ─── State Definition ──────────────────────────────────────────────
 
