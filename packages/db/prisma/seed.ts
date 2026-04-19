@@ -25,7 +25,7 @@ const META = {
 
 // ─── Template definitions ─────────────────────────────────────────────────
 
-const TEMPLATES = [
+export const TEMPLATES = [
   // ═══════════════════════════════════════════════════════════════════════
   // 1. SIMPLE VAULT — The flagship demo template
   // ═══════════════════════════════════════════════════════════════════════
@@ -85,9 +85,11 @@ const TEMPLATES = [
         // ── Logic for withdraw ──
         { id: "log-wd-1", type: "logic", position: { x: 520, y: 440 }, data: { logicType: "require", requireCondition: "amount > 0", requireErrorCode: "InvalidAmount" } },
         { id: "log-wd-2", type: "logic", position: { x: 520, y: 470 }, data: { logicType: "require", requireCondition: "vault.balance >= amount", requireErrorCode: "InsufficientFunds" } },
-        { id: "log-wd-3", type: "logic", position: { x: 520, y: 500 }, data: { logicType: "math", mathOperation: "sub", mathLeft: "vault.balance", mathRight: "amount", mathResult: "remaining", mathChecked: true } },
-        { id: "log-wd-4", type: "logic", position: { x: 520, y: 530 }, data: { logicType: "set-field", setAccount: "vault", setField: "balance", setValue: "remaining" } },
-        { id: "log-wd-5", type: "logic", position: { x: 520, y: 560 }, data: { logicType: "emit-event", emitEvent: "WithdrawEvent", emitFields: { authority: "*ctx.accounts.authority.key", amount: "amount" } } },
+        { id: "log-wd-3", type: "logic", position: { x: 520, y: 500 }, data: { logicType: "if-else", ifCondition: "amount == vault.balance" } },
+        { id: "log-wd-3a", type: "logic", position: { x: 520, y: 530 }, data: { logicType: "set-field", setAccount: "vault", setField: "balance", setValue: "0" } },
+        { id: "log-wd-3b", type: "logic", position: { x: 520, y: 560 }, data: { logicType: "math", mathOperation: "sub", mathLeft: "vault.balance", mathRight: "amount", mathResult: "remaining", mathChecked: true } },
+        { id: "log-wd-3c", type: "logic", position: { x: 520, y: 590 }, data: { logicType: "set-field", setAccount: "vault", setField: "balance", setValue: "remaining" } },
+        { id: "log-wd-5", type: "logic", position: { x: 520, y: 620 }, data: { logicType: "emit-event", emitEvent: "WithdrawEvent", emitFields: { authority: "*ctx.accounts.authority.key", amount: "amount" } } },
 
         // ── State ──
         { id: "state-vault", type: "state", position: { x: 960, y: 340 }, data: { name: "VaultState", fields: [{ name: "authority", type: "Pubkey", description: "Vault owner" }, { name: "balance", type: "u64", description: "Current balance" }, { name: "bump", type: "u8", description: "PDA bump" }] } },
@@ -138,8 +140,11 @@ const TEMPLATES = [
         { id: "e-wd-l1", source: "ix-withdraw", target: "log-wd-1" },
         { id: "e-wd-l2", source: "log-wd-1", target: "log-wd-2" },
         { id: "e-wd-l3", source: "log-wd-2", target: "log-wd-3" },
-        { id: "e-wd-l4", source: "log-wd-3", target: "log-wd-4" },
-        { id: "e-wd-l5", source: "log-wd-4", target: "log-wd-5" },
+        { id: "e-wd-l3a", source: "log-wd-3", target: "log-wd-3a" },
+        { id: "e-wd-l3b", source: "log-wd-3", target: "log-wd-3b" },
+        { id: "e-wd-l3c", source: "log-wd-3b", target: "log-wd-3c" },
+        { id: "e-wd-l5a", source: "log-wd-3a", target: "log-wd-5" },
+        { id: "e-wd-l5b", source: "log-wd-3c", target: "log-wd-5" },
 
         // close -> accounts
         { id: "e-cl-v", source: "ix-close", target: "acc-cl-vault" },
@@ -166,7 +171,7 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "vault", description: "SOL vault with PDA, deposits, withdrawals, and events", version: "0.1.0" },
       instructions: [
-        { id: "a0000000-0000-0000-0000-000000000001", name: "initialize", description: "Initialize a new vault", args: [], accounts: [
+        { id: "a0000000-0000-0000-0000-000000000001", name: "initialize", description: "Initialize a new vault", accessControl: "none", args: [], accounts: [
           { id: "a0000000-0000-0000-0000-000000000010", name: "vault", accountType: "account", stateType: "VaultState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -175,7 +180,7 @@ const TEMPLATES = [
           { type: "set-field", account: "vault", field: "balance", value: "0" },
           { type: "set-field", account: "vault", field: "bump", value: "ctx.bumps.vault" },
         ] },
-        { id: "a0000000-0000-0000-0000-000000000002", name: "deposit", args: [{ name: "amount", type: "u64" }], accounts: [
+        { id: "a0000000-0000-0000-0000-000000000002", name: "deposit", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
           { id: "a0000000-0000-0000-0000-000000000020", name: "vault", accountType: "account", stateType: "VaultState", constraints: [{ type: "mut" }, { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000021", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000022", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -186,18 +191,22 @@ const TEMPLATES = [
           { type: "set-field", account: "vault", field: "balance", value: "new_balance" },
           { type: "emit-event", event: "DepositEvent", fields: { authority: "*ctx.accounts.authority.key", amount: "amount", new_balance: "new_balance" } },
         ], description: undefined },
-        { id: "a0000000-0000-0000-0000-000000000003", name: "withdraw", args: [{ name: "amount", type: "u64" }], accounts: [
+        { id: "a0000000-0000-0000-0000-000000000003", name: "withdraw", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
           { id: "a0000000-0000-0000-0000-000000000030", name: "vault", accountType: "account", stateType: "VaultState", constraints: [{ type: "mut" }, { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000031", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000032", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
         ], body: [
           { type: "require", condition: "amount > 0", errorCode: "InvalidAmount" },
           { type: "require", condition: "vault.balance >= amount", errorCode: "InsufficientFunds" },
-          { type: "math", operation: "sub", left: "vault.balance", right: "amount", result: "remaining", checked: true },
-          { type: "set-field", account: "vault", field: "balance", value: "remaining" },
+          { type: "if-else", condition: "amount == vault.balance", thenBody: [
+            { type: "set-field", account: "vault", field: "balance", value: "0" },
+          ], elseBody: [
+            { type: "math", operation: "sub", left: "vault.balance", right: "amount", result: "remaining", checked: true },
+            { type: "set-field", account: "vault", field: "balance", value: "remaining" },
+          ] },
           { type: "emit-event", event: "WithdrawEvent", fields: { authority: "*ctx.accounts.authority.key", amount: "amount" } },
         ], description: undefined },
-        { id: "a0000000-0000-0000-0000-000000000004", name: "close_vault", args: [], accounts: [
+        { id: "a0000000-0000-0000-0000-000000000004", name: "close_vault", accessControl: "none", args: [], accounts: [
           { id: "a0000000-0000-0000-0000-000000000040", name: "vault", accountType: "account", stateType: "VaultState", constraints: [{ type: "mut" }, { type: "close", target: "authority" }, { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000041", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a0000000-0000-0000-0000-000000000042", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -252,11 +261,11 @@ const TEMPLATES = [
         { id: "log-init-2", type: "logic", position: { x: 960, y: 110 }, data: { logicType: "set-field", setAccount: "mint", setField: "authority", setValue: "*ctx.accounts.authority.key" } },
 
         { id: "log-m-1", type: "logic", position: { x: 960, y: 260 }, data: { logicType: "require", requireCondition: "amount > 0", requireErrorCode: "InvalidAmount" } },
-        { id: "log-m-2", type: "logic", position: { x: 960, y: 290 }, data: { logicType: "mint-to", mintTo: "destination", setField: "mint", setValue: "authority", mintAuthority: "authority", transferAmount: "amount" } },
-        { id: "log-m-3", type: "logic", position: { x: 960, y: 320 }, data: { logicType: "emit-event", emitEvent: "MintEvent", emitFields: { amount: "amount" } } },
+        { id: "log-m-2", type: "logic", position: { x: 960, y: 290 }, data: { logicType: "mint-to", mintTo: "mint", transferTo: "destination", mintAuthority: "authority", transferAmount: "amount" } },
+        { id: "log-m-3", type: "logic", position: { x: 960, y: 320 }, data: { logicType: "emit-event", emitEvent: "MintEvent", emitFields: { amount: "amount", destination: "*ctx.accounts.destination.key" } } },
 
         { id: "log-b-1", type: "logic", position: { x: 960, y: 440 }, data: { logicType: "require", requireCondition: "amount > 0", requireErrorCode: "InvalidAmount" } },
-        { id: "log-b-2", type: "logic", position: { x: 960, y: 470 }, data: { logicType: "burn", burnMint: "mint", setAccount: "source", burnAuthority: "authority", transferAmount: "amount" } },
+        { id: "log-b-2", type: "logic", position: { x: 960, y: 470 }, data: { logicType: "burn", burnMint: "mint", transferFrom: "source", burnAuthority: "authority", transferAmount: "amount" } },
 
         // Errors & Events
         { id: "err-inv", type: "error", position: { x: 40, y: 360 }, data: { name: "InvalidAmount", code: 6000, message: "Amount must be greater than 0" } },
@@ -301,7 +310,7 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "token_mint", description: "SPL token with mint authority and supply control", version: "0.1.0" },
       instructions: [
-        { id: "a1000000-0000-0000-0000-000000000001", name: "initialize_mint", description: "Initialize a new SPL token mint", args: [{ name: "decimals", type: "u8" }], accounts: [
+        { id: "a1000000-0000-0000-0000-000000000001", name: "initialize_mint", description: "Initialize a new SPL token mint", accessControl: "none", args: [{ name: "decimals", type: "u8" }], accounts: [
           { id: "a1000000-0000-0000-0000-000000000010", name: "mint", accountType: "mint", constraints: [{ type: "init", payer: "authority", space: 82 }, { type: "mint-authority", authority: "authority" }, { type: "mint-decimals", decimals: 9 }], description: undefined },
           { id: "a1000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a1000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -310,7 +319,7 @@ const TEMPLATES = [
           { type: "set-field", account: "mint", field: "decimals", value: "decimals" },
           { type: "set-field", account: "mint", field: "authority", value: "*ctx.accounts.authority.key" },
         ] },
-        { id: "a1000000-0000-0000-0000-000000000002", name: "mint_to", description: "Mint tokens to an account", args: [{ name: "amount", type: "u64" }], accounts: [
+        { id: "a1000000-0000-0000-0000-000000000002", name: "mint_to", description: "Mint tokens to an account", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
           { id: "a1000000-0000-0000-0000-000000000020", name: "mint", accountType: "mint", constraints: [{ type: "mut" }, { type: "mint-authority", authority: "authority" }], description: undefined },
           { id: "a1000000-0000-0000-0000-000000000021", name: "destination", accountType: "token-account", constraints: [{ type: "mut" }], description: undefined },
           { id: "a1000000-0000-0000-0000-000000000022", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -320,7 +329,7 @@ const TEMPLATES = [
           { type: "mint-to", mint: "mint", to: "destination", authority: "authority", amount: "amount" },
           { type: "emit-event", event: "MintEvent", fields: { amount: "amount", destination: "*ctx.accounts.destination.key" } },
         ] },
-        { id: "a1000000-0000-0000-0000-000000000003", name: "burn", description: "Burn tokens from an account", args: [{ name: "amount", type: "u64" }], accounts: [
+        { id: "a1000000-0000-0000-0000-000000000003", name: "burn", description: "Burn tokens from an account", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
           { id: "a1000000-0000-0000-0000-000000000030", name: "source", accountType: "token-account", constraints: [{ type: "mut" }], description: undefined },
           { id: "a1000000-0000-0000-0000-000000000031", name: "mint", accountType: "mint", constraints: [{ type: "mut" }], description: undefined },
           { id: "a1000000-0000-0000-0000-000000000032", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -365,6 +374,7 @@ const TEMPLATES = [
         // exchange accounts
         { id: "acc-ex-escrow", type: "account", position: { x: 520, y: 260 }, data: { name: "escrow", accountType: "account", isMut: true, stateType: "EscrowState", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" } },
         { id: "acc-ex-taker", type: "account", position: { x: 740, y: 260 }, data: { name: "taker", accountType: "signer", isSigner: true } },
+        { id: "acc-ex-maker", type: "account", position: { x: 740, y: 300 }, data: { name: "maker", accountType: "system-account" } },
         { id: "acc-ex-sys", type: "account", position: { x: 740, y: 340 }, data: { name: "system_program", accountType: "system-program" } },
 
         // cancel accounts
@@ -382,7 +392,7 @@ const TEMPLATES = [
         // Logic - exchange
         { id: "log-ex-1", type: "logic", position: { x: 960, y: 280 }, data: { logicType: "require", requireCondition: "Clock::get()?.unix_timestamp < escrow.deadline", requireErrorCode: "EscrowExpired" } },
         { id: "log-ex-2", type: "logic", position: { x: 960, y: 310 }, data: { logicType: "set-field", setAccount: "escrow", setField: "taker", setValue: "*ctx.accounts.taker.key" } },
-        { id: "log-ex-3", type: "logic", position: { x: 960, y: 340 }, data: { logicType: "emit-event", emitEvent: "ExchangeEvent", emitFields: { maker: "*ctx.accounts.escrow.maker", taker: "*ctx.accounts.taker.key", amount: "escrow.amount" } } },
+        { id: "log-ex-3", type: "logic", position: { x: 960, y: 340 }, data: { logicType: "emit-event", emitEvent: "ExchangeEvent", emitFields: { maker: "escrow.maker", taker: "*ctx.accounts.taker.key", amount: "escrow.amount" } } },
 
         // State
         { id: "state-escrow", type: "state", position: { x: 960, y: 440 }, data: { name: "EscrowState", fields: [{ name: "maker", type: "Pubkey", description: "Escrow creator" }, { name: "taker", type: "Pubkey", description: "Escrow fulfiller" }, { name: "amount", type: "u64", description: "Escrow amount" }, { name: "deadline", type: "i64", description: "Unix timestamp deadline" }, { name: "bump", type: "u8", description: "PDA bump" }] } },
@@ -409,6 +419,7 @@ const TEMPLATES = [
         // exchange
         { id: "e-ex-e", source: "ix-exchange", target: "acc-ex-escrow" },
         { id: "e-ex-t", source: "ix-exchange", target: "acc-ex-taker" },
+        { id: "e-ex-m", source: "ix-exchange", target: "acc-ex-maker" },
         { id: "e-ex-s", source: "ix-exchange", target: "acc-ex-sys" },
         { id: "e-ex-l1", source: "ix-exchange", target: "log-ex-1" },
         { id: "e-ex-l2", source: "log-ex-1", target: "log-ex-2" },
@@ -556,7 +567,7 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "nft_collection", description: "NFT collection with mint and verify", version: "0.1.0" },
       instructions: [
-        { id: "a3000000-0000-0000-0000-000000000001", name: "create_collection", description: "Create a new NFT collection", args: [{ name: "name", type: "String" }, { name: "symbol", type: "String" }], accounts: [
+        { id: "a3000000-0000-0000-0000-000000000001", name: "create_collection", description: "Create a new NFT collection", accessControl: "none", args: [{ name: "name", type: "String" }, { name: "symbol", type: "String" }], accounts: [
           { id: "a3000000-0000-0000-0000-000000000010", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [{ type: "init", payer: "authority", space: "auto" }], description: undefined },
           { id: "a3000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a3000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -566,7 +577,7 @@ const TEMPLATES = [
           { type: "set-field", account: "collection", field: "name", value: "name" },
           { type: "set-field", account: "collection", field: "symbol", value: "symbol" },
         ] },
-        { id: "a3000000-0000-0000-0000-000000000002", name: "mint_nft", description: "Mint a new NFT into the collection", args: [{ name: "uri", type: "String" }], accounts: [
+        { id: "a3000000-0000-0000-0000-000000000002", name: "mint_nft", description: "Mint a new NFT into the collection", accessControl: "none", args: [{ name: "uri", type: "String" }], accounts: [
           { id: "a3000000-0000-0000-0000-000000000020", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a3000000-0000-0000-0000-000000000021", name: "mint", accountType: "mint", constraints: [{ type: "init", payer: "payer", space: 82 }], description: undefined },
           { id: "a3000000-0000-0000-0000-000000000022", name: "payer", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -576,7 +587,7 @@ const TEMPLATES = [
           { type: "set-field", account: "collection", field: "mint_count", value: "new_count" },
           { type: "emit-event", event: "NFTMintedEvent", fields: { mint: "*ctx.accounts.mint.key", uri: "uri" } },
         ] },
-        { id: "a3000000-0000-0000-0000-000000000003", name: "verify_collection", description: "Verify an NFT belongs to this collection", args: [], accounts: [
+        { id: "a3000000-0000-0000-0000-000000000003", name: "verify_collection", description: "Verify an NFT belongs to this collection", accessControl: "none", args: [], accounts: [
           { id: "a3000000-0000-0000-0000-000000000030", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [], description: undefined },
           { id: "a3000000-0000-0000-0000-000000000031", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
         ], body: [
@@ -632,6 +643,30 @@ const TEMPLATES = [
         { id: "acc-cl-staker", type: "account", position: { x: 740, y: 520 }, data: { name: "staker_account", accountType: "account", isMut: true, stateType: "StakerState" } },
         { id: "acc-cl-s", type: "account", position: { x: 960, y: 520 }, data: { name: "staker", accountType: "signer", isSigner: true } },
 
+        // ── Logic for initialize_pool ──
+        { id: "log-i-1", type: "logic", position: { x: 520, y: 80 }, data: { logicType: "set-field", setAccount: "pool", setField: "authority", setValue: "*ctx.accounts.authority.key" } },
+        { id: "log-i-2", type: "logic", position: { x: 520, y: 100 }, data: { logicType: "set-field", setAccount: "pool", setField: "total_staked", setValue: "0" } },
+        { id: "log-i-3", type: "logic", position: { x: 520, y: 120 }, data: { logicType: "set-field", setAccount: "pool", setField: "reward_rate", setValue: "reward_rate" } },
+        { id: "log-i-4", type: "logic", position: { x: 520, y: 140 }, data: { logicType: "set-field", setAccount: "pool", setField: "bump", setValue: "ctx.bumps.pool" } },
+
+        // ── Logic for stake ──
+        { id: "log-s-1", type: "logic", position: { x: 520, y: 240 }, data: { logicType: "require", requireCondition: "amount > 0", requireErrorCode: "InvalidAmount" } },
+        { id: "log-s-2", type: "logic", position: { x: 520, y: 260 }, data: { logicType: "math", mathOperation: "add", mathLeft: "staker_account.staked_amount", mathRight: "amount", mathResult: "new_staked", mathChecked: true } },
+        { id: "log-s-3", type: "logic", position: { x: 520, y: 280 }, data: { logicType: "set-field", setAccount: "staker_account", setField: "staked_amount", setValue: "new_staked" } },
+        { id: "log-s-4", type: "logic", position: { x: 520, y: 300 }, data: { logicType: "math", mathOperation: "add", mathLeft: "pool.total_staked", mathRight: "amount", mathResult: "new_total", mathChecked: true } },
+        { id: "log-s-5", type: "logic", position: { x: 520, y: 320 }, data: { logicType: "set-field", setAccount: "pool", setField: "total_staked", setValue: "new_total" } },
+
+        // ── Logic for unstake ──
+        { id: "log-u-1", type: "logic", position: { x: 520, y: 400 }, data: { logicType: "require", requireCondition: "amount > 0", requireErrorCode: "InvalidAmount" } },
+        { id: "log-u-2", type: "logic", position: { x: 520, y: 420 }, data: { logicType: "require", requireCondition: "staker_account.staked_amount >= amount", requireErrorCode: "InsufficientStake" } },
+        { id: "log-u-3", type: "logic", position: { x: 520, y: 440 }, data: { logicType: "math", mathOperation: "sub", mathLeft: "staker_account.staked_amount", mathRight: "amount", mathResult: "remaining", mathChecked: true } },
+        { id: "log-u-4", type: "logic", position: { x: 520, y: 460 }, data: { logicType: "set-field", setAccount: "staker_account", setField: "staked_amount", setValue: "remaining" } },
+        { id: "log-u-5", type: "logic", position: { x: 520, y: 480 }, data: { logicType: "math", mathOperation: "sub", mathLeft: "pool.total_staked", mathRight: "amount", mathResult: "new_total", mathChecked: true } },
+        { id: "log-u-6", type: "logic", position: { x: 520, y: 500 }, data: { logicType: "set-field", setAccount: "pool", setField: "total_staked", setValue: "new_total" } },
+
+        // ── Logic for claim_rewards ──
+        { id: "log-c-1", type: "logic", position: { x: 520, y: 560 }, data: { logicType: "set-field", setAccount: "staker_account", setField: "pending_rewards", setValue: "0" } },
+
         // States
         { id: "state-pool", type: "state", position: { x: 40, y: 400 }, data: { name: "PoolState", fields: [{ name: "authority", type: "Pubkey" }, { name: "total_staked", type: "u64" }, { name: "reward_rate", type: "u64" }, { name: "bump", type: "u8" }] } },
         { id: "state-staker", type: "state", position: { x: 40, y: 500 }, data: { name: "StakerState", fields: [{ name: "staker", type: "Pubkey" }, { name: "staked_amount", type: "u64" }, { name: "pending_rewards", type: "u64" }] } },
@@ -649,22 +684,38 @@ const TEMPLATES = [
         { id: "e-i-p", source: "ix-init", target: "acc-init-pool" },
         { id: "e-i-a", source: "ix-init", target: "acc-init-auth" },
         { id: "e-i-s", source: "ix-init", target: "acc-init-sys" },
+        { id: "e-i-l1", source: "ix-init", target: "log-i-1" },
+        { id: "e-i-l2", source: "log-i-1", target: "log-i-2" },
+        { id: "e-i-l3", source: "log-i-2", target: "log-i-3" },
+        { id: "e-i-l4", source: "log-i-3", target: "log-i-4" },
         // stake
         { id: "e-s-p", source: "ix-stake", target: "acc-st-pool" },
         { id: "e-s-sa", source: "ix-stake", target: "acc-st-staker" },
         { id: "e-s-s", source: "ix-stake", target: "acc-st-staker-s" },
         { id: "e-s-sys", source: "ix-stake", target: "acc-st-sys" },
         { id: "e-s-err", source: "ix-stake", target: "err-inv" },
+        { id: "e-s-l1", source: "ix-stake", target: "log-s-1" },
+        { id: "e-s-l2", source: "log-s-1", target: "log-s-2" },
+        { id: "e-s-l3", source: "log-s-2", target: "log-s-3" },
+        { id: "e-s-l4", source: "log-s-3", target: "log-s-4" },
+        { id: "e-s-l5", source: "log-s-4", target: "log-s-5" },
         // unstake
         { id: "e-u-p", source: "ix-unstake", target: "acc-un-pool" },
         { id: "e-u-sa", source: "ix-unstake", target: "acc-un-staker" },
         { id: "e-u-s", source: "ix-unstake", target: "acc-un-s" },
         { id: "e-u-err1", source: "ix-unstake", target: "err-inv" },
         { id: "e-u-err2", source: "ix-unstake", target: "err-insuf" },
+        { id: "e-u-l1", source: "ix-unstake", target: "log-u-1" },
+        { id: "e-u-l2", source: "log-u-1", target: "log-u-2" },
+        { id: "e-u-l3", source: "log-u-2", target: "log-u-3" },
+        { id: "e-u-l4", source: "log-u-3", target: "log-u-4" },
+        { id: "e-u-l5", source: "log-u-4", target: "log-u-5" },
+        { id: "e-u-l6", source: "log-u-5", target: "log-u-6" },
         // claim
         { id: "e-c-p", source: "ix-claim", target: "acc-cl-pool" },
         { id: "e-c-sa", source: "ix-claim", target: "acc-cl-staker" },
         { id: "e-c-s", source: "ix-claim", target: "acc-cl-s" },
+        { id: "e-c-l1", source: "ix-claim", target: "log-c-1" },
         // state
         { id: "e-state-p", source: "state-pool", target: "acc-init-pool" },
         { id: "e-state-s", source: "state-staker", target: "acc-st-staker" },
@@ -674,7 +725,7 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "staking_pool", description: "Token staking with time-weighted rewards", version: "0.1.0" },
       instructions: [
-        { id: "a4000000-0000-0000-0000-000000000001", name: "initialize_pool", description: "Initialize the staking pool", args: [{ name: "reward_rate", type: "u64" }], accounts: [
+        { id: "a4000000-0000-0000-0000-000000000001", name: "initialize_pool", description: "Initialize the staking pool", accessControl: "none", args: [{ name: "reward_rate", type: "u64" }], accounts: [
           { id: "a4000000-0000-0000-0000-000000000010", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "pool" }], bump: "pool.bump" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -684,7 +735,7 @@ const TEMPLATES = [
           { type: "set-field", account: "pool", field: "reward_rate", value: "reward_rate" },
           { type: "set-field", account: "pool", field: "bump", value: "ctx.bumps.pool" },
         ] },
-        { id: "a4000000-0000-0000-0000-000000000002", name: "stake", description: "Stake tokens into the pool", args: [{ name: "amount", type: "u64" }], accounts: [
+        { id: "a4000000-0000-0000-0000-000000000002", name: "stake", description: "Stake tokens into the pool", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
           { id: "a4000000-0000-0000-0000-000000000020", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000021", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "init-if-needed", payer: "staker", space: "auto" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000022", name: "staker", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -696,7 +747,7 @@ const TEMPLATES = [
           { type: "math", operation: "add", left: "pool.total_staked", right: "amount", result: "new_total", checked: true },
           { type: "set-field", account: "pool", field: "total_staked", value: "new_total" },
         ] },
-        { id: "a4000000-0000-0000-0000-000000000003", name: "unstake", description: "Unstake tokens from the pool", args: [{ name: "amount", type: "u64" }], accounts: [
+        { id: "a4000000-0000-0000-0000-000000000003", name: "unstake", description: "Unstake tokens from the pool", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
           { id: "a4000000-0000-0000-0000-000000000030", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000031", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000032", name: "staker", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -708,7 +759,7 @@ const TEMPLATES = [
           { type: "math", operation: "sub", left: "pool.total_staked", right: "amount", result: "new_total", checked: true },
           { type: "set-field", account: "pool", field: "total_staked", value: "new_total" },
         ] },
-        { id: "a4000000-0000-0000-0000-000000000004", name: "claim_rewards", description: "Claim accumulated rewards", args: [], accounts: [
+        { id: "a4000000-0000-0000-0000-000000000004", name: "claim_rewards", description: "Claim accumulated rewards", accessControl: "none", args: [], accounts: [
           { id: "a4000000-0000-0000-0000-000000000040", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000041", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a4000000-0000-0000-0000-000000000042", name: "staker", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -757,6 +808,26 @@ const TEMPLATES = [
         { id: "acc-ex-prop", type: "account", position: { x: 520, y: 440 }, data: { name: "proposal", accountType: "account", isMut: true, stateType: "ProposalState" } },
         { id: "acc-ex-exec", type: "account", position: { x: 740, y: 440 }, data: { name: "executor", accountType: "signer", isSigner: true } },
 
+        // ── Logic for create_proposal ──
+        { id: "log-cr-1", type: "logic", position: { x: 960, y: 60 }, data: { logicType: "set-field", setAccount: "proposal", setField: "proposer", setValue: "*ctx.accounts.proposer.key" } },
+        { id: "log-cr-2", type: "logic", position: { x: 960, y: 80 }, data: { logicType: "set-field", setAccount: "proposal", setField: "description", setValue: "description" } },
+        { id: "log-cr-3", type: "logic", position: { x: 960, y: 100 }, data: { logicType: "set-field", setAccount: "proposal", setField: "votes_for", setValue: "0" } },
+        { id: "log-cr-4", type: "logic", position: { x: 960, y: 120 }, data: { logicType: "set-field", setAccount: "proposal", setField: "votes_against", setValue: "0" } },
+        { id: "log-cr-5", type: "logic", position: { x: 960, y: 140 }, data: { logicType: "set-field", setAccount: "proposal", setField: "deadline", setValue: "deadline" } },
+        { id: "log-cr-6", type: "logic", position: { x: 960, y: 160 }, data: { logicType: "set-field", setAccount: "proposal", setField: "executed", setValue: "false" } },
+        { id: "log-cr-7", type: "logic", position: { x: 960, y: 180 }, data: { logicType: "set-field", setAccount: "proposal", setField: "bump", setValue: "ctx.bumps.proposal" } },
+
+        // ── Logic for cast_vote ──
+        { id: "log-v-1", type: "logic", position: { x: 960, y: 280 }, data: { logicType: "require", requireCondition: "Clock::get()?.unix_timestamp < proposal.deadline", requireErrorCode: "VotingEnded" } },
+        { id: "log-v-2", type: "logic", position: { x: 960, y: 300 }, data: { logicType: "require", requireCondition: "proposal.executed == false", requireErrorCode: "AlreadyExecuted" } },
+        { id: "log-v-3", type: "logic", position: { x: 960, y: 320 }, data: { logicType: "set-field", setAccount: "vote_record", setField: "voter", setValue: "*ctx.accounts.voter.key" } },
+        { id: "log-v-4", type: "logic", position: { x: 960, y: 340 }, data: { logicType: "set-field", setAccount: "vote_record", setField: "support", setValue: "support" } },
+
+        // ── Logic for execute_proposal ──
+        { id: "log-ex-1", type: "logic", position: { x: 960, y: 460 }, data: { logicType: "require", requireCondition: "proposal.executed == false", requireErrorCode: "AlreadyExecuted" } },
+        { id: "log-ex-2", type: "logic", position: { x: 960, y: 480 }, data: { logicType: "require", requireCondition: "proposal.votes_for > proposal.votes_against", requireErrorCode: "ProposalRejected" } },
+        { id: "log-ex-3", type: "logic", position: { x: 960, y: 500 }, data: { logicType: "set-field", setAccount: "proposal", setField: "executed", setValue: "true" } },
+
         // States
         { id: "state-prop", type: "state", position: { x: 40, y: 340 }, data: { name: "ProposalState", fields: [{ name: "proposer", type: "Pubkey" }, { name: "description", type: "String" }, { name: "votes_for", type: "u64" }, { name: "votes_against", type: "u64" }, { name: "deadline", type: "i64" }, { name: "executed", type: "bool" }, { name: "bump", type: "u8" }] } },
         { id: "state-vote", type: "state", position: { x: 40, y: 440 }, data: { name: "VoteRecord", fields: [{ name: "voter", type: "Pubkey" }, { name: "proposal", type: "Pubkey" }, { name: "support", type: "bool" }, { name: "weight", type: "u64" }] } },
@@ -774,6 +845,13 @@ const TEMPLATES = [
         { id: "e-cr-p", source: "ix-create", target: "acc-cr-prop" },
         { id: "e-cr-pr", source: "ix-create", target: "acc-cr-proposer" },
         { id: "e-cr-s", source: "ix-create", target: "acc-cr-sys" },
+        { id: "e-cr-l1", source: "ix-create", target: "log-cr-1" },
+        { id: "e-cr-l2", source: "log-cr-1", target: "log-cr-2" },
+        { id: "e-cr-l3", source: "log-cr-2", target: "log-cr-3" },
+        { id: "e-cr-l4", source: "log-cr-3", target: "log-cr-4" },
+        { id: "e-cr-l5", source: "log-cr-4", target: "log-cr-5" },
+        { id: "e-cr-l6", source: "log-cr-5", target: "log-cr-6" },
+        { id: "e-cr-l7", source: "log-cr-6", target: "log-cr-7" },
         // vote
         { id: "e-v-p", source: "ix-vote", target: "acc-v-prop" },
         { id: "e-v-r", source: "ix-vote", target: "acc-v-rec" },
@@ -781,11 +859,18 @@ const TEMPLATES = [
         { id: "e-v-s", source: "ix-vote", target: "acc-v-sys" },
         { id: "e-v-e1", source: "ix-vote", target: "err-ended" },
         { id: "e-v-e2", source: "ix-vote", target: "err-exec" },
+        { id: "e-v-l1", source: "ix-vote", target: "log-v-1" },
+        { id: "e-v-l2", source: "log-v-1", target: "log-v-2" },
+        { id: "e-v-l3", source: "log-v-2", target: "log-v-3" },
+        { id: "e-v-l4", source: "log-v-3", target: "log-v-4" },
         // execute
         { id: "e-ex-p", source: "ix-execute", target: "acc-ex-prop" },
         { id: "e-ex-e", source: "ix-execute", target: "acc-ex-exec" },
         { id: "e-ex-e1", source: "ix-execute", target: "err-exec" },
         { id: "e-ex-e2", source: "ix-execute", target: "err-reject" },
+        { id: "e-ex-l1", source: "ix-execute", target: "log-ex-1" },
+        { id: "e-ex-l2", source: "log-ex-1", target: "log-ex-2" },
+        { id: "e-ex-l3", source: "log-ex-2", target: "log-ex-3" },
         // state
         { id: "e-st-p", source: "state-prop", target: "acc-cr-prop" },
         { id: "e-st-v", source: "state-vote", target: "acc-v-rec" },
@@ -795,7 +880,7 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "dao_voting", description: "On-chain DAO with token-weighted voting", version: "0.1.0" },
       instructions: [
-        { id: "a5000000-0000-0000-0000-000000000001", name: "create_proposal", args: [{ name: "description", type: "String" }, { name: "deadline", type: "i64" }], accounts: [
+        { id: "a5000000-0000-0000-0000-000000000001", name: "create_proposal", accessControl: "none", args: [{ name: "description", type: "String" }, { name: "deadline", type: "i64" }], accounts: [
           { id: "a5000000-0000-0000-0000-000000000010", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "init", payer: "proposer", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "proposal" }, { type: "account-field", value: "proposer" }], bump: "proposal.bump" }], description: undefined },
           { id: "a5000000-0000-0000-0000-000000000011", name: "proposer", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a5000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -808,7 +893,7 @@ const TEMPLATES = [
           { type: "set-field", account: "proposal", field: "executed", value: "false" },
           { type: "set-field", account: "proposal", field: "bump", value: "ctx.bumps.proposal" },
         ] },
-        { id: "a5000000-0000-0000-0000-000000000002", name: "cast_vote", args: [{ name: "support", type: "bool" }], accounts: [
+        { id: "a5000000-0000-0000-0000-000000000002", name: "cast_vote", accessControl: "none", args: [{ name: "support", type: "bool" }], accounts: [
           { id: "a5000000-0000-0000-0000-000000000020", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a5000000-0000-0000-0000-000000000021", name: "vote_record", accountType: "account", stateType: "VoteRecord", constraints: [{ type: "init", payer: "voter", space: "auto" }], description: undefined },
           { id: "a5000000-0000-0000-0000-000000000022", name: "voter", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
@@ -819,7 +904,7 @@ const TEMPLATES = [
           { type: "set-field", account: "vote_record", field: "voter", value: "*ctx.accounts.voter.key" },
           { type: "set-field", account: "vote_record", field: "support", value: "support" },
         ] },
-        { id: "a5000000-0000-0000-0000-000000000003", name: "execute_proposal", args: [], accounts: [
+        { id: "a5000000-0000-0000-0000-000000000003", name: "execute_proposal", accessControl: "none", args: [], accounts: [
           { id: "a5000000-0000-0000-0000-000000000030", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a5000000-0000-0000-0000-000000000031", name: "executor", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
         ], body: [
@@ -872,6 +957,30 @@ const TEMPLATES = [
         { id: "acc-s-pool", type: "account", position: { x: 520, y: 520 }, data: { name: "pool", accountType: "account", isMut: true, stateType: "PoolState" } },
         { id: "acc-s-trader", type: "account", position: { x: 740, y: 520 }, data: { name: "trader", accountType: "signer", isSigner: true } },
 
+        // ── Logic for initialize_pool ──
+        { id: "log-i-1", type: "logic", position: { x: 960, y: 60 }, data: { logicType: "set-field", setAccount: "pool", setField: "authority", setValue: "*ctx.accounts.authority.key" } },
+        { id: "log-i-2", type: "logic", position: { x: 960, y: 80 }, data: { logicType: "set-field", setAccount: "pool", setField: "token_a_vault", setValue: "*ctx.accounts.authority.key" } },
+        { id: "log-i-3", type: "logic", position: { x: 960, y: 100 }, data: { logicType: "set-field", setAccount: "pool", setField: "token_b_vault", setValue: "*ctx.accounts.authority.key" } },
+        { id: "log-i-4", type: "logic", position: { x: 960, y: 120 }, data: { logicType: "set-field", setAccount: "pool", setField: "lp_mint", setValue: "*ctx.accounts.authority.key" } },
+        { id: "log-i-5", type: "logic", position: { x: 960, y: 140 }, data: { logicType: "set-field", setAccount: "pool", setField: "total_lp", setValue: "0" } },
+        { id: "log-i-6", type: "logic", position: { x: 960, y: 160 }, data: { logicType: "set-field", setAccount: "pool", setField: "bump", setValue: "ctx.bumps.pool" } },
+
+        // ── Logic for add_liquidity ──
+        { id: "log-a-1", type: "logic", position: { x: 960, y: 240 }, data: { logicType: "require", requireCondition: "token_a_amount > 0", requireErrorCode: "InvalidAmount" } },
+        { id: "log-a-2", type: "logic", position: { x: 960, y: 260 }, data: { logicType: "require", requireCondition: "token_b_amount > 0", requireErrorCode: "InvalidAmount" } },
+        { id: "log-a-3", type: "logic", position: { x: 960, y: 280 }, data: { logicType: "math", mathOperation: "add", mathLeft: "pool.total_lp", mathRight: "token_a_amount", mathResult: "new_lp", mathChecked: true } },
+        { id: "log-a-4", type: "logic", position: { x: 960, y: 300 }, data: { logicType: "set-field", setAccount: "pool", setField: "total_lp", setValue: "new_lp" } },
+
+        // ── Logic for remove_liquidity ──
+        { id: "log-r-1", type: "logic", position: { x: 960, y: 400 }, data: { logicType: "require", requireCondition: "lp_amount > 0", requireErrorCode: "InvalidAmount" } },
+        { id: "log-r-2", type: "logic", position: { x: 960, y: 420 }, data: { logicType: "require", requireCondition: "pool.total_lp >= lp_amount", requireErrorCode: "SlippageExceeded" } },
+        { id: "log-r-3", type: "logic", position: { x: 960, y: 440 }, data: { logicType: "math", mathOperation: "sub", mathLeft: "pool.total_lp", mathRight: "lp_amount", mathResult: "new_total", mathChecked: true } },
+        { id: "log-r-4", type: "logic", position: { x: 960, y: 460 }, data: { logicType: "set-field", setAccount: "pool", setField: "total_lp", setValue: "new_total" } },
+
+        // ── Logic for swap ──
+        { id: "log-s-1", type: "logic", position: { x: 960, y: 560 }, data: { logicType: "require", requireCondition: "amount_in > 0", requireErrorCode: "InvalidAmount" } },
+        { id: "log-s-2", type: "logic", position: { x: 960, y: 580 }, data: { logicType: "require", requireCondition: "amount_in >= min_amount_out", requireErrorCode: "SlippageExceeded" } },
+
         // State
         { id: "state-pool", type: "state", position: { x: 40, y: 380 }, data: { name: "PoolState", fields: [{ name: "authority", type: "Pubkey" }, { name: "token_a_vault", type: "Pubkey" }, { name: "token_b_vault", type: "Pubkey" }, { name: "lp_mint", type: "Pubkey" }, { name: "total_lp", type: "u64" }, { name: "bump", type: "u8" }] } },
 
@@ -888,19 +997,35 @@ const TEMPLATES = [
         { id: "e-i-p", source: "ix-init", target: "acc-i-pool" },
         { id: "e-i-a", source: "ix-init", target: "acc-i-auth" },
         { id: "e-i-s", source: "ix-init", target: "acc-i-sys" },
+        { id: "e-i-l1", source: "ix-init", target: "log-i-1" },
+        { id: "e-i-l2", source: "log-i-1", target: "log-i-2" },
+        { id: "e-i-l3", source: "log-i-2", target: "log-i-3" },
+        { id: "e-i-l4", source: "log-i-3", target: "log-i-4" },
+        { id: "e-i-l5", source: "log-i-4", target: "log-i-5" },
+        { id: "e-i-l6", source: "log-i-5", target: "log-i-6" },
         // add
         { id: "e-a-p", source: "ix-add", target: "acc-a-pool" },
         { id: "e-a-pr", source: "ix-add", target: "acc-a-prov" },
         { id: "e-a-err", source: "ix-add", target: "err-inv" },
+        { id: "e-a-l1", source: "ix-add", target: "log-a-1" },
+        { id: "e-a-l2", source: "log-a-1", target: "log-a-2" },
+        { id: "e-a-l3", source: "log-a-2", target: "log-a-3" },
+        { id: "e-a-l4", source: "log-a-3", target: "log-a-4" },
         // remove
         { id: "e-r-p", source: "ix-remove", target: "acc-r-pool" },
         { id: "e-r-pr", source: "ix-remove", target: "acc-r-prov" },
         { id: "e-r-err", source: "ix-remove", target: "err-inv" },
+        { id: "e-r-l1", source: "ix-remove", target: "log-r-1" },
+        { id: "e-r-l2", source: "log-r-1", target: "log-r-2" },
+        { id: "e-r-l3", source: "log-r-2", target: "log-r-3" },
+        { id: "e-r-l4", source: "log-r-3", target: "log-r-4" },
         // swap
         { id: "e-s-p", source: "ix-swap", target: "acc-s-pool" },
         { id: "e-s-t", source: "ix-swap", target: "acc-s-trader" },
         { id: "e-s-err1", source: "ix-swap", target: "err-inv" },
         { id: "e-s-err2", source: "ix-swap", target: "err-slippage" },
+        { id: "e-s-l1", source: "ix-swap", target: "log-s-1" },
+        { id: "e-s-l2", source: "log-s-1", target: "log-s-2" },
         // state
         { id: "e-st", source: "state-pool", target: "acc-i-pool" },
       ],
@@ -909,45 +1034,49 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "amm", description: "Constant-product AMM with liquidity and swaps", version: "0.1.0" },
       instructions: [
-        { id: "a6000000-0000-0000-0000-000000000001", name: "initialize_pool", args: [], accounts: [
+        { id: "a6000000-0000-0000-0000-000000000001", name: "initialize_pool", accessControl: "none", args: [], accounts: [
           { id: "a6000000-0000-0000-0000-000000000010", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "pool" }, { type: "account-field", value: "authority" }], bump: "pool.bump" }], description: undefined },
           { id: "a6000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a6000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
         ], body: [
           { type: "set-field", account: "pool", field: "authority", value: "*ctx.accounts.authority.key" },
+          { type: "set-field", account: "pool", field: "token_a_vault", value: "*ctx.accounts.authority.key" },
+          { type: "set-field", account: "pool", field: "token_b_vault", value: "*ctx.accounts.authority.key" },
+          { type: "set-field", account: "pool", field: "lp_mint", value: "*ctx.accounts.authority.key" },
           { type: "set-field", account: "pool", field: "total_lp", value: "0" },
           { type: "set-field", account: "pool", field: "bump", value: "ctx.bumps.pool" },
         ] },
-        { id: "a6000000-0000-0000-0000-000000000002", name: "add_liquidity", args: [{ name: "token_a_amount", type: "u64" }, { name: "token_b_amount", type: "u64" }], accounts: [
+        { id: "a6000000-0000-0000-0000-000000000002", name: "add_liquidity", accessControl: "none", args: [{ name: "token_a_amount", type: "u64" }, { name: "token_b_amount", type: "u64" }], accounts: [
           { id: "a6000000-0000-0000-0000-000000000020", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a6000000-0000-0000-0000-000000000021", name: "provider", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
         ], body: [
           { type: "require", condition: "token_a_amount > 0", errorCode: "InvalidAmount" },
           { type: "require", condition: "token_b_amount > 0", errorCode: "InvalidAmount" },
-          { type: "math", operation: "add", left: "pool.total_lp", right: "token_a_amount", result: "new_total", checked: true },
-          { type: "set-field", account: "pool", field: "total_lp", value: "new_total" },
+          { type: "math", operation: "add", left: "pool.total_lp", right: "token_a_amount", result: "new_lp", checked: true },
+          { type: "set-field", account: "pool", field: "total_lp", value: "new_lp" },
         ] },
-        { id: "a6000000-0000-0000-0000-000000000003", name: "remove_liquidity", args: [{ name: "lp_amount", type: "u64" }], accounts: [
+        { id: "a6000000-0000-0000-0000-000000000003", name: "remove_liquidity", accessControl: "none", args: [{ name: "lp_amount", type: "u64" }], accounts: [
           { id: "a6000000-0000-0000-0000-000000000030", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a6000000-0000-0000-0000-000000000031", name: "provider", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
         ], body: [
           { type: "require", condition: "lp_amount > 0", errorCode: "InvalidAmount" },
+          { type: "require", condition: "pool.total_lp >= lp_amount", errorCode: "SlippageExceeded" },
           { type: "math", operation: "sub", left: "pool.total_lp", right: "lp_amount", result: "new_total", checked: true },
           { type: "set-field", account: "pool", field: "total_lp", value: "new_total" },
         ] },
-        { id: "a6000000-0000-0000-0000-000000000004", name: "swap", args: [{ name: "amount_in", type: "u64" }, { name: "min_amount_out", type: "u64" }], accounts: [
+        { id: "a6000000-0000-0000-0000-000000000004", name: "swap", accessControl: "none", args: [{ name: "amount_in", type: "u64" }, { name: "min_amount_out", type: "u64" }], accounts: [
           { id: "a6000000-0000-0000-0000-000000000040", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }], description: undefined },
           { id: "a6000000-0000-0000-0000-000000000041", name: "trader", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
         ], body: [
           { type: "require", condition: "amount_in > 0", errorCode: "InvalidAmount" },
-          { type: "require", condition: "min_amount_out > 0", errorCode: "SlippageExceeded" },
+          { type: "require", condition: "amount_in >= min_amount_out", errorCode: "SlippageExceeded" },
         ] },
       ],
       states: [{ id: "b6000000-0000-0000-0000-000000000001", name: "PoolState", fields: [{ name: "authority", type: "Pubkey" }, { name: "token_a_vault", type: "Pubkey" }, { name: "token_b_vault", type: "Pubkey" }, { name: "lp_mint", type: "Pubkey" }, { name: "total_lp", type: "u64" }, { name: "bump", type: "u8" }], description: undefined, isZeroCopy: false }],
       errors: [{ id: "c6000000-0000-0000-0000-000000000001", name: "InvalidAmount", code: 6000, message: "Amount must be greater than 0" }, { id: "c6000000-0000-0000-0000-000000000002", name: "SlippageExceeded", code: 6001, message: "Slippage tolerance exceeded" }],
       events: [],
       integrations: [],
-      constants: [{ name: "SWAP_FEE_BPS", type: "u64", value: "30" }],
+      constants: [{ name: "FEE_BPS", type: "u64", value: "30" }],
       metadata: META,
     },
   },
@@ -1020,9 +1149,14 @@ async function main() {
   console.log("Done — 7 starter templates seeded.");
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+// Only run main() when executed directly (not when imported by tests)
+const seedPath = import.meta.path ?? "";
+const isEntry = typeof Bun !== "undefined" && Bun.main === seedPath;
+if (isEntry) {
+  main()
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

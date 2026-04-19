@@ -7,6 +7,8 @@
 
 import { generateCode } from "../src/index";
 import type { ProgramIR } from "@solflow/ir";
+import { flowToIR } from "@solflow/ir";
+import type { Node, Edge } from "@xyflow/react";
 import * as fs from "fs";
 import * as path from "path";
 import { execFile } from "child_process";
@@ -26,7 +28,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "vault", description: "SOL vault with PDA, deposits, withdrawals, and events", version: "0.1.0", programId: "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS" },
     instructions: [
-      { id: "a0000000-0000-0000-0000-000000000001", name: "initialize", args: [], accounts: [
+      { id: "a0000000-0000-0000-0000-000000000001", name: "initialize", accessControl: "none", args: [], accounts: [
         { id: "a0000000-0000-0000-0000-000000000010", name: "vault", accountType: "account", stateType: "VaultState", constraints: [
           { type: "init", payer: "authority", space: "auto" },
           { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" },
@@ -38,7 +40,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "vault", field: "balance", value: "0" },
         { type: "set-field", account: "vault", field: "bump", value: "ctx.bumps.vault" },
       ] },
-      { id: "a0000000-0000-0000-0000-000000000002", name: "deposit", args: [{ name: "amount", type: "u64" }], accounts: [
+      { id: "a0000000-0000-0000-0000-000000000002", name: "deposit", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
         { id: "a0000000-0000-0000-0000-000000000020", name: "vault", accountType: "account", stateType: "VaultState", constraints: [
           { type: "mut" },
           { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" },
@@ -52,7 +54,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "vault", field: "balance", value: "new_balance" },
         { type: "emit-event", event: "DepositEvent", fields: { authority: "*ctx.accounts.authority.key", amount: "amount", new_balance: "new_balance" } },
       ] },
-      { id: "a0000000-0000-0000-0000-000000000003", name: "withdraw", args: [{ name: "amount", type: "u64" }], accounts: [
+      { id: "a0000000-0000-0000-0000-000000000003", name: "withdraw", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
         { id: "a0000000-0000-0000-0000-000000000030", name: "vault", accountType: "account", stateType: "VaultState", constraints: [
           { type: "mut" },
           { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority" }], bump: "vault.bump" },
@@ -70,7 +72,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         ] },
         { type: "emit-event", event: "WithdrawEvent", fields: { authority: "*ctx.accounts.authority.key", amount: "amount" } },
       ] },
-      { id: "a0000000-0000-0000-0000-000000000004", name: "close_vault", args: [], accounts: [
+      { id: "a0000000-0000-0000-0000-000000000004", name: "close_vault", accessControl: "none", args: [], accounts: [
         { id: "a0000000-0000-0000-0000-000000000040", name: "vault", accountType: "account", stateType: "VaultState", constraints: [
           { type: "mut" },
           { type: "close", target: "authority" },
@@ -100,7 +102,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "token_mint", description: "SPL token with mint authority and supply control", version: "0.1.0" },
     instructions: [
-      { id: "a1000000-0000-0000-0000-000000000001", name: "initialize_mint", args: [{ name: "decimals", type: "u8" }], accounts: [
+      { id: "a1000000-0000-0000-0000-000000000001", name: "initialize_mint", accessControl: "none", args: [{ name: "decimals", type: "u8" }], accounts: [
         { id: "a1000000-0000-0000-0000-000000000010", name: "mint", accountType: "mint", constraints: [{ type: "init", payer: "authority", space: 82 }, { type: "mint-authority", authority: "authority" }, { type: "mint-decimals", decimals: 9 }] },
         { id: "a1000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a1000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [] },
@@ -109,7 +111,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "mint", field: "decimals", value: "decimals" },
         { type: "set-field", account: "mint", field: "authority", value: "*ctx.accounts.authority.key" },
       ] },
-      { id: "a1000000-0000-0000-0000-000000000002", name: "mint_to", args: [{ name: "amount", type: "u64" }], accounts: [
+      { id: "a1000000-0000-0000-0000-000000000002", name: "mint_to", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
         { id: "a1000000-0000-0000-0000-000000000020", name: "mint", accountType: "mint", constraints: [{ type: "mut" }, { type: "mint-authority", authority: "authority" }] },
         { id: "a1000000-0000-0000-0000-000000000021", name: "destination", accountType: "token-account", constraints: [{ type: "mut" }] },
         { id: "a1000000-0000-0000-0000-000000000022", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -119,7 +121,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "mint-to", mint: "mint", to: "destination", authority: "authority", amount: "amount" },
         { type: "emit-event", event: "MintEvent", fields: { amount: "amount", destination: "*ctx.accounts.destination.key" } },
       ] },
-      { id: "a1000000-0000-0000-0000-000000000003", name: "burn", args: [{ name: "amount", type: "u64" }], accounts: [
+      { id: "a1000000-0000-0000-0000-000000000003", name: "burn", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
         { id: "a1000000-0000-0000-0000-000000000030", name: "source", accountType: "token-account", constraints: [{ type: "mut" }] },
         { id: "a1000000-0000-0000-0000-000000000031", name: "mint", accountType: "mint", constraints: [{ type: "mut" }] },
         { id: "a1000000-0000-0000-0000-000000000032", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -143,7 +145,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "escrow", description: "Two-party token escrow with timelock", version: "0.1.0", programId: "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS" },
     instructions: [
-      { id: "a2000000-0000-0000-0000-000000000001", name: "initialize_escrow", args: [{ name: "amount", type: "u64" }, { name: "deadline", type: "i64" }], accounts: [
+      { id: "a2000000-0000-0000-0000-000000000001", name: "initialize_escrow", accessControl: "none", args: [{ name: "amount", type: "u64" }, { name: "deadline", type: "i64" }], accounts: [
         { id: "a2000000-0000-0000-0000-000000000010", name: "escrow", accountType: "account", stateType: "EscrowState", constraints: [{ type: "init", payer: "maker", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" }] },
         { id: "a2000000-0000-0000-0000-000000000011", name: "maker", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a2000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [] },
@@ -154,7 +156,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "escrow", field: "deadline", value: "deadline" },
         { type: "set-field", account: "escrow", field: "bump", value: "ctx.bumps.escrow" },
       ] },
-      { id: "a2000000-0000-0000-0000-000000000002", name: "exchange", args: [], accounts: [
+      { id: "a2000000-0000-0000-0000-000000000002", name: "exchange", accessControl: "none", args: [], accounts: [
         { id: "a2000000-0000-0000-0000-000000000020", name: "escrow", accountType: "account", stateType: "EscrowState", constraints: [{ type: "mut" }, { type: "seeds", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" }] },
         { id: "a2000000-0000-0000-0000-000000000023", name: "maker", accountType: "system-account", constraints: [] },
         { id: "a2000000-0000-0000-0000-000000000021", name: "taker", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -164,7 +166,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "escrow", field: "taker", value: "*ctx.accounts.taker.key" },
         { type: "emit-event", event: "ExchangeEvent", fields: { maker: "escrow.maker", taker: "*ctx.accounts.taker.key", amount: "escrow.amount" } },
       ] },
-      { id: "a2000000-0000-0000-0000-000000000003", name: "cancel", args: [], accounts: [
+      { id: "a2000000-0000-0000-0000-000000000003", name: "cancel", accessControl: "none", args: [], accounts: [
         { id: "a2000000-0000-0000-0000-000000000030", name: "escrow", accountType: "account", stateType: "EscrowState", constraints: [{ type: "mut" }, { type: "close", target: "maker" }, { type: "seeds", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" }] },
         { id: "a2000000-0000-0000-0000-000000000031", name: "maker", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a2000000-0000-0000-0000-000000000032", name: "system_program", accountType: "system-program", constraints: [] },
@@ -190,7 +192,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "dao_voting", description: "On-chain DAO with token-weighted voting", version: "0.1.0" },
     instructions: [
-      { id: "a5-001", name: "create_proposal", args: [{ name: "description", type: "String" }, { name: "deadline", type: "i64" }], accounts: [
+      { id: "a5-001", name: "create_proposal", accessControl: "none", args: [{ name: "description", type: "String" }, { name: "deadline", type: "i64" }], accounts: [
         { id: "a5-010", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "init", payer: "proposer", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "proposal" }, { type: "account-field", value: "proposer" }], bump: "proposal.bump" }] },
         { id: "a5-011", name: "proposer", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a5-012", name: "system_program", accountType: "system-program", constraints: [] },
@@ -203,7 +205,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "proposal", field: "executed", value: "false" },
         { type: "set-field", account: "proposal", field: "bump", value: "ctx.bumps.proposal" },
       ] },
-      { id: "a5-002", name: "cast_vote", args: [{ name: "support", type: "bool" }], accounts: [
+      { id: "a5-002", name: "cast_vote", accessControl: "none", args: [{ name: "support", type: "bool" }], accounts: [
         { id: "a5-020", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "mut" }] },
         { id: "a5-021", name: "vote_record", accountType: "account", stateType: "VoteRecord", constraints: [{ type: "init", payer: "voter", space: "auto" }] },
         { id: "a5-022", name: "voter", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -214,7 +216,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "vote_record", field: "voter", value: "*ctx.accounts.voter.key" },
         { type: "set-field", account: "vote_record", field: "support", value: "support" },
       ] },
-      { id: "a5-003", name: "execute_proposal", args: [], accounts: [
+      { id: "a5-003", name: "execute_proposal", accessControl: "none", args: [], accounts: [
         { id: "a5-030", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "mut" }] },
         { id: "a5-031", name: "executor", accountType: "signer", constraints: [{ type: "signer" }] },
       ], body: [
@@ -235,7 +237,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "nft_collection", description: "NFT collection with mint and verify", version: "0.1.0" },
     instructions: [
-      { id: "a3-001", name: "create_collection", args: [{ name: "name", type: "String" }, { name: "symbol", type: "String" }], accounts: [
+      { id: "a3-001", name: "create_collection", accessControl: "none", args: [{ name: "name", type: "String" }, { name: "symbol", type: "String" }], accounts: [
         { id: "a3-010", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [{ type: "init", payer: "authority", space: "auto" }] },
         { id: "a3-011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a3-012", name: "system_program", accountType: "system-program", constraints: [] },
@@ -245,7 +247,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "collection", field: "name", value: "name" },
         { type: "set-field", account: "collection", field: "symbol", value: "symbol" },
       ] },
-      { id: "a3-002", name: "mint_nft", args: [{ name: "uri", type: "String" }], accounts: [
+      { id: "a3-002", name: "mint_nft", accessControl: "none", args: [{ name: "uri", type: "String" }], accounts: [
         { id: "a3-020", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [{ type: "mut" }] },
         { id: "a3-021", name: "mint", accountType: "mint", constraints: [{ type: "init", payer: "payer", space: 82 }] },
         { id: "a3-022", name: "payer", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -255,7 +257,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "collection", field: "mint_count", value: "new_count" },
         { type: "emit-event", event: "NFTMintedEvent", fields: { mint: "*ctx.accounts.mint.key", uri: "uri" } },
       ] },
-      { id: "a3-003", name: "verify_collection", args: [], accounts: [
+      { id: "a3-003", name: "verify_collection", accessControl: "none", args: [], accounts: [
         { id: "a3-030", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [] },
         { id: "a3-031", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
       ], body: [
@@ -272,7 +274,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "staking_pool", description: "Token staking with time-weighted rewards", version: "0.1.0" },
     instructions: [
-      { id: "a4-001", name: "initialize_pool", args: [{ name: "reward_rate", type: "u64" }], accounts: [
+      { id: "a4-001", name: "initialize_pool", accessControl: "none", args: [{ name: "reward_rate", type: "u64" }], accounts: [
         { id: "a4-010", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "pool" }], bump: "pool.bump" }] },
         { id: "a4-011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a4-012", name: "system_program", accountType: "system-program", constraints: [] },
@@ -282,7 +284,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "pool", field: "reward_rate", value: "reward_rate" },
         { type: "set-field", account: "pool", field: "bump", value: "ctx.bumps.pool" },
       ] },
-      { id: "a4-002", name: "stake", args: [{ name: "amount", type: "u64" }], accounts: [
+      { id: "a4-002", name: "stake", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
         { id: "a4-020", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a4-021", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "init-if-needed", payer: "staker", space: "auto" }] },
         { id: "a4-022", name: "staker", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -294,7 +296,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "math", operation: "add", left: "pool.total_staked", right: "amount", result: "new_total", checked: true },
         { type: "set-field", account: "pool", field: "total_staked", value: "new_total" },
       ] },
-      { id: "a4-003", name: "unstake", args: [{ name: "amount", type: "u64" }], accounts: [
+      { id: "a4-003", name: "unstake", accessControl: "none", args: [{ name: "amount", type: "u64" }], accounts: [
         { id: "a4-030", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a4-031", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "mut" }] },
         { id: "a4-032", name: "staker", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -306,7 +308,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "math", operation: "sub", left: "pool.total_staked", right: "amount", result: "new_total", checked: true },
         { type: "set-field", account: "pool", field: "total_staked", value: "new_total" },
       ] },
-      { id: "a4-004", name: "claim_rewards", args: [], accounts: [
+      { id: "a4-004", name: "claim_rewards", accessControl: "none", args: [], accounts: [
         { id: "a4-040", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a4-041", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "mut" }] },
         { id: "a4-042", name: "staker", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -326,7 +328,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
     version: "1.0.0",
     program: { name: "amm", description: "Constant-product AMM with liquidity and swap", version: "0.1.0" },
     instructions: [
-      { id: "a6-001", name: "initialize_pool", args: [], accounts: [
+      { id: "a6-001", name: "initialize_pool", accessControl: "none", args: [], accounts: [
         { id: "a6-010", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "pool" }, { type: "account-field", value: "authority" }], bump: "pool.bump" }] },
         { id: "a6-011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
         { id: "a6-012", name: "system_program", accountType: "system-program", constraints: [] },
@@ -338,7 +340,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "set-field", account: "pool", field: "total_lp", value: "0" },
         { type: "set-field", account: "pool", field: "bump", value: "ctx.bumps.pool" },
       ] },
-      { id: "a6-002", name: "add_liquidity", args: [{ name: "token_a_amount", type: "u64" }, { name: "token_b_amount", type: "u64" }], accounts: [
+      { id: "a6-002", name: "add_liquidity", accessControl: "none", args: [{ name: "token_a_amount", type: "u64" }, { name: "token_b_amount", type: "u64" }], accounts: [
         { id: "a6-020", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a6-021", name: "provider", accountType: "signer", constraints: [{ type: "signer" }] },
       ], body: [
@@ -347,7 +349,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "math", operation: "add", left: "pool.total_lp", right: "token_a_amount", result: "new_lp", checked: true },
         { type: "set-field", account: "pool", field: "total_lp", value: "new_lp" },
       ] },
-      { id: "a6-003", name: "remove_liquidity", args: [{ name: "lp_amount", type: "u64" }], accounts: [
+      { id: "a6-003", name: "remove_liquidity", accessControl: "none", args: [{ name: "lp_amount", type: "u64" }], accounts: [
         { id: "a6-030", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a6-031", name: "provider", accountType: "signer", constraints: [{ type: "signer" }] },
       ], body: [
@@ -356,7 +358,7 @@ const TEMPLATES: Record<string, ProgramIR> = {
         { type: "math", operation: "sub", left: "pool.total_lp", right: "lp_amount", result: "new_total", checked: true },
         { type: "set-field", account: "pool", field: "total_lp", value: "new_total" },
       ] },
-      { id: "a6-004", name: "swap", args: [{ name: "amount_in", type: "u64" }, { name: "min_amount_out", type: "u64" }], accounts: [
+      { id: "a6-004", name: "swap", accessControl: "none", args: [{ name: "amount_in", type: "u64" }, { name: "min_amount_out", type: "u64" }], accounts: [
         { id: "a6-040", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a6-041", name: "trader", accountType: "signer", constraints: [{ type: "signer" }] },
       ], body: [
@@ -489,6 +491,8 @@ async function main() {
   console.log("  ALL TEMPLATE COMPILATION TEST");
   console.log("══════════════════════════════════════════════════════════════\n");
 
+  // ── Pass 1: Direct IR (existing test) ──
+  console.log("── Pass 1: Direct IR ─────────────────────────────────────────\n");
   let totalPass = 0, totalFail = 0;
 
   for (const [name, ir] of Object.entries(TEMPLATES)) {
@@ -500,10 +504,53 @@ async function main() {
   }
 
   console.log(`\n══════════════════════════════════════════════════════════════`);
-  console.log(`  TOTAL: ${totalPass} passed, ${totalFail} failed`);
+  console.log(`  Pass 1 TOTAL: ${totalPass} passed, ${totalFail} failed`);
   console.log("══════════════════════════════════════════════════════════════\n");
 
-  process.exit(totalFail > 0 ? 1 : 0);
+  // ── Pass 2: flowToIR (same path as frontend) ──
+  // Import the seed template flow data and convert via flowToIR.
+  // This catches field name mismatches between flow nodes and the transformer.
+  console.log("── Pass 2: flowToIR (frontend path) ─────────────────────────\n");
+
+  // Import seed template flow data. We use a dynamic import with a top-level
+  // await; bun handles TS natively.  The seed's main() runs at import time,
+  // but the TEMPLATES array is populated before any Prisma calls.
+  let SEED_TEMPLATES: Array<{ title: string; templateFlowData: { nodes: Node[]; edges: Edge[] } }>;
+  try {
+    const seedMod = await import("../../db/prisma/seed.ts") as any;
+    SEED_TEMPLATES = seedMod.TEMPLATES;
+  } catch {
+    console.log("  Skipping: could not import seed.ts");
+    process.exit(totalFail > 0 ? 1 : 0);
+    return;
+  }
+
+  let flowPass = 0, flowFail = 0;
+  for (const tmpl of SEED_TEMPLATES) {
+    const name = tmpl.title;
+    console.log(`\n>>> ${name} (flowToIR)`);
+    try {
+      const fd = tmpl.templateFlowData;
+      const ir = flowToIR(fd.nodes, fd.edges);
+      const { pass, fail } = await testTemplate(name + " [flow]", ir);
+      flowPass += pass;
+      flowFail += fail;
+      console.log(`    Result: ${pass} pass, ${fail} fail`);
+    } catch (err: any) {
+      console.error(`    flowToIR FAILED: ${err.message}`);
+      flowFail += 3; // all 3 frameworks failed
+    }
+  }
+
+  const grandPass = totalPass + flowPass;
+  const grandFail = totalFail + flowFail;
+
+  console.log(`\n══════════════════════════════════════════════════════════════`);
+  console.log(`  Pass 2 TOTAL: ${flowPass} passed, ${flowFail} failed`);
+  console.log(`  GRAND TOTAL:  ${grandPass} passed, ${grandFail} failed`);
+  console.log("══════════════════════════════════════════════════════════════\n");
+
+  process.exit(grandFail > 0 ? 1 : 0);
 }
 
 main();

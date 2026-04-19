@@ -234,7 +234,7 @@ describe("Simple Vault codegen patterns", () => {
     it("uses #[instruction] with type annotations", () => {
       const result = generateCode(VAULT_IR, "anchor");
       const deposit = result.files.find((f) => f.path.includes("deposit"));
-      expect(deposit!.content).toMatch(/#\[instruction\(.*amount.*u64.*\)\]/s);
+      expect(deposit!.content).toMatch(/#\[instruction\([\s\S]*amount[\s\S]*u64[\s\S]*\)\]/);
     });
 
     it("uses if-else for withdraw balance check", () => {

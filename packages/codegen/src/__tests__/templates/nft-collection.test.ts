@@ -7,7 +7,7 @@ const NFT_COLLECTION_IR: ProgramIR = {
   program: { name: "nft_collection", description: "NFT collection with mint and verify", version: "0.1.0" },
   instructions: [
     {
-      id: "a3-001", name: "create_collection", description: "Create a new NFT collection",
+      id: "a3-001", name: "create_collection", accessControl: "none", description: "Create a new NFT collection",
       args: [{ name: "name", type: "String" }, { name: "symbol", type: "String" }],
       accounts: [
         { id: "a3-010", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [{ type: "init", payer: "authority", space: "auto" }] },
@@ -22,7 +22,7 @@ const NFT_COLLECTION_IR: ProgramIR = {
       ],
     },
     {
-      id: "a3-002", name: "mint_nft", description: "Mint a new NFT into the collection",
+      id: "a3-002", name: "mint_nft", accessControl: "none", description: "Mint a new NFT into the collection",
       args: [{ name: "uri", type: "String" }],
       accounts: [
         { id: "a3-020", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [{ type: "mut" }] },
@@ -37,7 +37,7 @@ const NFT_COLLECTION_IR: ProgramIR = {
       ],
     },
     {
-      id: "a3-003", name: "verify_collection", description: "Verify an NFT belongs to this collection",
+      id: "a3-003", name: "verify_collection", accessControl: "none", description: "Verify an NFT belongs to this collection",
       args: [],
       accounts: [
         { id: "a3-030", name: "collection", accountType: "account", stateType: "CollectionState", constraints: [] },

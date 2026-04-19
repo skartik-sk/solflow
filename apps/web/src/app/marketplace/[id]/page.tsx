@@ -16,6 +16,7 @@ import {
   User,
 } from "lucide-react";
 import { ForkButton } from "./fork-button";
+import { DownloadButtons } from "./download-buttons";
 import { FlowPreview } from "./flow-preview";
 import type { Node, Edge } from "@xyflow/react";
 
@@ -310,18 +311,7 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
               />
 
               {/* Stats */}
-              <div className="mt-4 grid grid-cols-3 divide-x divide-border text-center">
-                <div className="px-2">
-                  <div className="flex justify-center">
-                    <Download className="h-4 w-4 text-muted-foreground" />
-                  </div>
-                  <div className="mt-1 text-sm font-semibold">
-                    {listing.downloads}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    Downloads
-                  </div>
-                </div>
+              <div className="mt-4 grid grid-cols-2 divide-x divide-border text-center">
                 <div className="px-2">
                   <div className="flex justify-center">
                     <GitFork className="h-4 w-4 text-muted-foreground" />
@@ -342,6 +332,12 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                     Rating
                   </div>
                 </div>
+              </div>
+
+              {/* Download section */}
+              <div className="mt-5 pt-4 border-t border-border">
+                <p className="text-xs font-medium text-muted-foreground mb-3">Download source code</p>
+                <DownloadButtons listingId={listing.id} />
               </div>
             </div>
 

@@ -8,7 +8,7 @@ const BOILERPLATE_IR: ProgramIR = {
   program: { name: "my_program", description: "My first Anchor program", version: "0.1.0", programId: "Fg6PaFpoGXkYsidMpWTK6W2BeZ7FEfcYkg476zPFsLnS" },
   instructions: [
     {
-      id: "bp-0001", name: "initialize", args: [],
+      id: "bp-0001", name: "initialize", accessControl: "none", args: [],
       accounts: [
         { id: "bp-0010", name: "state_account", accountType: "account", stateType: "ProgramState", constraints: [{ type: "init", payer: "authority", space: "auto" }] },
         { id: "bp-0011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },

@@ -17,6 +17,7 @@ const COUNTER_IR: ProgramIR = {
       id: "00000000-0000-0000-0000-000000000001",
       name: "initialize",
       description: "Initialize the counter",
+      accessControl: "none",
       args: [],
       accounts: [
         {
@@ -64,6 +65,7 @@ const COUNTER_IR: ProgramIR = {
       id: "00000000-0000-0000-0000-000000000002",
       name: "increment",
       description: "Increment the counter by one",
+      accessControl: "none",
       args: [],
       accounts: [
         {

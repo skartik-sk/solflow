@@ -7,7 +7,7 @@ const DAO_VOTING_IR: ProgramIR = {
   program: { name: "dao_voting", description: "On-chain DAO with token-weighted voting", version: "0.1.0" },
   instructions: [
     {
-      id: "a5-001", name: "create_proposal", args: [{ name: "description", type: "String" }, { name: "deadline", type: "i64" }],
+      id: "a5-001", name: "create_proposal", accessControl: "none", args: [{ name: "description", type: "String" }, { name: "deadline", type: "i64" }],
       accounts: [
         { id: "a5-010", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "init", payer: "proposer", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "proposal" }, { type: "account-field", value: "proposer" }], bump: "proposal.bump" }] },
         { id: "a5-011", name: "proposer", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -24,7 +24,7 @@ const DAO_VOTING_IR: ProgramIR = {
       ],
     },
     {
-      id: "a5-002", name: "cast_vote", args: [{ name: "support", type: "bool" }],
+      id: "a5-002", name: "cast_vote", accessControl: "none", args: [{ name: "support", type: "bool" }],
       accounts: [
         { id: "a5-020", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "mut" }] },
         { id: "a5-021", name: "vote_record", accountType: "account", stateType: "VoteRecord", constraints: [{ type: "init", payer: "voter", space: "auto" }] },
@@ -39,7 +39,7 @@ const DAO_VOTING_IR: ProgramIR = {
       ],
     },
     {
-      id: "a5-003", name: "execute_proposal", args: [],
+      id: "a5-003", name: "execute_proposal", accessControl: "none", args: [],
       accounts: [
         { id: "a5-030", name: "proposal", accountType: "account", stateType: "ProposalState", constraints: [{ type: "mut" }] },
         { id: "a5-031", name: "executor", accountType: "signer", constraints: [{ type: "signer" }] },

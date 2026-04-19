@@ -139,7 +139,7 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
         <form method="GET" className="mb-12 flex flex-col gap-6">
           {/* Search input */}
           <div className="relative flex-1 max-w-xl group">
-            <div className="relative flex items-center bg-secondary/50 rounded-lg border border-border px-3 py-1 focus-within:border-foreground/30 transition-colors">
+            <div className="relative flex items-center bg-card rounded-lg border border-border px-3 py-1 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/20 transition-colors">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 name="q"
@@ -160,7 +160,7 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
                 className={`rounded-md px-4 py-1.5 text-xs font-medium transition-colors ${
                   category === cat
                     ? "bg-primary text-primary-foreground shadow-sm"
-                    : "bg-secondary text-muted-foreground hover:bg-accent hover:text-foreground border border-border/50"
+                    : "bg-card text-foreground/70 hover:bg-accent hover:text-foreground border border-border"
                 }`}
               >
                 {cat}
@@ -277,10 +277,6 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
         {/* Footer Stats */}
         <div className="mt-auto flex items-center justify-between pt-3 border-t border-border mt-3">
           <div className="flex items-center gap-3 text-[10px] font-medium text-muted-foreground">
-            <span className="flex items-center gap-1 hover:text-foreground transition-colors">
-              <Download className="h-3 w-3" />
-              {listing.downloads}
-            </span>
             <span className="flex items-center gap-1 hover:text-foreground transition-colors">
               <GitFork className="h-3 w-3" />
               {listing.forks}

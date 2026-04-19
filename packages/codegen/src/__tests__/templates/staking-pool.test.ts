@@ -7,7 +7,7 @@ const STAKING_POOL_IR: ProgramIR = {
   program: { name: "staking_pool", description: "Token staking with time-weighted rewards", version: "0.1.0" },
   instructions: [
     {
-      id: "a4-001", name: "initialize_pool", args: [{ name: "reward_rate", type: "u64" }],
+      id: "a4-001", name: "initialize_pool", accessControl: "none", args: [{ name: "reward_rate", type: "u64" }],
       accounts: [
         { id: "a4-010", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "pool" }], bump: "pool.bump" }] },
         { id: "a4-011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -21,7 +21,7 @@ const STAKING_POOL_IR: ProgramIR = {
       ],
     },
     {
-      id: "a4-002", name: "stake", args: [{ name: "amount", type: "u64" }],
+      id: "a4-002", name: "stake", accessControl: "none", args: [{ name: "amount", type: "u64" }],
       accounts: [
         { id: "a4-020", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a4-021", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "init-if-needed", payer: "staker", space: "auto" }] },
@@ -37,7 +37,7 @@ const STAKING_POOL_IR: ProgramIR = {
       ],
     },
     {
-      id: "a4-003", name: "unstake", args: [{ name: "amount", type: "u64" }],
+      id: "a4-003", name: "unstake", accessControl: "none", args: [{ name: "amount", type: "u64" }],
       accounts: [
         { id: "a4-030", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a4-031", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "mut" }] },
@@ -53,7 +53,7 @@ const STAKING_POOL_IR: ProgramIR = {
       ],
     },
     {
-      id: "a4-004", name: "claim_rewards", args: [],
+      id: "a4-004", name: "claim_rewards", accessControl: "none", args: [],
       accounts: [
         { id: "a4-040", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a4-041", name: "staker_account", accountType: "account", stateType: "StakerState", constraints: [{ type: "mut" }] },

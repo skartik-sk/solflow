@@ -18,6 +18,7 @@ const VAULT_IR: ProgramIR = {
       id: "a0000000-0000-0000-0000-000000000001",
       name: "initialize",
       description: "Initialize a new vault",
+      accessControl: "none",
       args: [],
       accounts: [
         {
@@ -53,6 +54,7 @@ const VAULT_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000002",
       name: "deposit",
+      accessControl: "none",
       args: [{ name: "amount", type: "u64", description: "Amount of lamports to deposit" }],
       accounts: [
         {
@@ -90,6 +92,7 @@ const VAULT_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000003",
       name: "withdraw",
+      accessControl: "none",
       args: [{ name: "amount", type: "u64" }],
       accounts: [
         {
@@ -131,6 +134,7 @@ const VAULT_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000004",
       name: "close_vault",
+      accessControl: "none",
       args: [],
       accounts: [
         {
@@ -164,6 +168,7 @@ const VAULT_IR: ProgramIR = {
     {
       id: "b0000000-0000-0000-0000-000000000001",
       name: "VaultState",
+      isZeroCopy: false,
       fields: [
         { name: "authority", type: "Pubkey", description: "Vault owner" },
         { name: "balance", type: "u64", description: "Current vault balance" },
@@ -215,6 +220,7 @@ const ESCROW_IR: ProgramIR = {
     {
       id: "e0000000-0000-0000-0000-000000000001",
       name: "make",
+      accessControl: "none",
       args: [{ name: "receive_amount", type: "u64" }],
       accounts: [
         {
@@ -267,6 +273,7 @@ const ESCROW_IR: ProgramIR = {
     {
       id: "e0000000-0000-0000-0000-000000000002",
       name: "take",
+      accessControl: "none",
       args: [],
       accounts: [
         {
@@ -303,6 +310,7 @@ const ESCROW_IR: ProgramIR = {
     {
       id: "f0000000-0000-0000-0000-000000000001",
       name: "EscrowState",
+      isZeroCopy: false,
       fields: [
         { name: "maker", type: "Pubkey" },
         { name: "mint_a", type: "Pubkey" },

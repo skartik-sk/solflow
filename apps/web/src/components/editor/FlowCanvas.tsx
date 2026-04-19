@@ -334,6 +334,10 @@ export function FlowCanvas() {
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
         maxZoom={2}
+        panOnScroll
+        zoomOnScroll={false}
+        zoomOnPinch
+        zoomOnDoubleClick={false}
         defaultEdgeOptions={defaultEdgeOptions}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />

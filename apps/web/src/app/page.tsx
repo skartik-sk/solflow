@@ -5,7 +5,7 @@ import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowRight, Code2, Workflow, Cpu, Box, Terminal, Database, Zap,
-  ShieldAlert, GitBranch, Rocket, Eye, Puzzle, Star, FileCode,
+  ShieldAlert, GitBranch, Rocket, Eye, Puzzle, FileCode,
   ChevronRight, Lock, Package, LayoutGrid, Shield, Wallet, Sparkles,
 } from "lucide-react";
 
@@ -170,7 +170,6 @@ export default function HomePage() {
             <Link href="#marketplace" className="hover:text-foreground transition-colors">Marketplace</Link>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/auth/signin" className="text-[13px] text-muted-foreground hover:text-foreground transition-colors hidden sm:block">Log in</Link>
             <Link href="/auth/signin" className="inline-flex h-8 items-center rounded-md bg-primary px-3.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
               Start Building <ArrowRight className="ml-1 h-3 w-3" />
             </Link>
@@ -198,7 +197,7 @@ export default function HomePage() {
             <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.12 }}
               className="mb-7 max-w-md text-sm text-muted-foreground leading-relaxed">
               Connect nodes, define state, and wire up instructions visually.
-              SolStudio generates production-ready Anchor or Pinocchio code in real-time.
+              SolStudio generates production-ready Anchor, Pinocchio, or Quasar code in real-time.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.18 }}
               className="flex flex-col items-center gap-2.5 sm:flex-row">
@@ -236,7 +235,7 @@ export default function HomePage() {
 
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px]">
                 {/* Canvas */}
-                <div className="relative border-r border-border/40 bg-background/30 overflow-hidden select-none" style={{ height: 440 }}>
+                <div className="relative border-r border-border/40 bg-background/30 overflow-hidden select-none" style={{ height: 380 }}>
                   {/* Dot grid */}
                   <div className="absolute inset-0 opacity-25" style={{
                     backgroundImage: "radial-gradient(circle, oklch(0.32 0.01 240) 0.5px, transparent 0.5px)",
@@ -292,15 +291,13 @@ export default function HomePage() {
                           const container = document.getElementById("canvas-container");
                           if (!container) return;
                           const rect = container.getBoundingClientRect();
-                          const scale = CANVAS_W / rect.width;
+                          const scale = (CANVAS_W / rect.width) * 0.3;
                           const newX = pos.x + info.delta.x * scale;
                           const newY = pos.y + info.delta.y * scale;
-                          // Clamp inside canvas
                           updatePos(id,
                             Math.max(0, Math.min(CANVAS_W - n.w, newX)),
                             Math.max(0, Math.min(CANVAS_H - n.h, newY)),
                           );
-                          info.point.x; info.point.y; // consume to prevent drift
                         }}
                         onMouseEnter={() => setHoverNode(id)}
                         onMouseLeave={() => setHoverNode(null)}
@@ -371,7 +368,7 @@ export default function HomePage() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
                 { step: "01", icon: <LayoutGrid className="h-4 w-4" />, title: "Design Visually", desc: "Drag nodes onto an infinite canvas. Wire instructions, accounts, and constraints.", color: "#4a47a3" },
-                { step: "02", icon: <Code2 className="h-4 w-4" />, title: "Generate Code", desc: "Real-time Anchor or Pinocchio code as you build. Deterministic and production-ready.", color: "#2563eb" },
+                { step: "02", icon: <Code2 className="h-4 w-4" />, title: "Generate Code", desc: "Real-time Anchor, Pinocchio, or Quasar code as you build. Deterministic and production-ready.", color: "#2563eb" },
                 { step: "03", icon: <Rocket className="h-4 w-4" />, title: "Deploy Instantly", desc: "Compile, audit 40+ rules, deploy to devnet or mainnet — from the browser.", color: "#16a34a" },
               ].map((s, i) => (
                 <motion.div key={s.step} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
@@ -401,7 +398,7 @@ export default function HomePage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
               {[
-                { icon: <Cpu className="h-4 w-4" />, title: "Framework Agnostic", desc: "Anchor abstractions or raw Pinocchio for bare-metal performance." },
+                { icon: <Cpu className="h-4 w-4" />, title: "Framework Agnostic", desc: "Anchor abstractions, raw Pinocchio, or Quasar — pick your level of control." },
                 { icon: <ShieldAlert className="h-4 w-4" />, title: "Security Audit", desc: "40+ rules catch missing signers, unchecked accounts, rent bypasses." },
                 { icon: <Database className="h-4 w-4" />, title: "PDA Constraints", desc: "Design complex seeds and derivation paths visually." },
                 { icon: <Puzzle className="h-4 w-4" />, title: "Plugin System", desc: "SPL Token, Metaplex, Pyth — first-party integrations." },
@@ -428,7 +425,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-2xl">
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[{ val: "40+", label: "Security Rules" }, { val: "10+", label: "Node Types" }, { val: "2", label: "Frameworks" }, { val: "6+", label: "Plugins" }].map((s) => (
+              {[{ val: "6+", label: "Templates" }, { val: "3", label: "Frameworks" }, { val: "10+", label: "Node Types" }, { val: "3+", label: "Plugins" }, { val: "20+", label: "Users" }].map((s) => (
                 <motion.div key={s.label} variants={fadeUp} className="text-center">
                   <div className="text-xl font-extrabold text-foreground">{s.val}</div>
                   <div className="text-[11px] text-muted-foreground">{s.label}</div>
@@ -450,17 +447,17 @@ export default function HomePage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
               {[
-                { title: "Token Escrow", desc: "Conditional transfer with timeout and arbiter", tags: ["SPL Token", "PDA"], stars: "4.9", author: "solflow-team", color: "#2563eb" },
-                { title: "NFT Marketplace", desc: "List, bid, settle trades with royalties", tags: ["Metaplex", "Auction"], stars: "4.8", author: "metaplex-dev", color: "#7c3aed" },
-                { title: "Token Vesting", desc: "Linear and cliff vesting with beneficiaries", tags: ["SPL Token", "Schedule"], stars: "4.7", author: "anchor-labs", color: "#16a34a" },
+                { title: "Simple Vault", desc: "SOL deposit/withdraw with PDA seeds, bump, and events", tags: ["SPL", "PDA"], color: "#2563eb" },
+                { title: "NFT Collection", desc: "Mint, manage, and verify NFTs on Solana", tags: ["NFT", "Metaplex"], color: "#7c3aed" },
+                { title: "AMM", desc: "Automated market maker with liquidity pools and swaps", tags: ["DeFi", "Swap"], color: "#16a34a" },
               ].map((t) => (
-                <motion.div key={t.title} variants={fadeUp} whileHover={{ y: -2, transition: { duration: 0.12 } }}
-                  className="group rounded-lg border border-border bg-card p-4">
+                <Link key={t.title} href={`/marketplace?q=${encodeURIComponent(t.title)}`}
+                  className="group rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/30 hover:shadow-sm">
                   <div className="flex items-center justify-between mb-2.5">
                     <FileCode className="h-3.5 w-3.5 text-muted-foreground" />
-                    <div className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
-                      <Star className="h-2.5 w-2.5 fill-yellow-500 text-yellow-500" /> {t.stars}
-                    </div>
+                    <span className="text-[10px] text-primary font-medium flex items-center gap-0.5">
+                      Use <ChevronRight className="h-2.5 w-2.5" />
+                    </span>
                   </div>
                   <h3 className="text-[12px] font-semibold text-foreground mb-0.5">{t.title}</h3>
                   <p className="text-[11px] text-muted-foreground mb-2.5">{t.desc}</p>
@@ -470,13 +467,7 @@ export default function HomePage() {
                         style={{ color: t.color, backgroundColor: `${t.color}0D` }}>{tag}</span>
                     ))}
                   </div>
-                  <div className="mt-2.5 pt-2 border-t border-border/30 flex items-center justify-between">
-                    <span className="text-[10px] text-muted-foreground">@{t.author}</span>
-                    <span className="text-[10px] text-primary font-medium group-hover:underline flex items-center gap-0.5">
-                      Use <ChevronRight className="h-2.5 w-2.5" />
-                    </span>
-                  </div>
-                </motion.div>
+                </Link>
               ))}
             </motion.div>
             <div className="mt-5 text-center">
@@ -584,7 +575,7 @@ function CodePanel({ activeNode }: { activeNode: NodeId | null }) {
   const showMutation = (id: NodeId) => activeNode === id;
 
   return (
-    <div className="px-3 py-2 font-mono text-[9px] leading-[1.7] text-muted-foreground bg-card/80 h-full overflow-hidden">
+    <div className="px-3 py-2 font-mono text-[8px] leading-[1.5] text-muted-foreground bg-card/80 h-full overflow-hidden">
       <div className="flex items-center gap-1.5 mb-1.5 pb-1.5 border-b border-border/30">
         <Code2 className="w-2.5 h-2.5 text-primary" />
         <span className="text-foreground text-[9px]">lib.rs</span>
@@ -593,39 +584,35 @@ function CodePanel({ activeNode }: { activeNode: NodeId | null }) {
           <span className="h-1 w-1 rounded-full bg-emerald-400" /> live
         </motion.span>
       </div>
-      <div className="space-y-[1px]">
+      <div className="space-y-0 whitespace-pre-wrap">
         <div className="text-muted-foreground/25">{"// Generated by SolStudio"}</div>
-        <div><span className="text-purple-400">use</span> anchor_lang::prelude::*;</div><br />
-        <div><span className="text-purple-400">declare_id!</span>(<span className="text-emerald-300">"Fg6Pa...sLnS"</span>);</div><br />
+        <div><span className="text-purple-400">use</span> anchor_lang::prelude::*;</div>
+        <div><span className="text-purple-400">declare_id!</span>(<span className="text-emerald-300">"Fg6Pa...sLnS"</span>);</div>
+        <div />
         <div><span className="text-purple-400">#[program]</span></div>
         <div><span className="text-purple-400">pub mod</span> <span className="text-foreground">vault_program</span> {"{"}</div>
 
         {/* initialize */}
         <div className={hl("initialize") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
-          {"  "}<span className="text-purple-400">pub fn</span> <span className="text-blue-300">initialize</span>(</div>
-        <div className={hl("initialize") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
-          {"    "}ctx: Context&lt;<span className="text-foreground">Initialize</span>&gt;,</div>
-        <div className={hl("initialize") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
-          {"  "}{"}"} -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}</div>
+          {"  "}<span className="text-purple-400">pub fn</span> <span className="text-blue-300">initialize</span>(ctx: Context&lt;<span className="text-foreground">Initialize</span>&gt;) -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}</div>
 
         {/* deposit */}
         <div className={hl("deposit") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
-          {"  "}<span className="text-purple-400">pub fn</span> <span className="text-blue-300">deposit</span>(</div>
-        <div className={hl("deposit") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
-          {"    "}ctx: Context&lt;<span className="text-foreground">Deposit</span>&gt;,</div>
-        {/* Auto-mutation: amount param appears */}
+          {"  "}<span className="text-purple-400">pub fn</span> <span className="text-blue-300">deposit</span>(ctx: Context&lt;<span className="text-foreground">Deposit</span>&gt;, </div>
         <AnimatePresence>
           {showMutation("deposit") && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.25 }} className="overflow-hidden">
               <div className="bg-emerald-500/10 -mx-1 px-1 rounded">
-                {"    "}amount: <span className="text-orange-300">u64</span>,
+                {"    "}amount: <span className="text-orange-300">u64</span>) -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
+        {!showMutation("deposit") && (
         <div className={hl("deposit") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
-          {"  "}{"}"} -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}</div>
+          {"    "}amount: <span className="text-orange-300">u64</span>) -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}</div>
+        )}
 
         {/* withdraw — auto-mutation from program node */}
         <AnimatePresence>
@@ -633,16 +620,14 @@ function CodePanel({ activeNode }: { activeNode: NodeId | null }) {
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.25 }} className="overflow-hidden">
               <div className="bg-emerald-500/10 -mx-1 px-1 rounded">
-                {"  "}<span className="text-purple-400">pub fn</span> <span className="text-blue-300">withdraw</span>(<br />
-                {"    "}ctx: Context&lt;<span className="text-foreground">Withdraw</span>&gt;,<br />
-                {"    "}amount: <span className="text-orange-300">u64</span>,<br />
-                {"  "}{"}"} -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}
+                {"  "}<span className="text-purple-400">pub fn</span> <span className="text-blue-300">withdraw</span>(ctx: Context&lt;<span className="text-foreground">Withdraw</span>&gt;, amount: <span className="text-orange-300">u64</span>) -&gt; Result&lt;()&gt; {"{"} Ok(()) {"}"}
               </div>
             </motion.div>
           )}
         </AnimatePresence>
 
-        <div>{"}"}</div><br />
+        <div>{"}"}</div>
+        <div />
 
         <div><span className="text-purple-400">#[derive(Accounts)]</span></div>
         <div className={hl("vault") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>
@@ -666,7 +651,8 @@ function CodePanel({ activeNode }: { activeNode: NodeId | null }) {
 
         <div>{"  "}<span className="text-purple-400">pub</span> auth: Signer&lt;&#39;info&gt;,</div>
         <div>{"  "}<span className="text-purple-400">pub</span> system_program: Program&lt;&#39;info, System&gt;,</div>
-        <div>{"}"}</div><br />
+        <div>{"}"}</div>
+        <div />
 
         {/* VaultState struct */}
         <div className={hl("vault") ? "bg-primary/10 -mx-1 px-1 rounded" : ""}>

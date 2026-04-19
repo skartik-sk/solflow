@@ -11,6 +11,7 @@
       "id": "e1000000-0000-0000-0000-000000000001",
       "name": "make",
       "description": "Create an escrow: initialize escrow PDA, set maker/taker mints, deposit token A into vault",
+      "accessControl": "none",
       "args": [
         { "name": "amount", "type": "u64", "description": "Amount of token A to escrow" },
         { "name": "receive_amount", "type": "u64", "description": "Amount of token B the maker wants in return" }
@@ -109,6 +110,7 @@
       "id": "e1000000-0000-0000-0000-000000000002",
       "name": "take",
       "description": "Taker fulfills the escrow: sends token B to maker, receives token A from vault, closes escrow",
+      "accessControl": "none",
       "args": [],
       "accounts": [
         {
@@ -232,6 +234,7 @@
       "id": "e1000000-0000-0000-0000-000000000003",
       "name": "refund",
       "description": "Maker cancels the escrow, receives deposited tokens back, escrow is closed",
+      "accessControl": "none",
       "args": [],
       "accounts": [
         {
@@ -312,6 +315,7 @@
     {
       "id": "f1000000-0000-0000-0000-000000000001",
       "name": "EscrowState",
+      "isZeroCopy": false,
       "fields": [
         { "name": "maker", "type": "Pubkey", "description": "Address of the escrow creator" },
         { "name": "taker", "type": "Pubkey", "description": "Intended taker address (default if anyone can take)" },

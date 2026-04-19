@@ -400,7 +400,7 @@ export function EditorTopBar() {
           {isExporting ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
-            <Download size={12} />
+            <Upload size={12} />
           )}
           Export
         </button>
@@ -411,7 +411,7 @@ export function EditorTopBar() {
           title="Import IDL"
           className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
         >
-          <Upload size={12} />
+          <Download size={12} />
           Import
         </button>
 

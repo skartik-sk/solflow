@@ -31,12 +31,13 @@ export const metadata: Metadata = {
     template: "%s | SolStudio",
   },
   description:
-    "Build production-ready Solana smart contracts visually. Drag, drop, connect nodes and generate Anchor or Pinocchio Rust code in real-time.",
+    "Build production-ready Solana smart contracts visually. Drag, drop, connect nodes and generate Anchor, Pinocchio, or Quasar Rust code in real-time.",
   keywords: [
     "Solana",
     "smart contracts",
     "Anchor",
     "Pinocchio",
+    "Quasar",
     "no-code",
     "visual builder",
     "blockchain",

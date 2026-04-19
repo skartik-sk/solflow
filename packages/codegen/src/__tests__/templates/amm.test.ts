@@ -7,7 +7,7 @@ const AMM_IR: ProgramIR = {
   program: { name: "amm", description: "Constant-product AMM with liquidity and swap", version: "0.1.0" },
   instructions: [
     {
-      id: "a6-001", name: "initialize_pool", args: [],
+      id: "a6-001", name: "initialize_pool", accessControl: "none", args: [],
       accounts: [
         { id: "a6-010", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "init", payer: "authority", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "pool" }, { type: "account-field", value: "authority" }], bump: "pool.bump" }] },
         { id: "a6-011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -23,7 +23,7 @@ const AMM_IR: ProgramIR = {
       ],
     },
     {
-      id: "a6-002", name: "add_liquidity", args: [{ name: "token_a_amount", type: "u64" }, { name: "token_b_amount", type: "u64" }],
+      id: "a6-002", name: "add_liquidity", accessControl: "none", args: [{ name: "token_a_amount", type: "u64" }, { name: "token_b_amount", type: "u64" }],
       accounts: [
         { id: "a6-020", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a6-021", name: "provider", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -36,7 +36,7 @@ const AMM_IR: ProgramIR = {
       ],
     },
     {
-      id: "a6-003", name: "remove_liquidity", args: [{ name: "lp_amount", type: "u64" }],
+      id: "a6-003", name: "remove_liquidity", accessControl: "none", args: [{ name: "lp_amount", type: "u64" }],
       accounts: [
         { id: "a6-030", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a6-031", name: "provider", accountType: "signer", constraints: [{ type: "signer" }] },
@@ -49,7 +49,7 @@ const AMM_IR: ProgramIR = {
       ],
     },
     {
-      id: "a6-004", name: "swap", args: [{ name: "amount_in", type: "u64" }, { name: "min_amount_out", type: "u64" }],
+      id: "a6-004", name: "swap", accessControl: "none", args: [{ name: "amount_in", type: "u64" }, { name: "min_amount_out", type: "u64" }],
       accounts: [
         { id: "a6-040", name: "pool", accountType: "account", stateType: "PoolState", constraints: [{ type: "mut" }] },
         { id: "a6-041", name: "trader", accountType: "signer", constraints: [{ type: "signer" }] },

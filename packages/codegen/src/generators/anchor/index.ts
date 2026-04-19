@@ -861,7 +861,7 @@ function generateStateRs(name: string, fields: Field[], isZeroCopy?: boolean, cu
     .map((f) => {
       const rustType = solanaTypeToRust(f.type);
       const maxLenAttr =
-        hasDynamic && (f.type === "String" || f.type === "Vec")
+        hasDynamic && (f.type === "String" || (typeof f.type === "object" && "vec" in f.type))
           ? `    #[max_len(${f.maxLen ?? 64})]\n`
           : "";
       const doc = f.description ? `    /// ${f.description}\n` : "";

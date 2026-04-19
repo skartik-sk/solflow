@@ -11,6 +11,7 @@ const COUNTER_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000001",
       name: "initialize",
+      accessControl: "none",
       args: [],
       accounts: [
         {
@@ -33,6 +34,7 @@ const COUNTER_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000002",
       name: "increment",
+      accessControl: "none",
       args: [],
       accounts: [
         {
@@ -55,6 +57,7 @@ const COUNTER_IR: ProgramIR = {
     {
       id: "b0000000-0000-0000-0000-000000000001",
       name: "CounterState",
+      isZeroCopy: false,
       fields: [
         { name: "count", type: "u64" },
         { name: "authority", type: "Pubkey" },
@@ -79,6 +82,7 @@ const TOKEN_MINT_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000001",
       name: "create_token",
+      accessControl: "none",
       args: [{ name: "decimals", type: "u8" }],
       accounts: [
         { id: "a0000000-0000-0000-0000-000000000010", name: "mint", accountType: "mint", constraints: [
@@ -96,6 +100,7 @@ const TOKEN_MINT_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000002",
       name: "mint_tokens",
+      accessControl: "none",
       args: [{ name: "amount", type: "u64" }],
       accounts: [
         { id: "a0000000-0000-0000-0000-000000000020", name: "mint", accountType: "mint", constraints: [{ type: "mut" }] },
@@ -110,6 +115,7 @@ const TOKEN_MINT_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000003",
       name: "burn_tokens",
+      accessControl: "none",
       args: [{ name: "amount", type: "u64" }],
       accounts: [
         { id: "a0000000-0000-0000-0000-000000000030", name: "mint", accountType: "mint", constraints: [{ type: "mut" }] },
@@ -139,6 +145,7 @@ const PDA_IR: ProgramIR = {
     {
       id: "a0000000-0000-0000-0000-000000000001",
       name: "create_pda",
+      accessControl: "none",
       args: [{ name: "seed_arg", type: "String" }],
       accounts: [
         {
@@ -167,6 +174,7 @@ const PDA_IR: ProgramIR = {
     {
       id: "b0000000-0000-0000-0000-000000000001",
       name: "MyState",
+      isZeroCopy: false,
       fields: [
         { name: "bump", type: "u8" },
         { name: "data", type: "u64" },
@@ -346,7 +354,7 @@ describe("Pinocchio codegen quality", () => {
       version: "1.0.0",
       program: { name: "close_test", description: "test", version: "0.1.0" },
       instructions: [{
-        id: "a0000000-0000-0000-0000-000000000001", name: "close_test", args: [],
+        id: "a0000000-0000-0000-0000-000000000001", name: "close_test", accessControl: "none", args: [],
         accounts: [
           { id: "a0000000-0000-0000-0000-000000000010", name: "account", accountType: "account", constraints: [{ type: "mut" }, { type: "close", target: "authority" }] },
           { id: "a0000000-0000-0000-0000-000000000011", name: "authority", accountType: "signer", constraints: [{ type: "signer" }] },
