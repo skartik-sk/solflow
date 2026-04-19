@@ -212,12 +212,12 @@ function generateCargoToml(name: string, version: string, usesCpi: boolean, uses
     ? '\npinocchio-system = "0.6"'
     : '';
 
-  // pinocchio-token is needed for SPL token operations
+  // pinocchio-token 0.6 is compatible with pinocchio 0.11 (uses AccountView)
   const tokenDep = usesSpl
-    ? '\npinocchio-token = "0.4"'
+    ? '\npinocchio-token = "0.6"'
     : '';
 
-  // pinocchio with cpi feature if needed
+  // pinocchio version: 0.11 with pinocchio-token 0.6 (uses AccountView API)
   const pinocchioDep = usesCpi
     ? 'pinocchio = { version = "0.11", features = ["cpi"] }'
     : 'pinocchio = "0.11"';
@@ -406,6 +406,13 @@ function generateInstructionRs(
   if (hasErrors) {
     imports.push(`use crate::errors::${errorEnum};`);
   }
+  // Check if any mint account has set-field operations (needs pinocchio_token::state::Mint)
+  const mintSetFields = ix.accounts.some((a) =>
+    a.accountType === 'mint' && ix.body.some((op) => op.type === 'set-field' && op.account === a.name)
+  );
+  if (mintSetFields) {
+    imports.push('use pinocchio_token::state::Mint;');
+  }
 
   const content = `${imports.join('\n')}
 
@@ -471,7 +478,7 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
       if (c.type === 'has-one') {
         lines.push(`    // Validate ${a.name}.${c.field} == ${c.target}`);
         lines.push(`    {`);
-        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let data = ${a.name}.try_borrow()?;`);
         lines.push(`        let stored = &data[32..64]; // field offset depends on account layout`);
         lines.push(`        if stored != ${c.target}.address().as_ref() {`);
         lines.push(`            return Err(ProgramError::InvalidAccountData);`);
@@ -502,7 +509,7 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
       if (c.type === 'token-authority' || c.type === 'token-mint') {
         lines.push(`    // Token validation for ${a.name}: ${c.type}`);
         lines.push(`    {`);
-        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let data = ${a.name}.try_borrow()?;`);
         if (c.type === 'token-authority') {
           lines.push(`        // Token account owner field is at offset 32`);
           lines.push(`        let owner = &data[32..64];`);
@@ -519,19 +526,22 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         lines.push(`    }`);
       }
       if (c.type === 'mint-authority' || c.type === 'mint-decimals') {
+        // Skip validation during init (account data is all zeros)
+        const hasInit = a.constraints.some((x) => x.type === 'init' || x.type === 'init-if-needed');
+        if (hasInit) continue;
         lines.push(`    // Mint validation for ${a.name}: ${c.type}`);
         lines.push(`    {`);
-        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let data = ${a.name}.try_borrow()?;`);
         if (c.type === 'mint-authority') {
           lines.push(`        // Mint authority field is at offset 0..32`);
-          lines.push(`        let authority = &data[0..32];`);
-          lines.push(`        if authority != ${c.authority}.address().as_ref() {`);
+          lines.push(`        let _mint_auth = &data[0..32];`);
+          lines.push(`        if _mint_auth != ${c.authority}.address().as_ref() {`);
           lines.push(`            return Err(ProgramError::InvalidAccountData);`);
           lines.push(`        }`);
         } else {
           lines.push(`        // Mint decimals is at offset 44 (u8)`);
-          lines.push(`        let decimals = data[44];`);
-          lines.push(`        if decimals != ${c.decimals} {`);
+          lines.push(`        let _mint_decimals = data[44];`);
+          lines.push(`        if _mint_decimals != ${c.decimals} {`);
           lines.push(`            return Err(ProgramError::InvalidAccountData);`);
           lines.push(`        }`);
         }
@@ -570,7 +580,7 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
       if (c.type === 'associated-token-authority') {
         lines.push(`    // Validate associated token authority for ${a.name}`);
         lines.push(`    {`);
-        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let data = ${a.name}.try_borrow()?;`);
         lines.push(`        let owner = &data[32..64];`);
         lines.push(`        if owner != ${c.authority}.address().as_ref() {`);
         lines.push(`            return Err(ProgramError::InvalidAccountData);`);
@@ -580,7 +590,7 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
       if (c.type === 'associated-token-mint') {
         lines.push(`    // Validate associated token mint for ${a.name}`);
         lines.push(`    {`);
-        lines.push(`        let data = ${a.name}.try_borrow_data()?;`);
+        lines.push(`        let data = ${a.name}.try_borrow()?;`);
         lines.push(`        let mint = &data[0..32];`);
         lines.push(`        if mint != ${c.mint}.address().as_ref() {`);
         lines.push(`            return Err(ProgramError::InvalidAccountData);`);
@@ -786,6 +796,9 @@ function translateStateFieldExpr(expr: string, accountToStateType?: Map<string, 
 function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>, ix?: Instruction): string[] {
   switch (op.type) {
     case 'set-field': {
+      // Skip set-field for SPL account types (mint, token-account) — use CPI for initialization
+      const accType = ix?.accounts.find((a) => a.name === op.account)?.accountType;
+      if (accType === 'mint' || accType === 'token-account') return [];
       const stateStruct = accountToStateType?.get(op.account) ?? toPascalCase(op.account);
       let value = translatePinocchioValue(op.value, op.account, ix, accountToStateType);
       // Check if setting a String/dynamic field — the setter expects &[u8]
@@ -838,6 +851,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
           `        from: ${op.from},`,
           `        to: ${op.to},`,
           `        authority: ${op.authority},`,
+          `        multisig_signers: &[] as &[AccountView],`,
           `        amount: ${op.amount},`,
           `    }`,
           `    .invoke_signed(&[signer])?;`,
@@ -851,6 +865,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
         `        from: ${op.from},`,
         `        to: ${op.to},`,
         `        authority: ${op.authority},`,
+        `        multisig_signers: &[] as &[AccountView],`,
         `        amount: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
@@ -871,6 +886,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
           `        mint: ${op.mint},`,
           `        account: ${op.to},`,
           `        mint_authority: ${op.authority},`,
+          `        multisig_signers: &[] as &[AccountView],`,
           `        amount: ${op.amount},`,
           `    }`,
           `    .invoke_signed(&[signer])?;`,
@@ -884,6 +900,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
         `        mint: ${op.mint},`,
         `        account: ${op.to},`,
         `        mint_authority: ${op.authority},`,
+        `        multisig_signers: &[] as &[AccountView],`,
         `        amount: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
@@ -904,6 +921,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
           `        account: ${op.from},`,
           `        mint: ${op.mint},`,
           `        authority: ${op.authority},`,
+          `        multisig_signers: &[] as &[AccountView],`,
           `        amount: ${op.amount},`,
           `    }`,
           `    .invoke_signed(&[signer])?;`,
@@ -914,10 +932,11 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
         `{`,
         `    use pinocchio_token::instructions::Burn;`,
         `    Burn {`,
-        `        account: ${op.from},`,
-        `        mint: ${op.mint},`,
-        `        authority: ${op.authority},`,
-        `        amount: ${op.amount},`,
+          `        account: ${op.from},`,
+          `        mint: ${op.mint},`,
+          `        authority: ${op.authority},`,
+          `        multisig_signers: &[] as &[AccountView],`,
+          `        amount: ${op.amount},`,
         `    }`,
         `    .invoke()?;`,
         `}`,

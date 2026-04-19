@@ -299,6 +299,15 @@ function generateInstructionRs(
     .map((a) => buildAccountField(a, ix, ir))
     .join("\n\n");
 
+  // Auto-add token_program for mint init when not already present
+  const hasMintInit = ix.accounts.some(
+    (a) => a.accountType === "mint" && a.constraints.some((c) => c.type === "init")
+  );
+  const hasTokenProgram = ix.accounts.some((a) => a.accountType === "token-program");
+  const extraAnchorField = hasMintInit && !hasTokenProgram
+    ? "\n    pub token_program: Program<'info, anchor_spl::token::Token>,"
+    : "";
+
   // When there are no accounts, omit the 'info lifetime to avoid E0392
   const lifetime = ix.accounts.length > 0 ? "<'info>" : "";
 
@@ -312,7 +321,7 @@ ${bodyLines.map((l) => `    ${l}`).join("\n")}
 
 #[derive(Accounts)]
 ${argAttr}pub struct ${ctx}${lifetime} {
-${accountFields}
+${accountFields}${extraAnchorField}
 }
 `;
 
@@ -374,7 +383,7 @@ function generateInstructionBody(ix: Instruction, programName?: string): string[
         lines.push(`let ${acc} = &mut ctx.accounts.${acc};`);
       }
     }
-    lines.push(...emitLogicOp(op, errorEnum, boundAccounts));
+    lines.push(...emitLogicOp(op, errorEnum, boundAccounts, ix));
   }
 
   return lines;
@@ -419,9 +428,12 @@ function collectAccountRefs(value: string, out: Set<string>): void {
   }
 }
 
-function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set<string>): string[] {
+function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set<string>, ix?: Instruction): string[] {
   switch (op.type) {
     case "set-field": {
+      // Skip set-field for SPL account types (mint, token-account) — Anchor handles these via constraints
+      const accountType = ix?.accounts.find((a) => a.name === op.account)?.accountType;
+      if (accountType === "mint" || accountType === "token-account") return [];
       let val = op.value;
       // *ctx.accounts.X.key → ctx.accounts.X.key() for universal compatibility
       val = val.replace(/\*ctx\.accounts\.(\w+)\.key\b(?!\()/g, 'ctx.accounts.$1.key()');
@@ -512,9 +524,9 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
       return [`require!(${op.condition}, ${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
 
     case "if-else": {
-      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts)).map((l) => `    ${l}`);
+      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts, ix)).map((l) => `    ${l}`);
       const else_ =
-        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts)).map((l) => `    ${l}`) ?? [];
+        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts, ix)).map((l) => `    ${l}`) ?? [];
       const result = [`if ${op.condition} {`, ...then_];
       if (else_.length) result.push("} else {", ...else_);
       result.push("}");
@@ -690,13 +702,21 @@ function buildAccountAttributes(
         // signer is expressed in the type (Signer<'info>), not a constraint
         break;
       case "init": {
-        const spaceStr =
-          c.space === "auto"
-            ? account.stateType
-              ? `8 + ${account.stateType}::INIT_SPACE`
-              : "8"
-            : String(c.space);
-        parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
+        // For SPL mint accounts with mint::authority/mint::decimals constraints,
+        // Anchor handles space automatically. Otherwise keep explicit space.
+        const hasMintConstraints = account.accountType === "mint" &&
+          account.constraints.some((ac) => ac.type === "mint-authority" || ac.type === "mint-decimals");
+        if (hasMintConstraints) {
+          parts.push(`init, payer = ${c.payer}`);
+        } else {
+          const spaceStr =
+            c.space === "auto"
+              ? account.stateType
+                ? `8 + ${account.stateType}::INIT_SPACE`
+                : "8"
+              : String(c.space);
+          parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
+        }
         break;
       }
       case "init-if-needed": {

@@ -185,6 +185,7 @@ export function generateQuasar(ir: ProgramIR): {
       errors_,
       events,
       ir,
+      usesSpl,
     ),
     language: "rust",
   });
@@ -301,6 +302,7 @@ function generateLibRs(
   errors: ProgramIR["errors"],
   events: ProgramIR["events"],
   ir: ProgramIR,
+  usesSpl: boolean,
 ): string {
   const modules: string[] = ["instructions"];
   if (states.length > 0) modules.push("state");
@@ -362,8 +364,10 @@ ${bodyStr}
     errorReExport,
   ].filter(Boolean).join("\n");
 
+  const splImportLib = usesSpl ? "\nuse quasar_spl::*;" : "";
+
   return `#![cfg_attr(not(test), no_std)]
-use quasar_lang::prelude::*;${sysvarImport}
+use quasar_lang::prelude::*;${sysvarImport}${splImportLib}
 
 ${modLines}
 
@@ -567,6 +571,9 @@ function getAccessedAccountsQuasar(op: LogicOperation): string[] {
 function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>, rename?: (s: string) => string, renameAndPod?: (s: string) => string, ir?: ProgramIR): string[] {
   switch (op.type) {
     case "set-field": {
+      // Skip set-field for SPL account types — these have private fields / use CPI
+      const accType = ir?.instructions.flatMap((ix) => ix.accounts).find((a) => a.name === op.account)?.accountType;
+      if (accType === "mint" || accType === "token-account") return [];
       // Look up the field type to wrap Pod values correctly
       const stateType = accountToStateType?.get(op.account);
       const fieldKey = stateType ? `${stateType}.${op.field}` : null;
@@ -859,8 +866,15 @@ function buildQuasarAccountAttributes(
         break;
       case "init": {
         if (account.accountType === "mint") {
-          // Mint accounts need mint::decimals and mint::authority, not space
-          parts.push(`init, payer = ${c.payer}, mint::decimals = 0, mint::authority = ${c.payer}`);
+          // If explicit mint-authority/mint-decimals constraints exist, skip defaults
+          const hasExplicitMintConstraints = account.constraints.some(
+            (ac) => ac.type === "mint-authority" || ac.type === "mint-decimals"
+          );
+          if (hasExplicitMintConstraints) {
+            parts.push(`init, payer = ${c.payer}`);
+          } else {
+            parts.push(`init, payer = ${c.payer}, mint::decimals = 0, mint::authority = ${c.payer}`);
+          }
         } else {
           const autoSpace = computeAccountSpace(account, ir);
           const spaceStr =
@@ -972,14 +986,18 @@ function accountToQuasarType(account: Account): string {
     case "associated-token-program":
       return `&'info Program<AssociatedToken>`;
     case "rent":
-      return `Sysvar<'info, Rent>`;
+      // Quasar derive macro doesn't support Sysvar or AccountView directly
+      // UseUncheckedAccount with safety comment for rent
+      return `&'info quasar_lang::accounts::UncheckedAccount`;
     case "clock":
       return `Sysvar<'info, Clock>`;
     case "mint":
       // Quasar's Mint type doesn't work with Account<>. Use InterfaceAccount for compatibility.
       return needsMut ? `&'info mut InterfaceAccount<Mint>` : `&'info InterfaceAccount<Mint>`;
     case "token-account":
-      return needsMut ? `&'info mut TokenAccount` : `&'info TokenAccount`;
+      // quasar_spl doesn't export a standalone TokenAccount type.
+      // Use InterfaceAccount<Token> which derefs to TokenAccountState.
+      return needsMut ? `&'info mut InterfaceAccount<Token>` : `&'info InterfaceAccount<Token>`;
     case "associated-token":
       return needsMut ? `&'info mut InterfaceAccount<TokenAccount>` : `&'info InterfaceAccount<TokenAccount>`;
     case "unchecked-account": {
