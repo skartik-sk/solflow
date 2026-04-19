@@ -430,7 +430,7 @@ const TEMPLATES = [
       version: "1.0.0",
       program: { name: "escrow", description: "Two-party token escrow with timelock", version: "0.1.0" },
       instructions: [
-        { id: "a2000000-0000-0000-0000-000000000001", name: "initialize_escrow", description: "Initialize a new escrow", args: [{ name: "amount", type: "u64" }, { name: "deadline", type: "i64" }], accounts: [
+        { id: "a2000000-0000-0000-0000-000000000001", name: "initialize_escrow", description: "Initialize a new escrow", accessControl: "none", args: [{ name: "amount", type: "u64" }, { name: "deadline", type: "i64" }], accounts: [
           { id: "a2000000-0000-0000-0000-000000000010", name: "escrow", accountType: "account", stateType: "EscrowState", constraints: [{ type: "init", payer: "maker", space: "auto" }, { type: "seeds", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" }], description: undefined },
           { id: "a2000000-0000-0000-0000-000000000011", name: "maker", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a2000000-0000-0000-0000-000000000012", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
@@ -441,16 +441,17 @@ const TEMPLATES = [
           { type: "set-field", account: "escrow", field: "deadline", value: "deadline" },
           { type: "set-field", account: "escrow", field: "bump", value: "ctx.bumps.escrow" },
         ] },
-        { id: "a2000000-0000-0000-0000-000000000002", name: "exchange", description: "Fulfill the escrow trade", args: [], accounts: [
+        { id: "a2000000-0000-0000-0000-000000000002", name: "exchange", description: "Fulfill the escrow trade", accessControl: "none", args: [], accounts: [
           { id: "a2000000-0000-0000-0000-000000000020", name: "escrow", accountType: "account", stateType: "EscrowState", constraints: [{ type: "mut" }, { type: "seeds", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" }], description: undefined },
+          { id: "a2000000-0000-0000-0000-000000000023", name: "maker", accountType: "system-account", constraints: [], description: undefined },
           { id: "a2000000-0000-0000-0000-000000000021", name: "taker", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a2000000-0000-0000-0000-000000000022", name: "system_program", accountType: "system-program", constraints: [], description: undefined },
         ], body: [
           { type: "require", condition: "Clock::get()?.unix_timestamp < escrow.deadline", errorCode: "EscrowExpired" },
           { type: "set-field", account: "escrow", field: "taker", value: "*ctx.accounts.taker.key" },
-          { type: "emit-event", event: "ExchangeEvent", fields: { maker: "*ctx.accounts.escrow.maker", taker: "*ctx.accounts.taker.key", amount: "escrow.amount" } },
+          { type: "emit-event", event: "ExchangeEvent", fields: { maker: "escrow.maker", taker: "*ctx.accounts.taker.key", amount: "escrow.amount" } },
         ] },
-        { id: "a2000000-0000-0000-0000-000000000003", name: "cancel", description: "Cancel the escrow", args: [], accounts: [
+        { id: "a2000000-0000-0000-0000-000000000003", name: "cancel", description: "Cancel the escrow", accessControl: "none", args: [], accounts: [
           { id: "a2000000-0000-0000-0000-000000000030", name: "escrow", accountType: "account", stateType: "EscrowState", constraints: [{ type: "mut" }, { type: "close", target: "maker" }, { type: "seeds", seeds: [{ type: "literal", value: "escrow" }, { type: "account-field", value: "maker" }], bump: "escrow.bump" }], description: undefined },
           { id: "a2000000-0000-0000-0000-000000000031", name: "maker", accountType: "signer", constraints: [{ type: "signer" }], description: undefined },
           { id: "a2000000-0000-0000-0000-000000000032", name: "system_program", accountType: "system-program", constraints: [], description: undefined },

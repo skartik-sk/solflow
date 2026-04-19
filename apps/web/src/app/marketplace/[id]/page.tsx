@@ -306,6 +306,7 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                 pricingModel={listing.pricingModel}
                 priceSOL={listing.priceSOL}
                 alreadyPurchased={alreadyPurchased}
+                isAuthenticated={!!session?.user?.id}
               />
 
               {/* Stats */}

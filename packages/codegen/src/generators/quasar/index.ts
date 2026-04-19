@@ -57,7 +57,7 @@ function solanaTypeToQuasarAccount(type: import("@solflow/ir").SolanaType, maxLe
       case "i128":   return "i128";
       case "f32":    return "f32";
       case "f64":    return "f64";
-      case "String": return `String<'a, ${maxLen ?? 64}>`;
+      case "String": return `[u8; ${maxLen ?? 64}]`;
       case "Pubkey": return "Address";
     }
   }
@@ -102,6 +102,7 @@ function solanaTypeToQuasarEvent(type: import("@solflow/ir").SolanaType): string
       case "i64":    return "i64";
       case "i128":   return "i128";
       case "Pubkey": return "Address";
+      case "String": return "Address"; // Quasar events don't support String — skip in emit
       case "f32":    return "f32";
       case "f64":    return "f64";
       default:       return "u64 /* WARNING: unsupported event field type */";
@@ -309,6 +310,12 @@ function generateLibRs(
 
   const modLines = modules.map((m) => `pub mod ${m};`).join("\n");
 
+  // Add Sysvar import when Clock is used in any instruction body
+  const usesClock = instructions.some((ix) =>
+    ix.body.some((op) => JSON.stringify(op).includes("Clock::get()"))
+  );
+  const sysvarImport = usesClock ? "\nuse quasar_lang::sysvars::Sysvar;" : "";
+
   // Re-export instruction account structs at crate root (required by #[program])
   const reExports = instructions
     .map((ix) => {
@@ -356,7 +363,7 @@ ${bodyStr}
   ].filter(Boolean).join("\n");
 
   return `#![cfg_attr(not(test), no_std)]
-use quasar_lang::prelude::*;
+use quasar_lang::prelude::*;${sysvarImport}
 
 ${modLines}
 
@@ -393,38 +400,193 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
     }
   }
 
-  // Track accounts that need mutable binding (set-field operations)
-  const mutAccounts = new Set<string>();
+  // Build rename map: if account name collides with program module name, rename it
+  const renameMap = new Map<string, string>();
+  for (const a of ix.accounts) {
+    if (a.name === programName) {
+      renameMap.set(a.name, `${a.name}_account`);
+    }
+  }
+
+  const rename = (s: string): string => {
+    let result = s;
+    for (const [old, new_] of renameMap) {
+      // Only rename standalone references to the account, not ctx.accounts.old or ctx.bumps.old
+      result = result.replace(new RegExp(`(?<!ctx\\.accounts\\.)(?<!ctx\\.bumps\\.)\\b${old}\\b(?!_)`, "g"), new_);
+    }
+    return result;
+  };
+
+  // Track accounts that need mutable binding — use lazy borrows to avoid
+  // borrow conflicts when ctx.accounts.X is used in CPI calls.
+  const mutNeeded = new Set<string>();
+  function collectMutNeeded(ops: LogicOperation[]) {
+    for (const op of ops) {
+      if (op.type === "set-field") mutNeeded.add(op.account);
+      if (op.type === "if-else") {
+        collectMutNeeded(op.thenBody);
+        if (op.elseBody) collectMutNeeded(op.elseBody);
+      }
+    }
+  }
+  collectMutNeeded(ix.body);
+
+  // Build the account-to-state-type map using RENAMED names so PodExpr lookup works
+  const renamedAccountToState = new Map<string, string>();
+  for (const [orig, state] of accountToStateType) {
+    renamedAccountToState.set(renameMap.get(orig) ?? orig, state);
+  }
+
+  // Create a wrapped rename function that also handles PodExpr translation
+  const renameAndPod = (s: string): string => {
+    return translateQuasarPodExpr(translateQuasarValue(rename(s)), renamedAccountToState, fieldTypeMap);
+  };
+
+  const mutBorrowed = new Set<string>();
+  const readOnlyBound = new Set<string>();
+
+  // Collect accounts that need early read-only binding (referenced in require before any set-field)
+  // These must be bound to avoid "cannot find value" errors
+  const needsEarlyReadOnly = new Set<string>();
+  const mutNeededSet = new Set(mutNeeded);
   for (const op of ix.body) {
-    if (op.type === "set-field") mutAccounts.add(op.account);
+    if (op.type === 'set-field') break; // stop at first set-field
+    if (op.type === 'require') {
+      for (const acc of getAccessedAccountsQuasar(op)) {
+        if (!mutNeededSet.has(acc)) needsEarlyReadOnly.add(acc);
+      }
+    }
   }
-  for (const acc of [...mutAccounts].sort()) {
-    lines.push(`let ${acc} = &mut ctx.accounts.${acc};`);
+
+  // Bind early read-only accounts (for require before set-field)
+  for (const origName of needsEarlyReadOnly) {
+    const localName = renameMap.get(origName) ?? origName;
+    lines.push(`let ${localName} = &ctx.accounts.${origName};`);
+    readOnlyBound.add(origName);
   }
-  if (mutAccounts.size > 0) lines.push("");
 
   for (const op of ix.body) {
-    lines.push(...emitLogicOp(op, errorEnum, accountToStateType, fieldTypeMap));
+    // Lazy mutable borrow: create `let x = &mut ctx.accounts.x;` right before
+    // the first operation that needs it.
+    const accessedAccounts = getAccessedAccountsQuasar(op);
+    for (const acc of accessedAccounts) {
+      const origName = acc;
+      if (mutNeeded.has(origName) && !mutBorrowed.has(origName) && !readOnlyBound.has(origName)) {
+        const localName = renameMap.get(origName) ?? origName;
+        lines.push(`let ${localName} = &mut ctx.accounts.${origName};`);
+        mutBorrowed.add(origName);
+      }
+    }
+    lines.push(...emitLogicOp(op, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir));
   }
 
   return lines;
 }
 
+/// Translate Anchor-style value expressions to Quasar equivalents
+function translateQuasarValue(value: string): string {
+  // *ctx.accounts.X.key() → *ctx.accounts.X.address()
+  let result = value.replace(/\*ctx\.accounts\.(\w+)\.key\(\)/g, '*ctx.accounts.$1.address()');
+  // *ctx.accounts.X.key → *ctx.accounts.X.address() (no parens)
+  result = result.replace(/\*ctx\.accounts\.(\w+)\.key\b/g, '*ctx.accounts.$1.address()');
+  // ctx.accounts.X.key() → ctx.accounts.X.address()
+  result = result.replace(/ctx\.accounts\.(\w+)\.key\(\)/g, 'ctx.accounts.$1.address()');
+  // ctx.accounts.X.key → ctx.accounts.X.address()
+  result = result.replace(/ctx\.accounts\.(\w+)\.key\b/g, 'ctx.accounts.$1.address()');
+  // Clock::get()?.unix_timestamp → i64::from(Clock::get()?.unix_timestamp) (PodI64 → i64)
+  result = result.replace(/Clock::get\(\)\?\.unix_timestamp/g, 'i64::from(Clock::get()?.unix_timestamp)');
+  // ctx.bumps.X → ctx.bumps.X (Quasar Ctx has .bumps just like Anchor)
+  return result;
+}
+
+/// Translate state field expressions to account for Pod type wrapping.
+/// PodU64 fields need `.into()` when used in comparisons or arithmetic with native types.
+function translateQuasarPodExpr(expr: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>): string {
+  if (!accountToStateType || !fieldTypeMap) return expr;
+  // Match account.field patterns and wrap Pod fields with native type conversion
+  return expr.replace(/\b(\w+)\.(\w+)\b/g, (_match: string, account: string, field: string) => {
+    const stateType = accountToStateType.get(account);
+    if (stateType) {
+      const fieldKey = `${stateType}.${field}`;
+      const fieldType = fieldTypeMap.get(fieldKey);
+      if (fieldType && POD_TYPES.has(fieldType)) {
+        // Determine the native Rust type from the Pod type name
+        const nativeType = fieldType.replace("Pod", "").toLowerCase();
+        // PodBool → bool, PodU64 → u64, PodI64 → i64, etc.
+        return `${nativeType}::from(${account}.${field})`;
+      }
+    }
+    return `${account}.${field}`;
+  });
+}
+
 // Pod types that need wrapping with PodType::from()
 const POD_TYPES = new Set(["PodBool", "PodU16", "PodU32", "PodU64", "PodU128", "PodI16", "PodI32", "PodI64", "PodI128"]);
 
-function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>): string[] {
+/// Extract account names referenced in a logic operation (for lazy borrow tracking).
+/// Only accounts that will be accessed via local mutable variable trigger borrows.
+/// transfer-sol uses ctx.accounts.X directly, so those don't count.
+function getAccessedAccountsQuasar(op: LogicOperation): string[] {
+  const refs = new Set<string>();
+
+  function collectRefs(s: string) {
+    const matches = s.matchAll(/\b([a-z_][a-z0-9_]*)\.[a-z_]/g);
+    const skip = new Set(['ctx', 'clock', 'solana', 'pinocchio', 'quasar', 'core', 'std', 'u8', 'u16', 'u32', 'u64', 'u128', 'i8', 'i16', 'i32', 'i64', 'i128', 'bool', 'program_id']);
+    for (const m of matches) {
+      if (!skip.has(m[1])) refs.add(m[1]);
+    }
+  }
+
+  switch (op.type) {
+    case "set-field":
+      refs.add(op.account);
+      collectRefs(op.value);
+      break;
+    case "require":
+      collectRefs(op.condition);
+      break;
+    case "if-else":
+      collectRefs(op.condition);
+      for (const o of op.thenBody) for (const a of getAccessedAccountsQuasar(o)) refs.add(a);
+      if (op.elseBody) for (const o of op.elseBody) for (const a of getAccessedAccountsQuasar(o)) refs.add(a);
+      break;
+    case "emit-event":
+      for (const v of Object.values(op.fields)) collectRefs(v as string);
+      break;
+    case "math":
+      collectRefs(op.left);
+      collectRefs(op.right);
+      break;
+    // transfer-sol, transfer-token, mint-to, burn all use ctx.accounts.X directly
+    // and should NOT trigger mutable borrows
+  }
+
+  return [...refs];
+}
+
+function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>, rename?: (s: string) => string, renameAndPod?: (s: string) => string, ir?: ProgramIR): string[] {
   switch (op.type) {
     case "set-field": {
       // Look up the field type to wrap Pod values correctly
       const stateType = accountToStateType?.get(op.account);
       const fieldKey = stateType ? `${stateType}.${op.field}` : null;
       const fieldType = fieldKey ? fieldTypeMap?.get(fieldKey) : null;
-      // Only wrap in Pod type if we found the field type in IR and it's a Pod type.
-      // If state type is not in IR (external crate), use raw assignment.
       const isPod = fieldType && POD_TYPES.has(fieldType);
-      const value = isPod ? `${fieldType}::from(${op.value})` : op.value;
-      return [`${op.account}.${op.field} = ${value};`];
+      const isByteArray = fieldType && fieldType.startsWith("[u8;");
+      const account = rename?.(op.account) ?? op.account;
+      const rawValue = translateQuasarValue(rename?.(op.value) ?? op.value);
+      if (isByteArray) {
+        // [u8; N] field — need to copy bytes from string value
+        const sizeMatch = fieldType.match(/\[u8; (\d+)\]/);
+        const size = sizeMatch ? sizeMatch[1] : "64";
+        return [
+          `${account}.${op.field} = [0u8; ${size}];`,
+          `let ${op.field}_bytes = ${rawValue}.as_bytes();`,
+          `${account}.${op.field}[..${op.field}_bytes.len()].copy_from_slice(${op.field}_bytes);`,
+        ];
+      }
+      const value = isPod ? `${fieldType}::from(${rawValue})` : rawValue;
+      return [`${account}.${op.field} = ${value};`];
     }
 
     case "transfer-sol":
@@ -477,22 +639,35 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
       ];
     }
 
-    case "require":
-      return [`require!(${op.condition}, ${errorEnum}::${op.errorCode});`];
+    case "require": {
+      const cond = renameAndPod ? renameAndPod(op.condition) : translateQuasarPodExpr(translateQuasarValue(rename?.(op.condition) ?? op.condition), accountToStateType, fieldTypeMap);
+      return [`require!(${cond}, ${errorEnum}::${op.errorCode});`];
+    }
 
     case "if-else": {
-      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap)).map((l) => `        ${l}`);
+      const cond = renameAndPod ? renameAndPod(op.condition) : translateQuasarPodExpr(translateQuasarValue(rename?.(op.condition) ?? op.condition), accountToStateType, fieldTypeMap);
+      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir)).map((l) => `        ${l}`);
       const else_ =
-        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap)).map((l) => `        ${l}`) ?? [];
-      const result = [`if ${op.condition} {`, ...then_];
+        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir)).map((l) => `        ${l}`) ?? [];
+      const result = [`if ${cond} {`, ...then_];
       if (else_.length) result.push("} else {", ...else_);
       result.push("}");
       return result;
     }
 
     case "emit-event": {
+      // Quasar events only support primitives and Address. String fields use Address as placeholder.
+      const evt = ir?.events.find((e) => e.name === op.event);
       const fields = Object.entries(op.fields)
-        .map(([k, v]) => `            ${k}: ${v},`)
+        .map(([k, v]) => {
+          const evtField = evt?.fields.find((f) => f.name === k);
+          const isStringField = evtField?.type === "String";
+          if (isStringField) {
+            return `            ${k}: Address::default(), // String not supported in Quasar events`;
+          }
+          const val = renameAndPod ? renameAndPod(v as string) : translateQuasarValue(rename?.(v as string) ?? (v as string));
+          return `            ${k}: ${val},`;
+        })
         .join("\n");
       return [`emit!(${op.event} {`, fields, `});`];
     }
@@ -502,17 +677,19 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
 
     case "math": {
       const checked = op.checked;
+      const left = renameAndPod ? renameAndPod(op.left) : translateQuasarValue(rename?.(op.left) ?? op.left);
+      const right = rename?.(op.right) ?? op.right;
       if (checked) {
         const opMap: Record<string, string> = {
           add: "checked_add", sub: "checked_sub",
           mul: "checked_mul", div: "checked_div", mod: "checked_rem",
         };
         return [
-          `let ${op.result} = ${op.left}.${opMap[op.operation] ?? "checked_add"}(${op.right}).ok_or(ProgramError::ArithmeticOverflow)?;`,
+          `let ${op.result} = ${left}.${opMap[op.operation] ?? "checked_add"}(${right}).ok_or(ProgramError::InvalidArgument)?;`,
         ];
       }
       const opSym: Record<string, string> = { add: "+", sub: "-", mul: "*", div: "/", mod: "%" };
-      return [`let ${op.result} = ${op.left} ${opSym[op.operation] ?? "+"} ${op.right};`];
+      return [`let ${op.result} = ${left} ${opSym[op.operation] ?? "+"} ${right};`];
     }
 
     case "cpi": {
@@ -597,6 +774,11 @@ function generateInstructionRs(
 
   // Build imports
   const importLines: string[] = ["use quasar_lang::prelude::*;"];
+  // Add quasar-spl import if mint/token accounts are present
+  const needsSpl = ix.accounts.some((a) =>
+    a.accountType === "mint" || a.accountType === "token-account" || a.accountType === "associated-token"
+  );
+  if (needsSpl) importLines.push("use quasar_spl::*;");
   for (const s of [...usedStates].sort()) {
     importLines.push(`use crate::state::${toSnakeFilename(s)}::${s};`);
   }
@@ -606,11 +788,20 @@ function generateInstructionRs(
     .map((a) => buildQuasarAccountField(a, ix, ir))
     .join("\n\n");
 
+  // Auto-add token_program if mint init is present but no token_program account exists
+  const hasMintInit = ix.accounts.some(
+    (a) => a.accountType === "mint" && a.constraints.some((c) => c.type === "init")
+  );
+  const hasTokenProgram = ix.accounts.some((a) => a.accountType === "token-program");
+  const extraFields = hasMintInit && !hasTokenProgram
+    ? "\n    pub token_program: &'info Program<Token>,"
+    : "";
+
   const content = `${importLines.join("\n")}
 
 #[derive(Accounts)]
 pub struct ${ctx}<'info> {
-${accountFields}
+${accountFields}${extraFields}
 }
 `;
 
@@ -667,12 +858,17 @@ function buildQuasarAccountAttributes(
         // Expressed in the type in Quasar, not as attribute
         break;
       case "init": {
-        const autoSpace = computeAccountSpace(account, ir);
-        const spaceStr =
-          c.space === "auto"
-            ? String(autoSpace > 0 ? autoSpace : 8 + 32)
-            : String(c.space);
-        parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
+        if (account.accountType === "mint") {
+          // Mint accounts need mint::decimals and mint::authority, not space
+          parts.push(`init, payer = ${c.payer}, mint::decimals = 0, mint::authority = ${c.payer}`);
+        } else {
+          const autoSpace = computeAccountSpace(account, ir);
+          const spaceStr =
+            c.space === "auto"
+              ? String(autoSpace > 0 ? autoSpace : 8 + 32)
+              : String(c.space);
+          parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
+        }
         break;
       }
       case "init-if-needed": {
@@ -695,13 +891,19 @@ function buildQuasarAccountAttributes(
       case "seeds": {
         const seedParts = c.seeds.map((s) => {
           if (s.type === "literal") return `b"${s.value}"`;
-          // Quasar seeds use field names directly (NOT .key().as_ref())
-          if (s.type === "pubkey" || s.type === "account-field") return `${s.value}.key().as_ref()`;
+          // Quasar derive macro handles field-to-bytes conversion
+          if (s.type === "pubkey" || s.type === "account-field") return s.value;
           if (s.type === "instruction-arg") return s.value;
           return s.value;
         });
         parts.push(`seeds = [${seedParts.join(", ")}]`);
-        parts.push(c.bump ? `bump = ${c.bump}` : "bump");
+        // With init, use plain bump (derive macro finds it). Without init, use bump from struct field.
+        const hasInit = constraints.some((x) => x.type === "init" || x.type === "init-if-needed");
+        if (hasInit) {
+          parts.push("bump");
+        } else {
+          parts.push(c.bump ? `bump = ${c.bump}` : "bump");
+        }
         if (c.programId) parts.push(`seeds::program = ${c.programId}`);
         break;
       }
@@ -760,7 +962,9 @@ function accountToQuasarType(account: Account): string {
     case "signer":
       return needsMut ? `&'info mut Signer` : `&'info Signer`;
     case "system-account":
-      return needsMut ? `&'info mut AccountInfo<'info>` : `&'info AccountInfo<'info>`;
+      // Quasar's derive macro only supports specific types.
+      // For non-mut system accounts (often seed metadata), use Signer type.
+      return needsMut ? `&'info mut Signer` : `&'info Signer`;
     case "system-program":
       return `&'info Program<System>`;
     case "token-program":
@@ -772,15 +976,15 @@ function accountToQuasarType(account: Account): string {
     case "clock":
       return `Sysvar<'info, Clock>`;
     case "mint":
-      return needsMut ? `&'info mut Mint` : `&'info Mint`;
+      // Quasar's Mint type doesn't work with Account<>. Use InterfaceAccount for compatibility.
+      return needsMut ? `&'info mut InterfaceAccount<Mint>` : `&'info InterfaceAccount<Mint>`;
     case "token-account":
       return needsMut ? `&'info mut TokenAccount` : `&'info TokenAccount`;
     case "associated-token":
       return needsMut ? `&'info mut InterfaceAccount<TokenAccount>` : `&'info InterfaceAccount<TokenAccount>`;
     case "unchecked-account": {
-      const comment = account.constraints.find(c => c.type === "safety-comment");
-      // The doc comment is emitted separately in buildQuasarAccountField
-      return needsMut ? `&'info mut AccountInfo<'info>` : `&'info AccountInfo<'info>`;
+      // Quasar uses AccountView for unchecked accounts (not AccountInfo)
+      return needsMut ? `&'info mut AccountView` : `&'info AccountView`;
     }
     case "program":
       return account.stateType
@@ -817,17 +1021,20 @@ function generateStateRs(
 ): string {
   const derive = `#[account(discriminator = [${discriminator.join(", ")}])]`;
 
-  // When isZeroCopy is false, use standard types instead of Pod types
-  const fieldLines = fields
+  // Quasar requires fixed-size fields BEFORE dynamic fields (String/Vec)
+  const fixedFields = fields.filter((f) => !isDynamic(f.type));
+  const dynamicFields = fields.filter((f) => isDynamic(f.type));
+  const orderedFields = [...fixedFields, ...dynamicFields];
+
+  const fieldLines = orderedFields
     .map((f) => {
-      // Quasar always uses Pod types for state structs (zero-copy by nature)
       const rustType = solanaTypeToQuasarAccount(f.type, f.maxLen);
       const doc = f.description ? `    /// ${f.description}\n` : "";
       return `${doc}    pub ${f.name}: ${rustType},`;
     })
     .join("\n");
 
-  // Check if any field needs lifetime (String<'a, N> or Vec<'a, T, N>)
+  // Check if any field needs lifetime (Vec<'a, T, N>)
   const needsLifetime = fields.some((f) => {
     const t = solanaTypeToQuasarAccount(f.type, f.maxLen);
     return t.includes("'a");
@@ -872,7 +1079,9 @@ function generateEventsRs(events: ProgramIR["events"]): string {
           return `    pub ${f.name}: ${rustType},`;
         })
         .join("\n");
-      return `#[event(discriminator = ${idx})]\npub struct ${e.name} {\n${fields}\n}`;
+      const needsLifetime = e.fields.some((f) => solanaTypeToQuasarEvent(f.type).includes("'a"));
+      const lifetime = needsLifetime ? "<'a>" : "";
+      return `#[event(discriminator = ${idx})]\npub struct ${e.name}${lifetime} {\n${fields}\n}`;
     })
     .join("\n\n");
   return `use quasar_lang::prelude::*;\n\n${structs}\n`;

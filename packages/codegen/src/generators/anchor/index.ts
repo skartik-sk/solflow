@@ -151,7 +151,7 @@ function generateCargoToml(
   usesSpl: boolean,
 ): string {
   const kebab = toKebabCase(name);
-  const spl = usesSpl ? '\nanchor-spl = "0.32.0"' : "";
+  const spl = usesSpl ? '\nanchor-spl = "0.32.1"' : "";
   return `[package]
 name = "${kebab}"
 version = "${version}"
@@ -171,7 +171,7 @@ default = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.32.0", features = ["init-if-needed"] }${spl}
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}
 
 [profile.release]
 opt-level = "z"
@@ -289,7 +289,10 @@ function generateInstructionRs(
     .join(", ");
   const extraArgs = argSig ? `, ${argSig}` : "";
 
-  const argAttr = ix.args.length > 0 ? `#[instruction(${ix.args.map((a) => a.name).join(", ")})]\n` : "";
+  // Anchor 0.32 requires type-annotated #[instruction] attributes
+  const argAttr = ix.args.length > 0
+    ? `#[instruction(${ix.args.map((a) => `${a.name}: ${solanaTypeToRust(a.type)}`).join(", ")})]\n`
+    : "";
 
   // Build accounts struct
   const accountFields = ix.accounts
@@ -322,37 +325,122 @@ function generateInstructionBody(ix: Instruction, programName?: string): string[
   const lines: string[] = [];
   const errorEnum = programName ? toPascalCase(programName) + "Error" : undefined;
 
-  // Emit a mutable borrow for accounts that get set-field'd
-  const mutAccounts = new Set<string>();
+  // Collect accounts that will need mutable access (set-field targets, including inside if-else)
+  const mutNeeded = new Set<string>();
+  // Collect ALL accounts referenced in the body (including read-only like require)
+  const allReferenced = new Set<string>();
+  function collectNeeded(ops: LogicOperation[]) {
+    for (const op of ops) {
+      if (op.type === "set-field") mutNeeded.add(op.account);
+      if (op.type === "if-else") {
+        collectNeeded(op.thenBody);
+        if (op.elseBody) collectNeeded(op.elseBody);
+      }
+      for (const acc of getAccessedAccounts(op)) allReferenced.add(acc);
+    }
+  }
+  collectNeeded(ix.body);
+
+  // Track which accounts have been bound
+  const boundAccounts = new Set<string>();
+
+  // Collect accounts that need early read-only binding (referenced in require before any set-field)
+  const needsEarlyReadOnly = new Set<string>();
+  const mutNeededSet = new Set(mutNeeded);
   for (const op of ix.body) {
-    if (op.type === "set-field") mutAccounts.add(op.account);
+    if (op.type === 'set-field') break; // stop at first set-field
+    if (op.type === 'require') {
+      for (const acc of getAccessedAccounts(op)) {
+        if (!mutNeededSet.has(acc)) needsEarlyReadOnly.add(acc);
+      }
+    }
   }
-  for (const acc of [...mutAccounts].sort()) {
-    lines.push(`let ${acc} = &mut ctx.accounts.${acc};`);
+
+  // Bind early read-only accounts (for require before set-field)
+  for (const acc of needsEarlyReadOnly) {
+    if (!boundAccounts.has(acc)) {
+      boundAccounts.add(acc);
+      lines.push(`let ${acc} = &ctx.accounts.${acc};`);
+    }
   }
-  if (mutAccounts.size > 0) lines.push("");
 
   for (const op of ix.body) {
-    lines.push(...emitLogicOp(op, errorEnum));
+    // Lazy mutable borrow: create `let x = &mut ctx.accounts.x;` right before
+    // the first set-field that needs it.
+    const accessedAccounts = getAccessedAccounts(op);
+    for (const acc of accessedAccounts) {
+      if (mutNeeded.has(acc) && !boundAccounts.has(acc)) {
+        boundAccounts.add(acc);
+        lines.push(`let ${acc} = &mut ctx.accounts.${acc};`);
+      }
+    }
+    lines.push(...emitLogicOp(op, errorEnum, boundAccounts));
   }
 
   return lines;
 }
 
-function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
+// Get account names referenced by a logic operation
+function getAccessedAccounts(op: LogicOperation): Set<string> {
+  const accounts = new Set<string>();
   switch (op.type) {
     case "set-field":
-      return [`${op.account}.${op.field} = ${op.value};`];
-
+      accounts.add(op.account);
+      break;
+    case "math":
+      collectAccountRefs(op.left, accounts);
+      collectAccountRefs(op.right, accounts);
+      break;
+    case "require":
+      collectAccountRefs(op.condition, accounts);
+      break;
+    case "if-else":
+      collectAccountRefs(op.condition, accounts);
+      for (const o of op.thenBody) for (const a of getAccessedAccounts(o)) accounts.add(a);
+      for (const o of op.elseBody ?? []) for (const a of getAccessedAccounts(o)) accounts.add(a);
+      break;
     case "transfer-sol":
+      accounts.add(op.from);
+      accounts.add(op.to);
+      break;
+    default:
+      break;
+  }
+  return accounts;
+}
+
+// Check if a string value references an account name like "vault.balance"
+function collectAccountRefs(value: string, out: Set<string>): void {
+  // Match patterns like "vault.balance", "vault.bump", etc.
+  const matches = value.matchAll(/\b([a-z_][a-z0-9_]*)\.[a-z_]/g);
+  const skip = new Set(['ctx', 'clock', 'solana', 'anchor', 'core', 'std', 'u8', 'u16', 'u32', 'u64', 'u128', 'i8', 'i16', 'i32', 'i64', 'i128', 'bool', 'program_id']);
+  for (const m of matches) {
+    if (!skip.has(m[1])) out.add(m[1]);
+  }
+}
+
+function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set<string>): string[] {
+  switch (op.type) {
+    case "set-field": {
+      let val = op.value;
+      // *ctx.accounts.X.key → ctx.accounts.X.key() for universal compatibility
+      val = val.replace(/\*ctx\.accounts\.(\w+)\.key\b(?!\()/g, 'ctx.accounts.$1.key()');
+      return [`${op.account}.${op.field} = ${val};`];
+    }
+
+    case "transfer-sol": {
+      // Use the bound ref if already borrowed, otherwise use ctx.accounts directly
+      const fromRef = boundAccounts?.has(op.from) ? op.from : `ctx.accounts.${op.from}`;
+      const toRef = boundAccounts?.has(op.to) ? op.to : `ctx.accounts.${op.to}`;
       return [
         `let cpi_accounts = anchor_lang::system_program::Transfer {`,
-        `    from: ctx.accounts.${op.from}.to_account_info(),`,
-        `    to: ctx.accounts.${op.to}.to_account_info(),`,
+        `    from: ${fromRef}.to_account_info(),`,
+        `    to: ${toRef}.to_account_info(),`,
         `};`,
         `let cpi_ctx = CpiContext::new(ctx.accounts.system_program.to_account_info(), cpi_accounts);`,
         `anchor_lang::system_program::transfer(cpi_ctx, ${op.amount})?;`,
       ];
+    }
 
     case "transfer-token": {
       const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
@@ -424,9 +512,9 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
       return [`require!(${op.condition}, ${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
 
     case "if-else": {
-      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum)).map((l) => `    ${l}`);
+      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts)).map((l) => `    ${l}`);
       const else_ =
-        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum)).map((l) => `    ${l}`) ?? [];
+        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts)).map((l) => `    ${l}`) ?? [];
       const result = [`if ${op.condition} {`, ...then_];
       if (else_.length) result.push("} else {", ...else_);
       result.push("}");
@@ -435,7 +523,12 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
 
     case "emit-event": {
       const fields = Object.entries(op.fields)
-        .map(([k, v]) => `    ${k}: ${v},`)
+        .map(([k, v]) => {
+          // *ctx.accounts.X.key → ctx.accounts.X.key() (method call, returns Pubkey directly)
+          let val = v as string;
+          val = val.replace(/\*ctx\.accounts\.(\w+)\.key\b(?!\()/g, 'ctx.accounts.$1.key()');
+          return `    ${k}: ${val},`;
+        })
         .join("\n");
       return [`emit!(${op.event} {`, fields, "});"];
     }
@@ -454,7 +547,7 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string): string[] {
       };
       if (checked) {
         return [
-          `let ${op.result} = ${op.left}.${opMap[op.operation]}(${op.right}).ok_or(anchor_lang::error::ErrorCode::ArithmeticOverflow)?;`,
+          `let ${op.result} = ${op.left}.${opMap[op.operation]}(${op.right}).ok_or(ProgramError::InvalidArgument)?;`,
         ];
       }
       return [
@@ -748,7 +841,9 @@ function generateStateRs(name: string, fields: Field[], isZeroCopy?: boolean, cu
     .map((f) => {
       const rustType = solanaTypeToRust(f.type);
       const maxLenAttr =
-        hasDynamic && f.maxLen != null ? `    #[max_len(${f.maxLen})]\n` : "";
+        hasDynamic && (f.type === "String" || f.type === "Vec")
+          ? `    #[max_len(${f.maxLen ?? 64})]\n`
+          : "";
       const doc = f.description ? `    /// ${f.description}\n` : "";
       const comment = sizeComment(f.type);
       const sizeStr = comment ? `  // ${comment}` : "";

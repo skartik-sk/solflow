@@ -296,11 +296,11 @@ describe("Pinocchio codegen quality", () => {
     expect(incFile!.content).toContain("Unauthorized");
   });
 
-  it("generates checked math with ProgramError::ArithmeticOverflow", () => {
+  it("generates checked math with ProgramError::InvalidArgument", () => {
     const result = generateCode(COUNTER_IR, "pinocchio");
     const incFile = result.files.find((f) => f.path.includes("increment"));
     expect(incFile!.content).toContain("checked_add");
-    expect(incFile!.content).toContain("ArithmeticOverflow");
+    expect(incFile!.content).toContain("InvalidArgument");
   });
 
   it("generates no_std entrypoint", () => {

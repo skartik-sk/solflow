@@ -3,13 +3,14 @@
 // For FREE templates: direct fork via tRPC.
 // For PAID templates (not yet purchased): renders PaymentButton.
 // For PAID templates (already purchased): direct fork.
+// Disabled with tooltip when user is not logged in.
 
 "use client";
 
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
-import { GitFork } from "lucide-react";
+import { GitFork, LogIn } from "lucide-react";
 import { PaymentButton } from "@/components/marketplace/PaymentButton";
 
 interface ForkButtonProps {
@@ -17,6 +18,7 @@ interface ForkButtonProps {
   pricingModel: string;
   priceSOL: number | null;
   alreadyPurchased: boolean;
+  isAuthenticated: boolean;
 }
 
 export function ForkButton({
@@ -24,6 +26,7 @@ export function ForkButton({
   pricingModel,
   priceSOL,
   alreadyPurchased,
+  isAuthenticated,
 }: ForkButtonProps) {
   const router = useRouter();
 
@@ -41,6 +44,19 @@ export function ForkButton({
       }
     },
   });
+
+  // Not logged in — show disabled button with login prompt
+  if (!isAuthenticated) {
+    return (
+      <button
+        onClick={() => router.push("/auth/signin")}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      >
+        <LogIn className="h-4 w-4" />
+        Sign in to Fork
+      </button>
+    );
+  }
 
   // Paid template — delegate to PaymentButton
   if (pricingModel === "PAID" || pricingModel === "PAY_WHAT_YOU_WANT") {

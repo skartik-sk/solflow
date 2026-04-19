@@ -616,6 +616,21 @@ function buildInstructionIR(
 
   const body = buildLogicBody(allLogicNodes, nodes, edges);
 
+  // Post-process: fix init/init-if-needed constraints where payer name doesn't
+  // match any account. Default to the first signer account in the instruction.
+  const accountNames = new Set(resolvedAccounts.map((a) => a.name));
+  const firstSigner = resolvedAccounts.find((a) =>
+    a.accountType === "signer" ||
+    a.constraints.some((c) => c.type === "signer"),
+  );
+  for (const acc of resolvedAccounts) {
+    for (const c of acc.constraints) {
+      if ((c.type === "init" || c.type === "init-if-needed") && c.payer && !accountNames.has(c.payer)) {
+        c.payer = firstSigner?.name ?? c.payer;
+      }
+    }
+  }
+
   return {
     id: toUuid(ixNode.id),
     name: (data.name as string) ?? "instruction",

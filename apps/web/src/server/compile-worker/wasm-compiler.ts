@@ -183,12 +183,12 @@ function flattenForCloudBuild(
       handlerBodies.set(ctxName, { body, args, ctxName });
     }
 
-    // Extract Accounts struct
-    const accountsMatch = stripped.match(
-      /#\[derive\(Accounts\)\]\s*(?:#\[instruction\([^)]*\)\]\s*)?pub struct \w+[^{]*\{[\s\S]*?\n\}/,
-    );
-    if (accountsMatch) {
-      accountStructs.push(accountsMatch[0]);
+    // Extract Accounts struct(s) — use matchAll to capture all structs per file
+    const accountsMatches = [...stripped.matchAll(
+      /#\[derive\(Accounts\)\]\s*(?:#\[instruction\([^)]*\)\]\s*)?pub struct \w+[^{]*\{[\s\S]*?\n\}/g,
+    )];
+    for (const m of accountsMatches) {
+      accountStructs.push(m[0]);
     }
   }
 
@@ -196,11 +196,11 @@ function flattenForCloudBuild(
   const stateStructs: string[] = [];
   for (const stateContent of states) {
     const stripped = stripImports(stateContent);
-    const structMatch = stripped.match(
-      /#\[account[^\n]*\](?:\s*#\[derive[^\n]*\])*\s*pub struct \w+[^{]*\{[\s\S]*?\n\}/,
-    );
-    if (structMatch) {
-      stateStructs.push(structMatch[0]);
+    const structMatches = [...stripped.matchAll(
+      /#\[account[^\n]*\](?:\s*#\[derive[^\n]*\])*\s*pub struct \w+[^{]*\{[\s\S]*?\n\}/g,
+    )];
+    for (const m of structMatches) {
+      stateStructs.push(m[0]);
     }
   }
 
@@ -216,15 +216,15 @@ function flattenForCloudBuild(
     }
   }
 
-  // Extract event structs
+  // Extract event structs — use matchAll to capture all events per file
   const eventStructs: string[] = [];
   for (const eventContent of events) {
     const stripped = stripImports(eventContent);
-    const structMatch = stripped.match(
-      /#\[event\]\s*pub struct \w+[^{]*\{[\s\S]*?\n\}/,
-    );
-    if (structMatch) {
-      eventStructs.push(structMatch[0]);
+    const structMatches = [...stripped.matchAll(
+      /#\[event\]\s*pub struct \w+[^{]*\{[\s\S]*?\n\}/g,
+    )];
+    for (const m of structMatches) {
+      eventStructs.push(m[0]);
     }
   }
 
