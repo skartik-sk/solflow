@@ -23,6 +23,8 @@ interface ProjectState {
   isSaving: boolean;
   lastSavedAt: Date | null;
   saveError: string | null;
+  /** Whether the dirty flag came from a framework change (triggers fast auto-save) */
+  urgentDirty: boolean;
 
   // ─── Actions ──────────────────────────────────────────────────
   setProject: (project: {
@@ -50,6 +52,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   isSaving: false,
   lastSavedAt: null,
   saveError: null,
+  urgentDirty: false,
 
   setProject: (project) =>
     set({
@@ -63,7 +66,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setProjectName: (name) => set({ projectName: name, isDirty: true }),
 
   setFramework: (framework) => {
-    set({ framework, isDirty: true });
+    set({ framework, isDirty: true, urgentDirty: true });
     // Re-trigger code generation for the new framework.
     // We import lazily to avoid a circular dep at module load time.
     import("./flow-store").then(({ useFlowStore }) => {
@@ -74,7 +77,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   setNetwork: (network) => set({ network, isDirty: true }),
   markDirty: () => set({ isDirty: true }),
   markSaved: () =>
-    set({ isDirty: false, isSaving: false, lastSavedAt: new Date() }),
+    set({ isDirty: false, isSaving: false, lastSavedAt: new Date(), urgentDirty: false }),
   setSaving: (saving) => set({ isSaving: saving }),
 
   save: async (opts) => {

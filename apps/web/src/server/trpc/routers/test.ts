@@ -156,8 +156,8 @@ export const testRouter = router({
 
       // TODO (Phase 3 full): enqueue Docker test runner via BullMQ.
       // For now, generate test scaffolding results synchronously.
-      // Each test case is validated against the IR structure.
-      const results = testCases.map((tc, idx) => {
+      // Each test case is validated against the IR structure (not real execution).
+      const results = testCases.map((tc) => {
         const ix = (project.irData as ProgramIR)?.instructions.find(
           (i) => i.name === tc.instruction,
         );
@@ -169,7 +169,7 @@ export const testRouter = router({
             error: `Instruction "${tc.instruction}" not found in IR`,
           };
         }
-        // Basic structural validation: check that required accounts are provided
+        // Structural validation: check that required signer accounts are provided
         const missingAccounts = ix.accounts
           .filter((a) =>
             a.constraints.some((c) => c.type === "signer"),
@@ -179,7 +179,7 @@ export const testRouter = router({
           return {
             name: tc.name,
             status: "passed" as const,
-            duration: Math.floor(Math.random() * 5) + 1,
+            duration: 0,
             error: undefined,
           };
         }
@@ -187,14 +187,14 @@ export const testRouter = router({
           return {
             name: tc.name,
             status: "failed" as const,
-            duration: Math.floor(Math.random() * 3) + 1,
+            duration: 0,
             error: `Missing accounts: ${missingAccounts.map((a) => a.name).join(", ")}`,
           };
         }
         return {
           name: tc.name,
           status: "passed" as const,
-          duration: Math.floor(Math.random() * 10) + 1,
+          duration: 0,
           error: undefined,
         };
       });

@@ -5,7 +5,7 @@
 "use client";
 
 import React from "react";
-import { X, Code2, Zap, Wallet, Database, Settings, Shield, AlertTriangle, Radio, GitBranch, Terminal, Puzzle } from "lucide-react";
+import { X, Code2, Zap, Wallet, Database, Settings, Shield, AlertTriangle, Radio, GitBranch, Terminal, Puzzle, Layers, Trash2, Copy, AlignHorizontalSpaceAround, AlignVerticalSpaceAround } from "lucide-react";
 import { useFlowStore } from "@/store/flow-store";
 import { useUIStore } from "@/store/ui-store";
 import { useFlowGraph } from "@/hooks/use-flow-graph";
@@ -1365,9 +1365,58 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
 export function PropertiesPanel() {
   const { propertiesOpen, toggleProperties } = useUIStore();
   const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
+  const selectedNodeIds = useFlowStore((s) => s.selectedNodeIds);
   const nodes = useFlowStore((s) => s.nodes);
+  const removeNode = useFlowStore((s) => s.removeNode);
+  const duplicateNodes = useFlowStore((s) => s.duplicateNodes);
+  const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  const isMultiSelect = selectedNodeIds.length > 1;
+
+  // Batch delete all selected nodes
+  const handleBatchDelete = () => {
+    for (const id of selectedNodeIds) {
+      removeNode(id);
+    }
+    setSelectedNode(null);
+  };
+
+  // Batch duplicate all selected nodes
+  const handleBatchDuplicate = () => {
+    duplicateNodes(selectedNodeIds);
+  };
+
+  // Align selected nodes horizontally (equal vertical spacing)
+  const handleAlignH = () => {
+    if (selectedNodeIds.length < 2) return;
+    const sel = nodes.filter((n) => selectedNodeIds.includes(n.id));
+    const sorted = [...sel].sort((a, b) => a.position.x - b.position.x);
+    const gap = 200;
+    const startX = sorted[0].position.x;
+    sorted.forEach((n, i) => {
+      useFlowStore.getState().updateNodeData(n.id, {});
+      // Directly set position via nodes state
+      const allNodes = useFlowStore.getState().nodes;
+      useFlowStore.getState().onNodesChange([
+        { type: "position", id: n.id, position: { x: startX + i * gap, y: n.position.y }, dragging: false },
+      ]);
+    });
+  };
+
+  // Align selected nodes vertically (equal horizontal spacing)
+  const handleAlignV = () => {
+    if (selectedNodeIds.length < 2) return;
+    const sel = nodes.filter((n) => selectedNodeIds.includes(n.id));
+    const sorted = [...sel].sort((a, b) => a.position.y - b.position.y);
+    const gap = 100;
+    const startY = sorted[0].position.y;
+    sorted.forEach((n, i) => {
+      useFlowStore.getState().onNodesChange([
+        { type: "position", id: n.id, position: { x: n.position.x, y: startY + i * gap }, dragging: false },
+      ]);
+    });
+  };
 
   if (!propertiesOpen) return null;
 
@@ -1409,7 +1458,83 @@ export function PropertiesPanel() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3">
-        {!selectedNode ? (
+        {isMultiSelect ? (
+          <div className="space-y-4">
+            {/* Multi-select header */}
+            <div className="flex flex-col items-center gap-2 py-3 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Layers size={18} />
+              </div>
+              <p className="text-sm font-medium">
+                {selectedNodeIds.length} nodes selected
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Drag any selected node to move all
+              </p>
+            </div>
+
+            {/* Selected node list */}
+            <div className="space-y-1">
+              {nodes
+                .filter((n) => selectedNodeIds.includes(n.id))
+                .map((n) => {
+                  const m = TYPE_META[n.type ?? ""] ?? {
+                    label: n.type ?? "Node",
+                    color: "#6b7280",
+                  };
+                  const data = n.data as Record<string, unknown>;
+                  const name = String(data?.name ?? data?.label ?? n.type ?? "Node");
+                  return (
+                    <div
+                      key={n.id}
+                      className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ background: m.color }}
+                      />
+                      <span className="truncate text-foreground/80">{name}</span>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Batch actions */}
+            <div className="space-y-1.5 pt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Actions
+              </p>
+              <button
+                onClick={handleBatchDuplicate}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+              >
+                <Copy size={12} />
+                Duplicate all
+              </button>
+              <button
+                onClick={handleAlignH}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+              >
+                <AlignHorizontalSpaceAround size={12} />
+                Align horizontal
+              </button>
+              <button
+                onClick={handleAlignV}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+              >
+                <AlignVerticalSpaceAround size={12} />
+                Align vertical
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                className="flex w-full items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+              >
+                <Trash2 size={12} />
+                Delete all
+              </button>
+            </div>
+          </div>
+        ) : !selectedNode ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <Settings className="h-8 w-8 text-muted-foreground/30" />
             <p className="text-xs text-muted-foreground">

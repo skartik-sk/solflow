@@ -35,6 +35,7 @@ interface FlowState {
   edges: Edge[];
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
+  selectedNodeIds: string[];
 
   // ─── React Flow event handlers ────────────────────────────────
   onNodesChange: OnNodesChange;
@@ -56,6 +57,7 @@ interface FlowState {
   // ─── Selection ────────────────────────────────────────────────
   setSelectedNode: (nodeId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
+  setSelectedNodeIds: (ids: string[]) => void;
 
   // ─── Bulk ─────────────────────────────────────────────────────
   setFlow: (nodes: Node[], edges: Edge[]) => void;
@@ -89,6 +91,14 @@ function validateConnection(connection: Connection, nodes: Node[]): boolean {
   return isValidNodeConnection(source.type ?? "", target.type ?? "");
 }
 
+// ─── Drag-aware undo throttle ────────────────────────────────────────────────
+// During a node drag, position changes fire ~60x/sec, flooding the undo history.
+// We batch them: skip captures during drag, capture the pre-drag state at drag
+// start, and capture the post-drag state when drag ends.
+
+let _dragActive = false;
+let _preDragSnapshot: { nodes: Node[]; edges: Edge[] } | null = null;
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useFlowStore = create<FlowState>()(
@@ -106,38 +116,83 @@ export const useFlowStore = create<FlowState>()(
           edges: [],
           selectedNodeId: null,
           selectedEdgeId: null,
+          selectedNodeIds: [],
 
           // ─── React Flow handlers ──────────────────────────────
           onNodesChange: (changes) => {
-            set({ nodes: applyNodeChanges(changes, get().nodes) });
-            get()._debouncedRegenerate();
+            const isDragStart = changes.some(
+              (c) => c.type === "position" && (c as any).dragging === true,
+            );
+            const isDragEnd = changes.some(
+              (c) => c.type === "position" && (c as any).dragging === false,
+            );
+
+            // Save pre-drag state before the first position change
+            if (isDragStart && !_dragActive) {
+              _dragActive = true;
+              _preDragSnapshot = {
+                nodes: get().nodes.map((n) => ({ ...n })),
+                edges: get().edges.map((e) => ({ ...e })),
+              };
+            }
+
+            const newNodes = applyNodeChanges(changes, get().nodes);
+            let dirty = false;
+            let lastSelectedId: string | null = get().selectedNodeId;
 
             for (const change of changes) {
-              if (change.type === "select") {
-                set({
-                  selectedNodeId: change.selected ? change.id : null,
-                });
+              if (change.type === "select" && change.selected) {
+                lastSelectedId = change.id;
               }
               if (change.type === "remove" || change.type === "position") {
-                useProjectStore.getState().markDirty();
+                dirty = true;
+              }
+            }
+
+            const selectedNodeIds = newNodes
+              .filter((n) => n.selected)
+              .map((n) => n.id);
+
+            set({ nodes: newNodes, selectedNodeId: lastSelectedId, selectedNodeIds });
+            get()._debouncedRegenerate();
+
+            if (dirty) useProjectStore.getState().markDirty();
+
+            // On drag end, capture pre-drag snapshot into undo history
+            if (isDragEnd && _dragActive) {
+              _dragActive = false;
+              if (_preDragSnapshot) {
+                // Set state back to pre-drag, then forward to current
+                // This ensures undo can jump back to the pre-drag position
+                const currentNodes = get().nodes;
+                const currentEdges = get().edges;
+                // Set pre-drag state, which zundo captures as the "past"
+                set({ nodes: _preDragSnapshot.nodes, edges: _preDragSnapshot.edges });
+                // Immediately set back to current (zundo captures this too)
+                set({ nodes: currentNodes, edges: currentEdges });
+                _preDragSnapshot = null;
               }
             }
           },
 
           onEdgesChange: (changes) => {
-            set({ edges: applyEdgeChanges(changes, get().edges) });
-            get()._debouncedRegenerate();
+            const newEdges = applyEdgeChanges(changes, get().edges);
+            let dirty = false;
+            let lastSelectedEdgeId: string | null = get().selectedEdgeId;
 
             for (const change of changes) {
-              if (change.type === "select") {
-                set({
-                  selectedEdgeId: change.selected ? change.id : null,
-                });
+              if (change.type === "select" && change.selected) {
+                lastSelectedEdgeId = change.id;
               }
               if (change.type === "remove") {
-                useProjectStore.getState().markDirty();
+                dirty = true;
               }
             }
+
+            set({ edges: newEdges, selectedEdgeId: lastSelectedEdgeId });
+            get()._debouncedRegenerate();
+
+            if (dirty) useProjectStore.getState().markDirty();
           },
 
           onConnect: (connection) => {
@@ -172,6 +227,7 @@ export const useFlowStore = create<FlowState>()(
               ),
               selectedNodeId:
                 get().selectedNodeId === nodeId ? null : get().selectedNodeId,
+              selectedNodeIds: get().selectedNodeIds.filter((id) => id !== nodeId),
             });
             get()._debouncedRegenerate();
             useProjectStore.getState().markDirty();
@@ -230,10 +286,11 @@ export const useFlowStore = create<FlowState>()(
           // ─── Selection ────────────────────────────────────────
           setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId }),
           setSelectedEdge: (edgeId) => set({ selectedEdgeId: edgeId }),
+          setSelectedNodeIds: (ids) => set({ selectedNodeIds: ids }),
 
           // ─── Bulk ─────────────────────────────────────────────
           setFlow: (nodes, edges) => {
-            set({ nodes, edges, selectedNodeId: null, selectedEdgeId: null });
+            set({ nodes, edges, selectedNodeId: null, selectedEdgeId: null, selectedNodeIds: [] });
             get().regenerateCode();
           },
 
@@ -243,6 +300,7 @@ export const useFlowStore = create<FlowState>()(
               edges: [],
               selectedNodeId: null,
               selectedEdgeId: null,
+              selectedNodeIds: [],
             });
             useCodeStore.getState().clear();
           },
@@ -278,6 +336,11 @@ export const useFlowStore = create<FlowState>()(
           nodes: state.nodes,
           edges: state.edges,
         }),
+        // During drag, skip auto-capture (onNodesChange handles it on drag end)
+        handleSet: (handleSet) => (pastState, replace) => {
+          if (_dragActive) return;
+          handleSet(pastState, replace);
+        },
       },
     ),
   ),

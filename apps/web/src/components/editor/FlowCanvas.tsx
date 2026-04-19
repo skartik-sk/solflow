@@ -11,6 +11,7 @@ import {
   MiniMap,
   BackgroundVariant,
   ConnectionLineType,
+  SelectionMode,
   useNodes,
   useReactFlow,
   type OnConnect,
@@ -27,6 +28,7 @@ import {
 import { useFlowStore } from "@/store/flow-store";
 import { useUIStore } from "@/store/ui-store";
 import { setRFInstance } from "@/lib/rf-instance";
+import { Copy, Trash2, AlignHorizontalSpaceAround, AlignVerticalSpaceAround } from "lucide-react";
 
 // ─── Stable constants (defined outside the component to avoid referential
 //     inequality causing React Flow to re-process them on every render) ────────
@@ -244,6 +246,97 @@ function FitViewButton() {
   );
 }
 
+// ─── Floating multi-select toolbar ───────────────────────────────────────────
+
+function MultiSelectToolbar() {
+  const selectedNodeIds = useFlowStore((s) => s.selectedNodeIds);
+  const nodes = useFlowStore((s) => s.nodes);
+  const removeNode = useFlowStore((s) => s.removeNode);
+  const duplicateNodes = useFlowStore((s) => s.duplicateNodes);
+  const { fitView } = useReactFlow();
+
+  if (selectedNodeIds.length < 2) return null;
+
+  const handleDelete = () => {
+    for (const id of selectedNodeIds) removeNode(id);
+  };
+
+  const handleDuplicate = () => duplicateNodes(selectedNodeIds);
+
+  const handleAlignH = () => {
+    if (selectedNodeIds.length < 2) return;
+    const sel = nodes.filter((n) => selectedNodeIds.includes(n.id));
+    const sorted = [...sel].sort((a, b) => a.position.x - b.position.x);
+    const gap = 200;
+    const startX = sorted[0].position.x;
+    sorted.forEach((n, i) => {
+      useFlowStore.getState().onNodesChange([
+        { type: "position", id: n.id, position: { x: startX + i * gap, y: n.position.y }, dragging: false },
+      ]);
+    });
+  };
+
+  const handleAlignV = () => {
+    if (selectedNodeIds.length < 2) return;
+    const sel = nodes.filter((n) => selectedNodeIds.includes(n.id));
+    const sorted = [...sel].sort((a, b) => a.position.y - b.position.y);
+    const gap = 100;
+    const startY = sorted[0].position.y;
+    sorted.forEach((n, i) => {
+      useFlowStore.getState().onNodesChange([
+        { type: "position", id: n.id, position: { x: n.position.x, y: startY + i * gap }, dragging: false },
+      ]);
+    });
+  };
+
+  return (
+    <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 rounded-xl border border-border bg-card/95 backdrop-blur-md px-2 py-1.5 shadow-xl">
+      <span className="px-2 text-[10px] font-medium text-muted-foreground">
+        {selectedNodeIds.length} selected
+      </span>
+      <div className="mx-1 h-4 w-px bg-border" />
+      <button
+        onClick={handleDuplicate}
+        title="Duplicate selected"
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+      >
+        <Copy size={13} />
+      </button>
+      <button
+        onClick={handleAlignH}
+        title="Align horizontally"
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+      >
+        <AlignHorizontalSpaceAround size={13} />
+      </button>
+      <button
+        onClick={handleAlignV}
+        title="Align vertically"
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+      >
+        <AlignVerticalSpaceAround size={13} />
+      </button>
+      <button
+        onClick={() => fitView({ nodes: selectedNodeIds.map((id) => ({ id })), padding: 0.2, duration: 300 })}
+        title="Focus selection"
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="11" cy="11" r="8" /><path d="m21 21-4.3-4.3" />
+        </svg>
+      </button>
+      <div className="mx-1 h-4 w-px bg-border" />
+      <button
+        onClick={handleDelete}
+        title="Delete selected"
+        className="flex h-7 w-7 items-center justify-center rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+      >
+        <Trash2 size={13} />
+      </button>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export function FlowCanvas() {
@@ -331,6 +424,10 @@ export function FlowCanvas() {
         snapToGrid
         snapGrid={snapGrid}
         deleteKeyCode={deleteKeyCode}
+        selectionOnDrag
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={[1]}
+        panActivationKeyCode="Space"
         multiSelectionKeyCode="Shift"
         minZoom={0.2}
         maxZoom={2}
@@ -356,6 +453,8 @@ export function FlowCanvas() {
         <DiffOverlayLayer />
         {/* Fit-to-screen button */}
         <FitViewButton />
+        {/* Floating multi-select toolbar */}
+        <MultiSelectToolbar />
       </ReactFlow>
       {/* Canvas search overlay */}
       {searchOpen && (

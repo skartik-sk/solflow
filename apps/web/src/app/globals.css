@@ -145,6 +145,16 @@
     background-color: var(--color-primary) !important;
     border-color: var(--color-primary) !important;
   }
+
+  .react-flow__selection {
+    background: oklch(0.55 0.15 260 / 0.08) !important;
+    border: 1.5px solid oklch(0.55 0.15 260 / 0.35) !important;
+    border-radius: 6px;
+  }
+
+  .react-flow__selection-pane {
+    cursor: crosshair;
+  }
 }
 
 @theme inline {

@@ -171,6 +171,8 @@ function ProjectMenu({
 }) {
   const router = useRouter();
   const ref = useRef<HTMLDivElement>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [nameInput, setNameInput] = useState(projectName);
 
   const deleteProject = trpc.project.delete.useMutation({
     onSuccess: () => {
@@ -182,6 +184,27 @@ function ProjectMenu({
       toast.error("Failed to delete project");
     },
   });
+
+  const renameProject = trpc.project.update.useMutation({
+    onSuccess: () => {
+      toast.success("Renamed");
+      onClose();
+      router.refresh();
+    },
+    onError: () => {
+      toast.error("Failed to rename");
+    },
+  });
+
+  const commitRename = () => {
+    const trimmed = nameInput.trim();
+    if (trimmed && trimmed !== projectName) {
+      renameProject.mutate({ id: projectId, name: trimmed });
+    } else {
+      setNameInput(projectName);
+      setRenaming(false);
+    }
+  };
 
   // Close on outside click
   useEffect(() => {
@@ -202,7 +225,7 @@ function ProjectMenu({
   return (
     <div
       ref={ref}
-      className="absolute right-0 top-8 z-20 w-44 rounded-lg border border-border bg-popover p-1 shadow-xl shadow-black/30"
+      className="absolute right-0 top-8 z-20 w-52 rounded-lg border border-border bg-popover p-1 shadow-xl shadow-black/30"
     >
       <button
         onClick={(e) => {
@@ -214,18 +237,34 @@ function ProjectMenu({
         <ExternalLink className="h-3.5 w-3.5" />
         Open editor
       </button>
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          // TODO: rename
-          toast.info("Rename coming soon");
-          onClose();
-        }}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-        Rename
-      </button>
+
+      {renaming ? (
+        <div className="px-1 py-1">
+          <input
+            autoFocus
+            value={nameInput}
+            onChange={(e) => setNameInput(e.target.value)}
+            onBlur={commitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commitRename();
+              if (e.key === "Escape") { setNameInput(projectName); setRenaming(false); }
+            }}
+            className="w-full rounded border border-primary bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            setNameInput(projectName);
+            setRenaming(true);
+          }}
+          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+          Rename
+        </button>
+      )}
       <div className="my-1 border-t border-border" />
       <button
         onClick={(e) => {

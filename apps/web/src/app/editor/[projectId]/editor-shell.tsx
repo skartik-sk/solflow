@@ -148,18 +148,21 @@ export function EditorShell({
   }, []);
 
   // ─── Auto-save: debounced save whenever isDirty flips to true ──────
+  // Framework changes save fast (3s), normal edits save after 30s.
+  // Auto-save NEVER creates version snapshots — only Ctrl+S does that.
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const unsub = useProjectStore.subscribe((state) => {
-      if (!state.isDirty) return;
+    const unsub = useProjectStore.subscribe((state, prevState) => {
+      if (!state.isDirty || state.isDirty === prevState.isDirty) return;
       if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      const delay = state.urgentDirty ? 3_000 : 30_000;
       autoSaveTimerRef.current = setTimeout(() => {
         useProjectStore
           .getState()
           .save()
           .catch(() => toast.error("Auto-save failed"));
-      }, 5000); // 5-second debounce
+      }, delay);
     });
     return () => {
       unsub();

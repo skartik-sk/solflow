@@ -518,7 +518,9 @@ export function EditorTopBar() {
               <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
               <ShortcutRow keys="Ctrl+F" label="Find node" />
               <ShortcutRow keys="Del / Bksp" label="Delete selected" />
-              <ShortcutRow keys="Shift" label="Multi-select" />
+              <ShortcutRow keys="Drag canvas" label="Box select" />
+              <ShortcutRow keys="Shift+Click" label="Multi-select" />
+              <ShortcutRow keys="Space+Drag" label="Pan canvas" />
             </div>
           </div>
         </div>
