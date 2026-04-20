@@ -46,6 +46,7 @@ describe("SOL-001: Missing Signer Check", () => {
         {
           id: uuid(),
           name: "withdraw",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -87,6 +88,7 @@ describe("SOL-001: Missing Signer Check", () => {
         {
           id: uuid(),
           name: "withdraw",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -123,6 +125,7 @@ describe("SOL-002: Missing Owner Check", () => {
         {
           id: uuid(),
           name: "process",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -151,6 +154,7 @@ describe("SOL-002: Missing Owner Check", () => {
         {
           id: uuid(),
           name: "process",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -180,6 +184,7 @@ describe("SOL-010: Unchecked Arithmetic", () => {
         {
           id: uuid(),
           name: "deposit",
+          accessControl: "none",
           args: [],
           accounts: [],
           body: [
@@ -210,6 +215,7 @@ describe("SOL-010: Unchecked Arithmetic", () => {
         {
           id: uuid(),
           name: "deposit",
+          accessControl: "none",
           args: [],
           accounts: [],
           body: [
@@ -241,6 +247,7 @@ describe("SOL-020: PDA Seed Collision Risk", () => {
         {
           id: uuid(),
           name: "initialize",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -260,6 +267,7 @@ describe("SOL-020: PDA Seed Collision Risk", () => {
         {
           id: uuid(),
           name: "other_ix",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -291,6 +299,7 @@ describe("SOL-020: PDA Seed Collision Risk", () => {
         {
           id: uuid(),
           name: "initialize",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -328,6 +337,7 @@ describe("SOL-030: Missing Mint Check", () => {
         {
           id: uuid(),
           name: "transfer",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -354,6 +364,7 @@ describe("SOL-030: Missing Mint Check", () => {
         {
           id: uuid(),
           name: "transfer",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -386,6 +397,7 @@ describe("Clean program", () => {
         {
           id: uuid(),
           name: "initialize",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -416,6 +428,7 @@ describe("Clean program", () => {
         {
           id: uuid(),
           name: "increment",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -481,6 +494,7 @@ describe("Score calculation", () => {
         {
           id: uuid(),
           name: "noop",
+          accessControl: "none",
           args: [],
           accounts: [
             {
@@ -507,6 +521,7 @@ describe("Score calculation", () => {
         {
           id: uuid(),
           name: "drain",
+          accessControl: "none",
           args: [],
           accounts: [
             {

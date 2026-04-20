@@ -45,6 +45,8 @@ interface FlowState {
   setSelectedNode: (nodeId: string | null) => void;
   setSelectedEdge: (edgeId: string | null) => void;
   setSelectedNodeIds: (ids: string[]) => void;
+  selectAllNodes: () => void;
+  compactSelectedNodes: (nodeIds: string[]) => void;
 
   setFlow: (nodes: Node[], edges: Edge[]) => void;
   clearFlow: () => void;
@@ -233,6 +235,26 @@ export const useFlowStore = create<FlowState>()(
         setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId }),
         setSelectedEdge: (edgeId) => set({ selectedEdgeId: edgeId }),
         setSelectedNodeIds: (ids) => set({ selectedNodeIds: ids }),
+        selectAllNodes: () => {
+          const nodes = get().nodes.map((n) => ({ ...n, selected: true }));
+          set({ nodes, selectedNodeIds: nodes.map((n) => n.id), selectedNodeId: nodes[nodes.length - 1]?.id ?? null });
+        },
+        compactSelectedNodes: (nodeIds: string[]) => {
+          if (nodeIds.length === 0) return;
+          const nodes = get().nodes;
+          const selected = nodes.filter((n) => nodeIds.includes(n.id));
+          const minX = Math.min(...selected.map((n) => n.position.x));
+          const minY = Math.min(...selected.map((n) => n.position.y));
+          const GAP_X = 280;
+          const GAP_Y = 180;
+          const changes = selected.map((n, i) => ({
+            id: n.id,
+            type: "position" as const,
+            position: { x: minX + (i % 4) * GAP_X, y: minY + Math.floor(i / 4) * GAP_Y },
+            dragging: false,
+          }));
+          get().onNodesChange(changes);
+        },
 
         // ─── Bulk ─────────────────────────────────────────────
         setFlow: (nodes, edges) => {

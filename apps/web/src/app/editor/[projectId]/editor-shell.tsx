@@ -183,6 +183,10 @@ export function EditorShell({
           .save({ snapshot: true })
           .catch(() => toast.error("Failed to save"));
         break;
+      case "a":
+        e.preventDefault();
+        useFlowStore.getState().selectAllNodes();
+        break;
       case "1":
         e.preventDefault();
         useUIStore.getState().openBottomPanelTab("code");

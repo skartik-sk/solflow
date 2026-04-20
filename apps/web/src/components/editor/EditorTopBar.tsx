@@ -22,10 +22,8 @@ import {
   CheckCircle,
   XCircle,
   Wallet,
-  Keyboard,
   Settings,
   Globe,
-  Plus,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -76,7 +74,6 @@ export function EditorTopBar() {
   const startCompile = useBuildStore((s) => s.startCompile);
   const startTest = useBuildStore((s) => s.startTest);
   const startDeploy = useBuildStore((s) => s.startDeploy);
-  const resetProgramKeypair = useBuildStore((s) => s.resetProgramKeypair);
 
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(projectName);
@@ -185,24 +182,6 @@ export function EditorTopBar() {
     }
   };
 
-  const handleResetProgram = async () => {
-    if (!projectId) return;
-    const confirmed = window.confirm(
-      "Reset program keypair?\n\nThis will generate a new program ID. " +
-        "The next deploy will create a fresh program (with upgrade headroom). " +
-        "The old program will remain on-chain but won't be upgraded.\n\n" +
-        "This is useful when the program was deployed without upgrade headroom.",
-    );
-    if (!confirmed) return;
-    try {
-      openBottomPanelTab("console");
-      const newId = await resetProgramKeypair(projectId);
-      toast.success(`Program keypair reset: ${newId.slice(0, 8)}…`);
-    } catch {
-      toast.error("Failed to reset program keypair");
-    }
-  };
-
   // ─── Compile button appearance ────────────────────────────────────────────
 
   const handleSettings = () => {
@@ -246,7 +225,7 @@ export function EditorTopBar() {
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-3">
       {/* ─── Left ──────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 shrink items-center gap-2">
         <Link
           href="/dashboard"
           className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
@@ -283,8 +262,8 @@ export function EditorTopBar() {
               setNameInput(projectName);
               setEditingName(true);
             }}
-            className="rounded px-1.5 py-0.5 text-sm font-medium hover:bg-accent transition-colors"
-            title="Click to rename"
+            className="max-w-[60px] truncate rounded px-1 py-0.5 text-sm font-medium hover:bg-accent transition-colors"
+            title={projectName}
           >
             {projectName}
           </button>
@@ -309,24 +288,24 @@ export function EditorTopBar() {
 
         {/* Deployed program ID chip */}
         {deployedProgramId && deployStatus === "success" && (
-          <span className="ml-1 flex items-center gap-1 rounded-full bg-green-500/10 border border-green-500/20 px-2 py-0.5 text-[10px] text-green-400">
+          <span className="ml-1 flex items-center gap-1 rounded-full bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 text-[10px] text-green-400">
             <CheckCircle size={9} />
             {deployExplorerUrl ? (
               <button
-                onClick={() => openFloatingBrowser(deployExplorerUrl, `Program: ${deployedProgramId.slice(0, 8)}…`)}
+                onClick={() => openFloatingBrowser(deployExplorerUrl, `Program: ${deployedProgramId.slice(0, 6)}…`)}
                 className="hover:underline cursor-pointer"
               >
-                {deployedProgramId.slice(0, 8)}…
+                {deployedProgramId.slice(0, 6)}…
               </button>
             ) : (
-              <span>{deployedProgramId.slice(0, 8)}…</span>
+              <span>{deployedProgramId.slice(0, 6)}…</span>
             )}
           </span>
         )}
       </div>
 
       {/* ─── Center ────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
+      <div className="flex shrink items-center gap-2">
         {/* Undo / Redo */}
         <button
           onClick={() => undo()}
@@ -344,6 +323,8 @@ export function EditorTopBar() {
         >
           <RotateCw size={13} />
         </button>
+
+        <div className="mx-1 h-4 w-px bg-border" />
 
         <div className="mx-1 h-4 w-px bg-border" />
 
@@ -372,7 +353,20 @@ export function EditorTopBar() {
         <div className="flex items-center gap-1">
           <select
             value={network}
-            onChange={(e) => setNetwork(e.target.value as Network)}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === "__add_custom__") {
+                const name = prompt("Endpoint name (e.g. My Devnet):");
+                if (!name?.trim()) return;
+                const url = prompt("RPC URL (e.g. https://my-rpc.example.com):");
+                if (!url?.trim()) return;
+                const id = `custom-${Date.now()}`;
+                addCustomEndpoint({ id, name: name.trim(), url: url.trim() });
+                setNetwork(id);
+                return;
+              }
+              setNetwork(val as Network);
+            }}
             className="h-7 rounded-lg border border-border bg-card px-2 text-xs text-muted-foreground outline-none hover:border-border/80 focus:border-primary"
           >
             <option value="devnet">Devnet</option>
@@ -385,22 +379,8 @@ export function EditorTopBar() {
                 ))}
               </optgroup>
             )}
+            <option disabled value="__add_custom__">+ Custom</option>
           </select>
-          <button
-            onClick={() => {
-              const name = prompt("Endpoint name (e.g. My Devnet):");
-              if (!name?.trim()) return;
-              const url = prompt("RPC URL (e.g. https://my-rpc.example.com):");
-              if (!url?.trim()) return;
-              const id = `custom-${Date.now()}`;
-              addCustomEndpoint({ id, name: name.trim(), url: url.trim() });
-              setNetwork(id);
-            }}
-            title="Add custom RPC endpoint"
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <Plus size={12} />
-          </button>
           {customEndpoints.find((e) => e.id === network) && (
             <button
               onClick={() => {
@@ -417,7 +397,7 @@ export function EditorTopBar() {
       </div>
 
       {/* ─── Right ─────────────────────────────────────────────── */}
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {/* Version history */}
         <button
           onClick={() => openBottomPanelTab("history")}
@@ -495,7 +475,7 @@ export function EditorTopBar() {
         >
           <Wallet size={12} />
           {wallet.connected && wallet.publicKey
-            ? `${wallet.publicKey.toBase58().slice(0, 4)}..${wallet.publicKey.toBase58().slice(-4)}`
+            ? `${wallet.publicKey.toBase58().slice(0, 3)}..${wallet.publicKey.toBase58().slice(-3)}`
             : "Connect"}
         </button>
 
@@ -527,16 +507,6 @@ export function EditorTopBar() {
           {isDeploying ? "Deploying…" : "Deploy"}
         </button>
 
-        {/* Reset Program Keypair */}
-        <button
-          onClick={handleResetProgram}
-          disabled={!projectId || isDeploying}
-          title="Reset program keypair (generates new program ID for fresh deploy with upgrade headroom)"
-          className="inline-flex h-7 items-center gap-1 rounded-lg border border-border bg-card px-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
-        >
-          <RotateCcw size={12} />
-        </button>
-
         {/* Floating browser */}
         <button
           onClick={() => openFloatingBrowser("/docs", "SolStudio Docs")}
@@ -545,31 +515,6 @@ export function EditorTopBar() {
         >
           <Globe size={12} />
         </button>
-
-        {/* Keyboard shortcuts */}
-        <div className="relative group">
-          <button
-            title="Keyboard shortcuts"
-            className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <Keyboard size={12} />
-          </button>
-          <div className="pointer-events-none absolute right-0 top-full z-50 mt-1 hidden w-56 rounded-lg border border-border bg-card p-3 shadow-xl group-hover:block">
-            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Shortcuts
-            </p>
-            <div className="space-y-1 text-[11px]">
-              <ShortcutRow keys="Ctrl+S" label="Save" />
-              <ShortcutRow keys="Ctrl+Z" label="Undo" />
-              <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
-              <ShortcutRow keys="Ctrl+F" label="Find node" />
-              <ShortcutRow keys="Del / Bksp" label="Delete selected" />
-              <ShortcutRow keys="Drag canvas" label="Box select" />
-              <ShortcutRow keys="Shift+Click" label="Multi-select" />
-              <ShortcutRow keys="Space+Drag" label="Pan canvas" />
-            </div>
-          </div>
-        </div>
 
         {/* Compile */}
         <button
@@ -585,18 +530,5 @@ export function EditorTopBar() {
 
       <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />
     </header>
-  );
-}
-
-// ─── Shortcut row helper ──────────────────────────────────────────────────────
-
-function ShortcutRow({ keys, label }: { keys: string; label: string }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted-foreground">{label}</span>
-      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/70">
-        {keys}
-      </kbd>
-    </div>
   );
 }

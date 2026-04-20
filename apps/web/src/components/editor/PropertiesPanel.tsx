@@ -5,8 +5,9 @@
 "use client";
 
 import React from "react";
-import { X, Code2, Zap, Wallet, Database, Settings, Shield, AlertTriangle, Radio, GitBranch, Terminal, Puzzle, Layers, Trash2, Copy, AlignHorizontalSpaceAround, AlignVerticalSpaceAround } from "lucide-react";
+import { X, Code2, Zap, Wallet, Database, Settings, Shield, AlertTriangle, Radio, GitBranch, Terminal, Puzzle, Layers, Trash2, Copy, AlignHorizontalSpaceAround, AlignVerticalSpaceAround, Minimize2 } from "lucide-react";
 import { useFlowStore } from "@/store/flow-store";
+import { getRFInstance } from "@/lib/rf-instance";
 import { useUIStore } from "@/store/ui-store";
 import { useFlowGraph } from "@/hooks/use-flow-graph";
 import { TypeEditor } from "./TypeEditor";
@@ -1577,6 +1578,16 @@ export function PropertiesPanel() {
               >
                 <AlignVerticalSpaceAround size={12} />
                 Align vertical
+              </button>
+              <button
+                onClick={() => {
+                  useFlowStore.getState().compactSelectedNodes(selectedNodeIds);
+                  setTimeout(() => getRFInstance()?.fitView({ duration: 400, padding: 0.2, nodes: selectedNodeIds.map((id) => ({ id })) }), 50);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+              >
+                <Minimize2 size={12} />
+                Compact
               </button>
               <button
                 onClick={handleBatchDelete}

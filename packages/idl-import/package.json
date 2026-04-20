@@ -17,6 +17,7 @@
     "@xyflow/react": "^12.5.0"
   },
   "devDependencies": {
+    "@solflow/codegen": "workspace:*",
     "@solflow/ir": "workspace:*",
     "@solflow/tsconfig": "workspace:*",
     "@solflow/eslint-config": "workspace:*",

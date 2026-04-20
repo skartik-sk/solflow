@@ -3,11 +3,16 @@
 // Settings Dialog — modal overlay for user preferences.
 
 import React, { useState } from "react";
-import { X, RotateCcw } from "lucide-react";
+import { X, RotateCcw, RefreshCw, Keyboard, Workflow } from "lucide-react";
+import { toast } from "sonner";
 import { useSettingsStore } from "@/store/settings-store";
 import { useUIStore, type Theme } from "@/store/ui-store";
+import { useProjectStore } from "@/store/project-store";
+import { useBuildStore } from "@/store/build-store";
+import { useFlowStore } from "@/store/flow-store";
+import { getRFInstance } from "@/lib/rf-instance";
 
-type SettingsTab = "editor" | "defaults" | "build";
+type SettingsTab = "editor" | "defaults" | "build" | "shortcuts";
 
 export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [tab, setTab] = useState<SettingsTab>("editor");
@@ -31,7 +36,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
         {/* Tab bar */}
         <div className="flex shrink-0 border-b border-border px-5">
-          {(["editor", "defaults", "build"] as SettingsTab[]).map((t) => (
+          {(["editor", "defaults", "build", "shortcuts"] as SettingsTab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -41,7 +46,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
                   : "border-transparent text-muted-foreground hover:text-foreground"
               }`}
             >
-              {t === "editor" ? "Editor" : t === "defaults" ? "Defaults" : "Build"}
+              {t === "editor" ? "Editor" : t === "defaults" ? "Defaults" : t === "build" ? "Build" : "Shortcuts"}
             </button>
           ))}
         </div>
@@ -51,6 +56,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           {tab === "editor" && <EditorTab />}
           {tab === "defaults" && <DefaultsTab />}
           {tab === "build" && <BuildTab />}
+          {tab === "shortcuts" && <ShortcutsTab />}
         </div>
 
         {/* Footer */}
@@ -215,6 +221,27 @@ function BuildTab() {
   const setAutoBuild = useSettingsStore((s) => s.setAutoBuildOnCodeChange);
   const showNotifications = useSettingsStore((s) => s.showBuildNotifications);
   const setShowNotifications = useSettingsStore((s) => s.setShowBuildNotifications);
+  const projectId = useProjectStore((s) => s.projectId);
+  const resetProgramKeypair = useBuildStore((s) => s.resetProgramKeypair);
+  const isDeploying = useBuildStore((s) => s.deployStatus) === "deploying" ||
+    useBuildStore((s) => s.deployStatus) === "confirming";
+
+  const handleResetProgram = async () => {
+    if (!projectId) return;
+    const confirmed = window.confirm(
+      "Reset program keypair?\n\nThis will generate a new program ID. " +
+        "The next deploy will create a fresh program (with upgrade headroom). " +
+        "The old program will remain on-chain but won't be upgraded.\n\n" +
+        "This is useful when the program was deployed without upgrade headroom."
+    );
+    if (!confirmed) return;
+    try {
+      const newId = await resetProgramKeypair(projectId);
+      toast.success(`Program keypair reset: ${newId.slice(0, 8)}…`);
+    } catch {
+      toast.error("Failed to reset program keypair");
+    }
+  };
 
   return (
     <div className="divide-y divide-border/30">
@@ -224,6 +251,64 @@ function BuildTab() {
       <Row label="Build Notifications" description="Show toast notifications for build status">
         <Toggle value={showNotifications} onChange={setShowNotifications} />
       </Row>
+      <Row label="Reset Program Keypair" description="Generate a new program ID for fresh deploy with upgrade headroom">
+        <button
+          onClick={handleResetProgram}
+          disabled={!projectId || isDeploying}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          <RefreshCw size={11} />
+          Reset
+        </button>
+      </Row>
+      <Row label="Reset All Node Positions" description="Compact all nodes into a tight grid layout">
+        <button
+          onClick={() => {
+            const nodeIds = useFlowStore.getState().nodes.map((n) => n.id);
+            useFlowStore.getState().compactSelectedNodes(nodeIds);
+            setTimeout(() => getRFInstance()?.fitView({ duration: 400, padding: 0.2 }), 50);
+          }}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Workflow size={11} />
+          Reset
+        </button>
+      </Row>
+    </div>
+  );
+}
+
+// ─── Shortcuts Tab ──────────────────────────────────────────────────────────────
+
+function ShortcutsTab() {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Keyboard size={14} />
+        <p className="text-xs font-medium">Keyboard Shortcuts</p>
+      </div>
+      <div className="space-y-1.5">
+        <ShortcutRow keys="Ctrl+S" label="Save" />
+        <ShortcutRow keys="Ctrl+Z" label="Undo" />
+        <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
+        <ShortcutRow keys="Ctrl+F" label="Find node" />
+        <ShortcutRow keys="Del / Bksp" label="Delete selected" />
+        <ShortcutRow keys="Drag canvas" label="Box select" />
+        <ShortcutRow keys="Shift+Click" label="Multi-select" />
+        <ShortcutRow keys="Ctrl+A" label="Select all nodes" />
+        <ShortcutRow keys="Space+Drag" label="Pan canvas" />
+      </div>
+    </div>
+  );
+}
+
+function ShortcutRow({ keys, label }: { keys: string; label: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/70">
+        {keys}
+      </kbd>
     </div>
   );
 }
