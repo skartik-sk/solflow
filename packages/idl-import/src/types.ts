@@ -20,7 +20,7 @@ export type SolanaType =
 
 // ─── Unified IDL ─────────────────────────────────────────────────────────
 
-export type IdlFormat = "anchor" | "shank" | "kinobi" | "unknown";
+export type IdlFormat = "anchor" | "shank" | "kinobi" | "codama" | "unknown";
 
 export interface UnifiedIdl {
   program: {
@@ -80,6 +80,10 @@ export interface UnifiedTypeDef {
 export function detectFormat(json: unknown): IdlFormat {
   if (!json || typeof json !== "object") return "unknown";
   const obj = json as Record<string, unknown>;
+
+  // Codama: rootNode with standard "codama" or programNode at top level
+  if (obj.kind === "rootNode" && obj.standard === "codama") return "codama";
+  if (obj.kind === "programNode") return "codama";
 
   // Kinobi: has a `nodes` object or `rootProgram` key
   if (typeof obj.nodes === "object" && obj.nodes !== null) return "kinobi";

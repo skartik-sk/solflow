@@ -26,6 +26,7 @@ import type { IdlFormat } from "./types";
 import { parseAnchorIdl } from "./parsers/anchor";
 import { parseShankIdl } from "./parsers/shank";
 import { parseKinobiIdl } from "./parsers/kinobi";
+import { parseCodamaIdl } from "./parsers/codama";
 import { normalizeIdl } from "./normalizer";
 import { autoLayout } from "./layout";
 
@@ -59,6 +60,9 @@ export function idlToFlow(json: unknown): ImportResult {
       break;
     case "kinobi":
       unified = parseKinobiIdl(json);
+      break;
+    case "codama":
+      unified = parseCodamaIdl(json);
       break;
     case "anchor":
     case "unknown":
