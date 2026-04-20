@@ -16,6 +16,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
 interface ParsedPreview {
   format: IdlFormat;
+  detectedFormat: IdlFormat;
   stats: { instructions: number; accounts: number; errors: number; events: number };
 }
 
@@ -58,20 +59,28 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     }
 
     // Quick format detection for preview
-    const format = detectFormat(parsed);
-    if (format === "unknown") {
-      // Try parsing anyway — it might still be a valid Anchor IDL
-    }
+    const detectedFormat = detectFormat(parsed);
+    const isUnknown = detectedFormat === "unknown";
 
     setIsParsing(true);
     try {
       const result = idlToFlow(parsed);
       setPreview({
-        format: result.format,
+        format: isUnknown ? "anchor" : result.format,
+        detectedFormat,
         stats: result.stats,
       });
+      if (isUnknown) {
+        setError(null);
+      }
     } catch (err) {
-      setError((err as Error).message ?? "Failed to parse IDL");
+      if (isUnknown) {
+        setError(
+          "Could not detect IDL format. Supported formats: Anchor, Shank, Kinobi. Make sure the JSON has a valid program structure with instructions array.",
+        );
+      } else {
+        setError((err as Error).message ?? "Failed to parse IDL");
+      }
     } finally {
       setIsParsing(false);
     }
@@ -148,6 +157,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     anchor: "Anchor",
     shank: "Shank",
     kinobi: "Kinobi",
+    unknown: "Unknown (trying Anchor)",
   };
 
   const formatColor: Record<string, string> = {
@@ -227,13 +237,20 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
               <CheckCircle size={14} className="text-green-400" />
               <span
                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
-                  formatColor[preview.format] ?? formatColor.anchor
+                  preview.detectedFormat === "unknown"
+                    ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                    : (formatColor[preview.format] ?? formatColor.anchor)
                 }`}
               >
                 <FileJson size={10} className="mr-1" />
-                {formatLabel[preview.format] ?? "Anchor"} IDL
+                {formatLabel[preview.detectedFormat] ?? formatLabel[preview.format] ?? "Anchor"} IDL
               </span>
             </div>
+            {preview.detectedFormat === "unknown" && (
+              <p className="text-[11px] text-amber-400/80">
+                Format not recognized but parsed successfully as Anchor IDL.
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               {preview.stats.instructions} instruction
               {preview.stats.instructions !== 1 ? "s" : ""} &middot;{" "}

@@ -2,6 +2,7 @@
 
 // CodeCompareView — side-by-side Anchor vs Pinocchio code comparison.
 // Generates both frameworks from the current IR and shows them in split panes.
+// Supports diff mode (red/green highlighting) and side-by-side mode.
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
@@ -27,7 +28,20 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ),
 });
 
+const DiffEditor = dynamic(
+  () => import("@monaco-editor/react").then((mod) => mod.DiffEditor),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+        Loading diff editor…
+      </div>
+    ),
+  },
+);
+
 type Framework = "anchor" | "pinocchio" | "quasar";
+type ViewMode = "diff" | "side-by-side";
 
 interface CompareState {
   anchor: GeneratedFile[] | null;
@@ -141,6 +155,7 @@ export function CodeCompareView() {
   const irJson = useCodeStore((s) => s.irJson);
   const [anchorFile, setAnchorFile] = useState<string | null>(null);
   const [pinocchioFile, setPinocchioFile] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("diff");
 
   // Scroll sync refs
   const anchorEditorRef = useRef<MonacoEditorTypes.ICodeEditor | null>(null);
@@ -209,6 +224,31 @@ export function CodeCompareView() {
     prevGenRef.current = generated;
   }, [generated]);
 
+  // Get currently selected files for diff view
+  const anchorCurrent = useMemo(() => {
+    if (!generated || !("anchor" in generated) || !generated.anchor) return null;
+    return (
+      generated.anchor.find((f) => f.path === anchorFile) ??
+      generated.anchor[0] ??
+      null
+    );
+  }, [generated, anchorFile]);
+
+  const pinocchioCurrent = useMemo(() => {
+    if (!generated || !("pinocchio" in generated) || !generated.pinocchio) return null;
+    return (
+      generated.pinocchio.find((f) => f.path === pinocchioFile) ??
+      generated.pinocchio[0] ??
+      null
+    );
+  }, [generated, pinocchioFile]);
+
+  const diffLanguage = anchorCurrent
+    ? detectLanguage(anchorCurrent.path)
+    : pinocchioCurrent
+      ? detectLanguage(pinocchioCurrent.path)
+      : "plaintext";
+
   if (!irJson || !generated) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -226,25 +266,99 @@ export function CodeCompareView() {
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
-      <Pane
-        label="Anchor"
-        files={generated.anchor}
-        activeFile={anchorFile}
-        onSelectFile={setAnchorFile}
-        color="bg-violet-500/10"
-        syncedEditor={pinocchioEditorRef}
-        onEditorMount={onAnchorMount}
-      />
-      <Pane
-        label="Pinocchio"
-        files={generated.pinocchio}
-        activeFile={pinocchioFile}
-        onSelectFile={setPinocchioFile}
-        color="bg-cyan-500/10"
-        syncedEditor={anchorEditorRef}
-        onEditorMount={onPinocchioMount}
-      />
+    <div className="flex h-full flex-col overflow-hidden">
+      {/* Toolbar with mode toggle */}
+      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-1.5">
+        <button
+          onClick={() => setViewMode("diff")}
+          className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+            viewMode === "diff"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+          }`}
+        >
+          Diff
+        </button>
+        <button
+          onClick={() => setViewMode("side-by-side")}
+          className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+            viewMode === "side-by-side"
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+          }`}
+        >
+          Side by Side
+        </button>
+
+        {viewMode === "diff" && (
+          <span className="ml-auto text-[10px] text-muted-foreground">
+            Red = Anchor only, Green = Pinocchio only
+          </span>
+        )}
+      </div>
+
+      {/* Content area */}
+      {viewMode === "diff" ? (
+        <div className="min-h-0 flex-1">
+          {anchorCurrent && pinocchioCurrent ? (
+            <DiffEditor
+              key={`${anchorCurrent.path}-${pinocchioCurrent.path}`}
+              original={anchorCurrent.content}
+              modified={pinocchioCurrent.content}
+              originalModelPath={anchorCurrent.path}
+              modifiedModelPath={pinocchioCurrent.path}
+              language={diffLanguage}
+              theme="vs-dark"
+              options={{
+                readOnly: true,
+                renderSideBySide: true,
+                minimap: { enabled: false },
+                scrollBeyondLastLine: false,
+                fontSize: 11,
+                fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                lineNumbers: "on",
+                wordWrap: "off",
+                automaticLayout: true,
+                scrollbar: {
+                  verticalScrollbarSize: 4,
+                  horizontalScrollbarSize: 4,
+                },
+                renderLineHighlight: "none",
+                overviewRulerBorder: false,
+                padding: { top: 6, bottom: 6 },
+                diffAlgorithm: "advanced",
+                renderIndicators: true,
+                renderMarginRevertIcon: false,
+              }}
+            />
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Select files to compare.
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <Pane
+            label="Anchor"
+            files={generated.anchor}
+            activeFile={anchorFile}
+            onSelectFile={setAnchorFile}
+            color="bg-violet-500/10"
+            syncedEditor={pinocchioEditorRef}
+            onEditorMount={onAnchorMount}
+          />
+          <Pane
+            label="Pinocchio"
+            files={generated.pinocchio}
+            activeFile={pinocchioFile}
+            onSelectFile={setPinocchioFile}
+            color="bg-cyan-500/10"
+            syncedEditor={anchorEditorRef}
+            onEditorMount={onPinocchioMount}
+          />
+        </div>
+      )}
     </div>
   );
 }

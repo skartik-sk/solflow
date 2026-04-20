@@ -4,7 +4,7 @@
 
 import type { ProgramIR } from "@solflow/ir";
 import { RULES } from "./rules";
-import type { AuditFinding, AuditReport, AuditSeverity } from "./types";
+import type { AuditFinding, AuditReport, AuditRule, AuditSeverity } from "./types";
 
 export type {
   AuditFinding,
@@ -25,6 +25,25 @@ const SEVERITY_PENALTY: Record<AuditSeverity, number> = {
   info: 0,
 };
 
+// ─── Plugin rules registry ───────────────────────────────────────────────────
+
+let pluginRules: AuditRule[] = [];
+
+/** Register audit rules from external plugins. */
+export function registerAuditRules(rules: AuditRule[]) {
+  const existing = new Set(pluginRules.map((r) => r.id));
+  for (const rule of rules) {
+    if (!existing.has(rule.id)) {
+      pluginRules.push(rule);
+    }
+  }
+}
+
+/** Clear all plugin rules (useful for testing or hot-reload). */
+export function clearPluginRules() {
+  pluginRules = [];
+}
+
 // ─── Main entry point ────────────────────────────────────────────────────────
 
 /**
@@ -34,8 +53,9 @@ const SEVERITY_PENALTY: Record<AuditSeverity, number> = {
  */
 export function runInstantAudit(ir: ProgramIR): AuditReport {
   const findings: AuditFinding[] = [];
+  const allRules = [...RULES, ...pluginRules];
 
-  for (const rule of RULES) {
+  for (const rule of allRules) {
     try {
       const ruleFindings = rule.check(ir);
       findings.push(...ruleFindings);
@@ -62,5 +82,5 @@ export function runInstantAudit(ir: ProgramIR): AuditReport {
  * Used by the UI "Fix" button to call rule.autoFix().
  */
 export function getRuleById(ruleId: string) {
-  return RULES.find((r) => r.id === ruleId);
+  return [...RULES, ...pluginRules].find((r) => r.id === ruleId);
 }

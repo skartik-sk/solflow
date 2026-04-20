@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Search, X, Trash2, Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
+import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { toast } from "sonner";
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -123,14 +124,12 @@ export function BuildConsole() {
             <span>
               Program:{" "}
               {deployExplorerUrl ? (
-                <a
-                  href={deployExplorerUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-blue-400 underline hover:text-blue-300"
+                <button
+                  onClick={() => openFloatingBrowser(deployExplorerUrl, `Program: ${deployedProgramId.slice(0, 8)}…`)}
+                  className="text-blue-400 underline hover:text-blue-300 cursor-pointer"
                 >
                   {deployedProgramId.slice(0, 8)}…
-                </a>
+                </button>
               ) : (
                 <span className="text-foreground/70">
                   {deployedProgramId.slice(0, 8)}…
@@ -141,14 +140,12 @@ export function BuildConsole() {
               <span>
                 TX:{" "}
                 {deployTxExplorerUrl ? (
-                  <a
-                    href={deployTxExplorerUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-blue-400 underline hover:text-blue-300"
+                  <button
+                    onClick={() => openFloatingBrowser(deployTxExplorerUrl, `TX: ${deployTxSignature.slice(0, 8)}…`)}
+                    className="text-blue-400 underline hover:text-blue-300 cursor-pointer"
                   >
                     {deployTxSignature.slice(0, 8)}…
-                  </a>
+                  </button>
                 ) : (
                   <span className="text-foreground/70">
                     {deployTxSignature.slice(0, 8)}…
@@ -239,7 +236,7 @@ export function BuildConsole() {
               {formatTime(log.timestamp)}
             </span>
             <span className={LEVEL_COLORS[log.level] ?? LEVEL_COLORS.info}>
-              {log.line}
+              <LogLine text={log.line} highlight={search} />
             </span>
           </div>
         ))}
@@ -250,6 +247,54 @@ export function BuildConsole() {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+
+/** Renders log text with clickable URLs that open in the floating browser. */
+function LogLine({ text, highlight }: { text: string; highlight?: string }) {
+  const parts = text.split(URL_RE);
+  if (parts.length <= 1) {
+    return <>{highlight ? highlightMatch(text, highlight) : text}</>;
+  }
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (URL_RE.test(part)) {
+          URL_RE.lastIndex = 0;
+          return (
+            <button
+              key={i}
+              onClick={() => openFloatingBrowser(part)}
+              className="text-blue-400 underline hover:text-blue-300 cursor-pointer"
+            >
+              {part}
+            </button>
+          );
+        }
+        URL_RE.lastIndex = 0;
+        return <span key={i}>{highlight ? highlightMatch(part, highlight) : part}</span>;
+      })}
+    </>
+  );
+}
+
+/** Highlights matching text with a background color. */
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <span className="rounded-sm bg-yellow-400/25 text-yellow-300">
+        {text.slice(idx, idx + query.length)}
+      </span>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
 
 function statusColor(s: string): string {
   switch (s) {

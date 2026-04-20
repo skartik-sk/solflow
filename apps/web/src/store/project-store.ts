@@ -7,7 +7,26 @@
 import { create } from "zustand";
 
 export type Framework = "anchor" | "pinocchio" | "quasar";
-export type Network = "devnet" | "mainnet" | "localnet";
+export type Network = "devnet" | "mainnet" | "localnet" | string; // string allows custom network IDs
+
+export interface CustomEndpoint {
+  id: string;
+  name: string;
+  url: string;
+}
+
+/** Built-in RPC URLs */
+export const BUILTIN_RPC: Record<string, string> = {
+  devnet: "https://api.devnet.solana.com",
+  mainnet: "https://api.mainnet-beta.solana.com",
+  localnet: "http://127.0.0.1:8899",
+};
+
+/** Resolve a network ID to an RPC URL. Checks custom endpoints first, then built-ins. */
+export function resolveRpcUrl(network: Network, customEndpoints: CustomEndpoint[]): string {
+  const custom = customEndpoints.find((e) => e.id === network);
+  return custom?.url ?? BUILTIN_RPC[network] ?? network; // fallback: treat network as raw URL
+}
 
 interface ProjectState {
   // ─── Identity ─────────────────────────────────────────────────
@@ -17,6 +36,7 @@ interface ProjectState {
   // ─── Configuration ────────────────────────────────────────────
   framework: Framework;
   network: Network;
+  customEndpoints: CustomEndpoint[];
 
   // ─── Save state ───────────────────────────────────────────────
   isDirty: boolean;
@@ -35,6 +55,8 @@ interface ProjectState {
   setProjectName: (name: string) => void;
   setFramework: (framework: Framework) => void;
   setNetwork: (network: Network) => void;
+  addCustomEndpoint: (endpoint: CustomEndpoint) => void;
+  removeCustomEndpoint: (id: string) => void;
   markDirty: () => void;
   markSaved: () => void;
   setSaving: (saving: boolean) => void;
@@ -48,6 +70,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   projectName: "Untitled Program",
   framework: "anchor",
   network: "devnet",
+  customEndpoints: [],
   isDirty: false,
   isSaving: false,
   lastSavedAt: null,
@@ -75,13 +98,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setNetwork: (network) => set({ network, isDirty: true }),
+  addCustomEndpoint: (endpoint) =>
+    set((s) => ({
+      customEndpoints: [...s.customEndpoints, endpoint],
+      isDirty: true,
+    })),
+  removeCustomEndpoint: (id) =>
+    set((s) => ({
+      customEndpoints: s.customEndpoints.filter((e) => e.id !== id),
+      isDirty: true,
+    })),
   markDirty: () => set({ isDirty: true }),
   markSaved: () =>
     set({ isDirty: false, isSaving: false, lastSavedAt: new Date(), urgentDirty: false }),
   setSaving: (saving) => set({ isSaving: saving }),
 
   save: async (opts) => {
-    const { projectId, framework } = get();
+    const { projectId, framework, projectName } = get();
     if (!projectId) return;
 
     set({ isSaving: true, saveError: null });
@@ -100,6 +133,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       try {
         await getVanillaClient().project.save.mutate({
           id: projectId,
+          name: projectName,
           flowData: { nodes, edges },
           framework: framework.toUpperCase() as "ANCHOR" | "PINOCCHIO" | "QUASAR",
         });

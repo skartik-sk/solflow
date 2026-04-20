@@ -5,6 +5,7 @@ import { Toaster } from "sonner";
 import { TRPCProvider } from "@/components/providers/TRPCProvider";
 import { ClientWalletProvider } from "@/components/providers/ClientWalletProvider";
 import { MonitoringProvider } from "@/components/providers/MonitoringProvider";
+import { FloatingBrowser } from "@/components/FloatingBrowser";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -86,6 +87,7 @@ export default function RootLayout({
                   },
                 }}
               />
+              <FloatingBrowser />
             </MonitoringProvider>
           </ClientWalletProvider>
         </TRPCProvider>

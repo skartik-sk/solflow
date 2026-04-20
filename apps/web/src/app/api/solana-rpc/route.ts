@@ -6,26 +6,29 @@ import { NextRequest, NextResponse } from "next/server";
 const RPC_URLS: Record<string, string> = {
   devnet: "https://api.devnet.solana.com",
   "mainnet-beta": "https://api.mainnet-beta.solana.com",
+  mainnet: "https://api.mainnet-beta.solana.com",
   localnet: "http://127.0.0.1:8899",
 };
 
 export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     network?: string;
+    rpcUrl?: string;
     method?: string;
     params?: unknown[];
   };
 
-  const { network, method, params } = body;
+  const { network, rpcUrl: customRpcUrl, method, params } = body;
 
-  if (!network || !method) {
+  if (!method) {
     return NextResponse.json(
-      { error: "Missing network or method" },
+      { error: "Missing method" },
       { status: 400 },
     );
   }
 
-  const rpcUrl = RPC_URLS[network] ?? RPC_URLS.devnet;
+  // Allow custom RPC URL, fall back to built-in network, then devnet
+  const rpcUrl = customRpcUrl || (network ? (RPC_URLS[network] ?? RPC_URLS.devnet) : RPC_URLS.devnet);
 
   try {
     const response = await fetch(rpcUrl, {

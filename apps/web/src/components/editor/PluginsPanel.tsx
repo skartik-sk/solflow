@@ -2,10 +2,12 @@
 // Includes validation warnings and security indicators.
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect } from "react";
 import { Puzzle, ExternalLink, CheckCircle2, Circle, AlertTriangle, ShieldCheck, ShieldAlert } from "lucide-react";
 import { pluginRegistry } from "@solflow/plugin-sdk";
+import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { usePluginStore } from "@/store/plugin-store";
+import { registerAuditRules } from "@solflow/audit";
 import type { SolFlowPlugin } from "@solflow/plugin-sdk";
 
 // ─── Plugin validation ──────────────────────────────────────────────────────
@@ -79,6 +81,17 @@ export function PluginsPanel() {
     }
     return map;
   }, [allPlugins]);
+
+  // Register enabled plugin audit rules into the audit engine
+  useEffect(() => {
+    const rules: import("@solflow/audit").AuditRule[] = [];
+    for (const plugin of allPlugins) {
+      if (enabledPluginIds.includes(plugin.id) && plugin.auditRules?.length) {
+        rules.push(...plugin.auditRules);
+      }
+    }
+    registerAuditRules(rules);
+  }, [allPlugins, enabledPluginIds]);
 
   if (allPlugins.length === 0) {
     return (
@@ -174,16 +187,16 @@ export function PluginsPanel() {
                     {plugin.nodes.length !== 1 ? "s" : ""}
                   </span>
                   {plugin.website ? (
-                    <a
-                      href={plugin.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openFloatingBrowser(plugin.website!, plugin.name);
+                      }}
                       className="flex items-center gap-0.5 hover:text-foreground transition-colors"
-                      onClick={(e) => e.stopPropagation()}
                     >
                       <ExternalLink className="h-2.5 w-2.5" />
                       docs
-                    </a>
+                    </button>
                   ) : (
                     <span className="text-orange-400/60">no docs link</span>
                   )}

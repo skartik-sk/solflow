@@ -97,11 +97,34 @@ export interface CargoDependency {
   framework: "anchor" | "pinocchio" | "quasar" | "both";
 }
 
-// ─── Audit rule stub ──────────────────────────────────────────────────────────
+// ─── Audit rule ──────────────────────────────────────────────────────────────
+// Must be compatible with @solflow/audit AuditRule.
+
+export type AuditSeverity = "critical" | "high" | "medium" | "low" | "info";
+export type AuditCategory =
+  | "access-control" | "arithmetic" | "account-validation"
+  | "pda-security" | "token-security" | "cpi-security"
+  | "data-validation" | "reentrancy" | "denial-of-service" | "information-disclosure";
+
+export interface AuditFinding {
+  ruleId: string;
+  severity: AuditSeverity;
+  title: string;
+  description: string;
+  location: { instructionName?: string; accountName?: string; nodeId?: string };
+  recommendation: string;
+  cweId?: string;
+  references?: string[];
+}
 
 export interface AuditRule {
   id: string;
-  check: (flowData: unknown) => unknown[];
+  name: string;
+  description: string;
+  severity: AuditSeverity;
+  category: AuditCategory;
+  check: (ir: import("@solflow/ir").ProgramIR) => AuditFinding[];
+  autoFix?: (ir: import("@solflow/ir").ProgramIR, finding: AuditFinding) => Array<{ nodeId: string; data: Record<string, unknown> }>;
 }
 
 // ─── Plugin node definition ──────────────────────────────────────────────────

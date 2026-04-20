@@ -10,7 +10,7 @@ import {
   createSolanaRpc,
 } from "@solana/kit";
 import { useCodeStore } from "@/store/code-store";
-import { useProjectStore } from "@/store/project-store";
+import { useProjectStore, resolveRpcUrl } from "@/store/project-store";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   Connection,
@@ -29,13 +29,7 @@ type SimulateResult = {
   error?: string;
 };
 
-type Network = "devnet" | "mainnet-beta" | "localnet";
-
-const RPC_URLS: Record<Network, string> = {
-  devnet: "https://api.devnet.solana.com",
-  "mainnet-beta": "https://api.mainnet-beta.solana.com",
-  localnet: "http://127.0.0.1:8899",
-};
+type Network = "devnet" | "mainnet-beta" | "localnet" | string;
 
 function typeLabel(type: unknown): string {
   if (typeof type === "string") return type;
@@ -136,6 +130,7 @@ function encodeInstructionData(
 export function TransactionBuilderPanel() {
   const irJson = useCodeStore((s) => s.irJson);
   const network = useProjectStore((s) => s.network);
+  const customEndpoints = useProjectStore((s) => s.customEndpoints);
   const wallet = useWallet();
 
   const [selectedIx, setSelectedIx] = useState<string>("");
@@ -217,7 +212,7 @@ export function TransactionBuilderPanel() {
     setSendSig(null);
 
     try {
-      const rpcUrl = RPC_URLS[selectedNetwork];
+      const rpcUrl = resolveRpcUrl(selectedNetwork, customEndpoints);
       // Create @solana/kit RPC for blockhash fetching
       const rpc = createSolanaRpc(rpcUrl);
       const connection = new Connection(rpcUrl, "confirmed");
@@ -284,7 +279,7 @@ export function TransactionBuilderPanel() {
     setSendSig(null);
 
     try {
-      const rpcUrl = RPC_URLS[selectedNetwork];
+      const rpcUrl = resolveRpcUrl(selectedNetwork, customEndpoints);
 
       // Use @solana/kit RPC for blockhash fetching
       const rpc = createSolanaRpc(rpcUrl);
@@ -367,8 +362,15 @@ export function TransactionBuilderPanel() {
           className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
         >
           <option value="devnet">Devnet</option>
-          <option value="mainnet-beta">Mainnet</option>
+          <option value="mainnet">Mainnet</option>
           <option value="localnet">Localnet</option>
+          {customEndpoints.length > 0 && (
+            <optgroup label="Custom">
+              {customEndpoints.map((ep) => (
+                <option key={ep.id} value={ep.id}>{ep.name}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
 
         <input
@@ -411,21 +413,51 @@ export function TransactionBuilderPanel() {
               <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Fee Payer
               </p>
-              <input
-                type="text"
-                placeholder="pubkey (leave empty to use wallet)"
-                value={payer}
-                onChange={(e) => setPayer(e.target.value)}
-                className="w-full rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  placeholder="pubkey (leave empty to use wallet)"
+                  value={payer}
+                  onChange={(e) => setPayer(e.target.value)}
+                  className="flex-1 rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {wallet.publicKey && (
+                  <button
+                    onClick={() => setPayer(wallet.publicKey!.toBase58())}
+                    title="Use connected wallet"
+                    className="shrink-0 rounded border border-border px-1.5 py-1 text-[9px] text-primary hover:bg-accent transition-colors"
+                  >
+                    Wallet
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Accounts */}
             {instruction.accounts.length > 0 && (
               <div className="pt-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Accounts
-                </p>
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    Accounts
+                  </p>
+                  {wallet.publicKey && instruction.accounts.some((a: Account) => a.constraints.some((c) => c.type === "signer")) && (
+                    <button
+                      onClick={() => {
+                        const updated = { ...accounts };
+                        for (const acc of instruction.accounts) {
+                          if (acc.constraints.some((c) => c.type === "signer") && !updated[acc.name]) {
+                            updated[acc.name] = wallet.publicKey!.toBase58();
+                          }
+                        }
+                        setAccounts(updated);
+                        if (!payer) setPayer(wallet.publicKey!.toBase58());
+                      }}
+                      className="text-[9px] text-primary hover:underline"
+                    >
+                      Auto-fill signers
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-1.5">
                   {instruction.accounts.map((acc: Account) => {
                     const isSigner = acc.constraints.some(
@@ -461,6 +493,20 @@ export function TransactionBuilderPanel() {
                           }
                           className="flex-1 rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
                         />
+                        {wallet.publicKey && isSigner && (
+                          <button
+                            onClick={() =>
+                              setAccounts((prev) => ({
+                                ...prev,
+                                [acc.name]: wallet.publicKey!.toBase58(),
+                              }))
+                            }
+                            title="Use connected wallet"
+                            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[9px] text-primary hover:bg-accent transition-colors"
+                          >
+                            Me
+                          </button>
+                        )}
                       </div>
                     );
                   })}

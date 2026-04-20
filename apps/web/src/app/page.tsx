@@ -425,7 +425,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-2xl">
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[{ val: "6+", label: "Templates" }, { val: "3", label: "Frameworks" }, { val: "10+", label: "Node Types" }, { val: "3+", label: "Plugins" }, { val: "20+", label: "Users" }].map((s) => (
+              {[{ val: "6+", label: "Templates" }, { val: "3", label: "Frameworks" }, { val: "10+", label: "Node Types" },{ val: "20+", label: "Users" }].map((s) => (
                 <motion.div key={s.label} variants={fadeUp} className="text-center">
                   <div className="text-xl font-extrabold text-foreground">{s.val}</div>
                   <div className="text-[11px] text-muted-foreground">{s.label}</div>

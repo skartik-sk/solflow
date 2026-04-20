@@ -24,6 +24,9 @@ import {
   Wallet,
   Keyboard,
   Settings,
+  Globe,
+  Plus,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -34,12 +37,17 @@ import { useUndo, useRedo, useCanUndo, useCanRedo, useFlowStore } from "@/store/
 import { useBuildStore } from "@/store/build-store";
 import type { Framework, Network } from "@/store/project-store";
 import { ImportDialog } from "./ImportDialog";
+import { SettingsDialog } from "./SettingsDialog";
+import { openFloatingBrowser } from "@/store/floating-browser-store";
 
 export function EditorTopBar() {
   const projectId = useProjectStore((s) => s.projectId);
   const projectName = useProjectStore((s) => s.projectName);
   const framework = useProjectStore((s) => s.framework);
   const network = useProjectStore((s) => s.network);
+  const customEndpoints = useProjectStore((s) => s.customEndpoints);
+  const addCustomEndpoint = useProjectStore((s) => s.addCustomEndpoint);
+  const removeCustomEndpoint = useProjectStore((s) => s.removeCustomEndpoint);
   const isDirty = useProjectStore((s) => s.isDirty);
   const isSaving = useProjectStore((s) => s.isSaving);
   const setProjectName = useProjectStore((s) => s.setProjectName);
@@ -74,6 +82,7 @@ export function EditorTopBar() {
   const [nameInput, setNameInput] = useState(projectName);
   const [isExporting, setIsExporting] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [, startSave] = useTransition();
 
   const commitName = () => {
@@ -197,13 +206,7 @@ export function EditorTopBar() {
   // ─── Compile button appearance ────────────────────────────────────────────
 
   const handleSettings = () => {
-    // Find the program node and select it, then open properties panel
-    const nodes = useFlowStore.getState().nodes;
-    const programNode = nodes.find((n) => n.type === "program");
-    if (programNode) {
-      useFlowStore.getState().setSelectedNode(programNode.id);
-    }
-    if (!propertiesOpen) toggleProperties();
+    setShowSettings(true);
   };
   const isCompiling =
     compileStatus === "queued" || compileStatus === "building";
@@ -309,14 +312,12 @@ export function EditorTopBar() {
           <span className="ml-1 flex items-center gap-1 rounded-full bg-green-500/10 border border-green-500/20 px-2 py-0.5 text-[10px] text-green-400">
             <CheckCircle size={9} />
             {deployExplorerUrl ? (
-              <a
-                href={deployExplorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="hover:underline"
+              <button
+                onClick={() => openFloatingBrowser(deployExplorerUrl, `Program: ${deployedProgramId.slice(0, 8)}…`)}
+                className="hover:underline cursor-pointer"
               >
                 {deployedProgramId.slice(0, 8)}…
-              </a>
+              </button>
             ) : (
               <span>{deployedProgramId.slice(0, 8)}…</span>
             )}
@@ -368,15 +369,51 @@ export function EditorTopBar() {
         </div>
 
         {/* Network selector */}
-        <select
-          value={network}
-          onChange={(e) => setNetwork(e.target.value as Network)}
-          className="h-7 rounded-lg border border-border bg-card px-2 text-xs text-muted-foreground outline-none hover:border-border/80 focus:border-primary"
-        >
-          <option value="devnet">Devnet</option>
-          <option value="mainnet">Mainnet</option>
-          <option value="localnet">Localnet</option>
-        </select>
+        <div className="flex items-center gap-1">
+          <select
+            value={network}
+            onChange={(e) => setNetwork(e.target.value as Network)}
+            className="h-7 rounded-lg border border-border bg-card px-2 text-xs text-muted-foreground outline-none hover:border-border/80 focus:border-primary"
+          >
+            <option value="devnet">Devnet</option>
+            <option value="mainnet">Mainnet</option>
+            <option value="localnet">Localnet</option>
+            {customEndpoints.length > 0 && (
+              <optgroup label="Custom">
+                {customEndpoints.map((ep) => (
+                  <option key={ep.id} value={ep.id}>{ep.name}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <button
+            onClick={() => {
+              const name = prompt("Endpoint name (e.g. My Devnet):");
+              if (!name?.trim()) return;
+              const url = prompt("RPC URL (e.g. https://my-rpc.example.com):");
+              if (!url?.trim()) return;
+              const id = `custom-${Date.now()}`;
+              addCustomEndpoint({ id, name: name.trim(), url: url.trim() });
+              setNetwork(id);
+            }}
+            title="Add custom RPC endpoint"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <Plus size={12} />
+          </button>
+          {customEndpoints.find((e) => e.id === network) && (
+            <button
+              onClick={() => {
+                removeCustomEndpoint(network);
+                setNetwork("devnet");
+              }}
+              title="Remove this custom endpoint"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ─── Right ─────────────────────────────────────────────── */}
@@ -500,6 +537,15 @@ export function EditorTopBar() {
           <RotateCcw size={12} />
         </button>
 
+        {/* Floating browser */}
+        <button
+          onClick={() => openFloatingBrowser("/docs", "SolStudio Docs")}
+          title="Open browser (docs, explorer, references)"
+          className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        >
+          <Globe size={12} />
+        </button>
+
         {/* Keyboard shortcuts */}
         <div className="relative group">
           <button
@@ -536,6 +582,8 @@ export function EditorTopBar() {
           {isCompiling ? "Compiling…" : "Compile"}
         </button>
       </div>
+
+      <SettingsDialog open={showSettings} onClose={() => setShowSettings(false)} />
     </header>
   );
 }

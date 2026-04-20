@@ -6,12 +6,12 @@
 
 import React, { useState, useCallback } from "react";
 import { useCodeStore } from "@/store/code-store";
-import { useProjectStore } from "@/store/project-store";
-import type { State, Field } from "@solflow/ir";
+import { useProjectStore, resolveRpcUrl } from "@/store/project-store";
+import type { State, Field, EnumDefinition } from "@solflow/ir";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-type Network = "devnet" | "mainnet-beta" | "localnet";
+type Network = "devnet" | "mainnet-beta" | "localnet" | string;
 
 interface AccountInfo {
   lamports: number;
@@ -77,6 +77,7 @@ function decodeField(
   dv: DataView,
   offset: number,
   type: unknown,
+  states: State[],
   depth = 0,
 ): { value: string; size: number } {
   // Guard against deeply nested recursion
@@ -90,12 +91,12 @@ function decodeField(
 
     // Vec<T>: 4-byte LE length + N items
     if ("vec" in t) {
-      return decodeVec(dv, offset, t.vec, depth);
+      return decodeVec(dv, offset, t.vec, states, depth);
     }
 
     // Option<T>: 1-byte flag (0=None, 1=Some) + optional T
     if ("option" in t) {
-      return decodeOption(dv, offset, t.option, depth);
+      return decodeOption(dv, offset, t.option, states, depth);
     }
 
     // Array<T, N>: fixed-size [T; N] — no length prefix
@@ -103,21 +104,26 @@ function decodeField(
       const arr = t.array as unknown[];
       const innerType = arr[0];
       const count = typeof arr[1] === "number" ? arr[1] : 0;
-      return decodeFixedArray(dv, offset, innerType, count, depth);
+      return decodeFixedArray(dv, offset, innerType, count, states, depth);
     }
 
-    // Defined type reference — show raw hex
+    // Defined type reference — look up in IR states and recursively decode
     if ("defined" in t) {
-      return { value: `(defined: ${t.defined})`, size: 0 };
+      const typeName = String(t.defined);
+      const state = states.find((s) => s.name === typeName);
+      if (state) {
+        return decodeStruct(dv, offset, state.fields, states, depth);
+      }
+      return { value: `(unknown type: ${typeName})`, size: 0 };
     }
 
     if ("hashMap" in t) {
-      return { value: "(HashMap — not deserializable)", size: 0 };
+      const mapTypes = t.hashMap as unknown[];
+      return decodeHashMap(dv, offset, mapTypes[0], mapTypes[1], states, depth);
     }
 
     if ("enum" in t) {
-      const variantIdx = dv.getUint8(offset);
-      return { value: `variant #${variantIdx}`, size: 1 };
+      return decodeEnum(dv, offset, t.enum as EnumDefinition, states, depth);
     }
 
     // Fallback — raw hex
@@ -187,19 +193,19 @@ function decodeVec(
   dv: DataView,
   offset: number,
   innerType: unknown,
+  states: State[],
   depth: number,
 ): { value: string; size: number } {
   if (offset + 4 > dv.byteLength) return { value: "(truncated)", size: 0 };
   const len = dv.getUint32(offset, true);
-  // Safety cap — don't try to decode absurdly large vectors
   const cap = Math.min(len, 64);
   let pos = offset + 4;
   const items: string[] = [];
   for (let i = 0; i < cap; i++) {
     if (pos >= dv.byteLength) break;
-    const { value, size } = decodeField(dv, pos, innerType, depth + 1);
+    const { value, size } = decodeField(dv, pos, innerType, states, depth + 1);
     items.push(value);
-    if (size === 0) break; // can't advance
+    if (size === 0) break;
     pos += size;
   }
   const suffix = len > cap ? `, … (${len} total)` : "";
@@ -211,6 +217,7 @@ function decodeOption(
   dv: DataView,
   offset: number,
   innerType: unknown,
+  states: State[],
   depth: number,
 ): { value: string; size: number } {
   if (offset + 1 > dv.byteLength) return { value: "(truncated)", size: 0 };
@@ -218,7 +225,7 @@ function decodeOption(
   if (flag === 0) {
     return { value: "None", size: 1 };
   }
-  const { value, size } = decodeField(dv, offset + 1, innerType, depth + 1);
+  const { value, size } = decodeField(dv, offset + 1, innerType, states, depth + 1);
   return { value: `Some(${value})`, size: 1 + size };
 }
 
@@ -228,6 +235,7 @@ function decodeFixedArray(
   offset: number,
   innerType: unknown,
   count: number,
+  states: State[],
   depth: number,
 ): { value: string; size: number } {
   const cap = Math.min(count, 64);
@@ -235,13 +243,100 @@ function decodeFixedArray(
   const items: string[] = [];
   for (let i = 0; i < cap; i++) {
     if (pos >= dv.byteLength) break;
-    const { value, size } = decodeField(dv, pos, innerType, depth + 1);
+    const { value, size } = decodeField(dv, pos, innerType, states, depth + 1);
     items.push(value);
     if (size === 0) break;
     pos += size;
   }
   const suffix = count > cap ? `, … (${count} total)` : "";
   return { value: `[${items.join(", ")}${suffix}]`, size: pos - offset };
+}
+
+/** Decode a struct (defined type) by looking up its fields in the IR states */
+function decodeStruct(
+  dv: DataView,
+  offset: number,
+  fields: Field[],
+  states: State[],
+  depth: number,
+): { value: string; size: number } {
+  let pos = offset;
+  const entries: string[] = [];
+  for (const field of fields) {
+    if (pos >= dv.byteLength) break;
+    const { value, size } = decodeField(dv, pos, field.type, states, depth + 1);
+    entries.push(`${field.name}: ${value}`);
+    if (size === 0) break;
+    pos += size;
+  }
+  return { value: `{ ${entries.join(", ")} }`, size: pos - offset };
+}
+
+/** Decode HashMap<K, V>: 4-byte LE length + N key-value pairs (Borsh) */
+function decodeHashMap(
+  dv: DataView,
+  offset: number,
+  keyType: unknown,
+  valueType: unknown,
+  states: State[],
+  depth: number,
+): { value: string; size: number } {
+  if (offset + 4 > dv.byteLength) return { value: "(truncated)", size: 0 };
+  const len = dv.getUint32(offset, true);
+  const cap = Math.min(len, 32);
+  let pos = offset + 4;
+  const entries: string[] = [];
+  for (let i = 0; i < cap; i++) {
+    if (pos >= dv.byteLength) break;
+    const key = decodeField(dv, pos, keyType, states, depth + 1);
+    if (key.size === 0) break;
+    pos += key.size;
+    if (pos >= dv.byteLength) break;
+    const val = decodeField(dv, pos, valueType, states, depth + 1);
+    if (val.size === 0) break;
+    pos += val.size;
+    entries.push(`${key.value} => ${val.value}`);
+  }
+  const suffix = len > cap ? `, … (${len} total)` : "";
+  return { value: `{${entries.join(", ")}${suffix}}`, size: pos - offset };
+}
+
+/** Decode an enum with variants and optional fields (Borsh) */
+function decodeEnum(
+  dv: DataView,
+  offset: number,
+  enumDef: EnumDefinition,
+  states: State[],
+  depth: number,
+): { value: string; size: number } {
+  if (offset + 1 > dv.byteLength) return { value: "(truncated)", size: 0 };
+  const variantIdx = dv.getUint8(offset);
+  let pos = offset + 1;
+
+  if (variantIdx >= enumDef.variants.length) {
+    return { value: `variant #${variantIdx} (out of range)`, size: 1 };
+  }
+
+  const variant = enumDef.variants[variantIdx];
+  const variantName = variant.name;
+
+  if (!variant.fields || variant.fields.length === 0) {
+    return { value: `${enumDef.name}::${variantName}`, size: 1 };
+  }
+
+  const fieldValues: string[] = [];
+  for (const field of variant.fields) {
+    if (pos >= dv.byteLength) break;
+    const { value, size } = decodeField(dv, pos, field.type, states, depth + 1);
+    fieldValues.push(`${field.name}: ${value}`);
+    if (size === 0) break;
+    pos += size;
+  }
+
+  return {
+    value: `${enumDef.name}::${variantName} { ${fieldValues.join(", ")} }`,
+    size: pos - offset,
+  };
 }
 
 /** Fallback: show first 8 bytes as hex */
@@ -256,7 +351,7 @@ function rawHex(dv: DataView, offset: number): { value: string; size: number } {
 }
 
 /** Parse account data bytes against a State schema's fields (skips 8-byte Anchor discriminator) */
-function parseAccountData(bytes: Uint8Array, state: State): ParsedField[] {
+function parseAccountData(bytes: Uint8Array, state: State, allStates: State[]): ParsedField[] {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // Anchor accounts start with an 8-byte discriminator
   let offset = 8;
@@ -279,7 +374,7 @@ function parseAccountData(bytes: Uint8Array, state: State): ParsedField[] {
       };
     }
     const rawOffset = offset;
-    const { value, size } = decodeField(dv, offset, field.type);
+    const { value, size } = decodeField(dv, offset, field.type, allStates);
     offset += size;
     if (size === 0) skipped = true;
     return { name: field.name, type: typeLabel(field.type), rawOffset, value };
@@ -291,6 +386,7 @@ function parseAccountData(bytes: Uint8Array, state: State): ParsedField[] {
 export function AccountStateInspector() {
   const irJson = useCodeStore((s) => s.irJson);
   const network = useProjectStore((s) => s.network);
+  const customEndpoints = useProjectStore((s) => s.customEndpoints);
 
   const [pubkey, setPubkey] = useState("");
   const [selectedState, setSelectedState] = useState<string>("");
@@ -316,12 +412,14 @@ export function AccountStateInspector() {
     setParsedFields(null);
 
     try {
+      const rpcUrl = resolveRpcUrl(selectedNetwork, customEndpoints);
       // Route through server-side proxy to avoid CORS
       const response = await fetch("/api/solana-rpc", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           network: selectedNetwork,
+          rpcUrl,
           method: "getAccountInfo",
           params: [pubkey.trim(), { encoding: "base64" }],
         }),
@@ -349,7 +447,7 @@ export function AccountStateInspector() {
         const state = states.find((s) => s.name === selectedState);
         if (state) {
           const bytes = b64ToBytes(info.data);
-          setParsedFields(parseAccountData(bytes, state));
+          setParsedFields(parseAccountData(bytes, state, states));
         }
       }
     } catch (e) {
@@ -357,14 +455,14 @@ export function AccountStateInspector() {
     } finally {
       setLoading(false);
     }
-  }, [pubkey, selectedNetwork, selectedState, states]);
+  }, [pubkey, selectedNetwork, selectedState, states, customEndpoints]);
 
   const deserialize = useCallback(() => {
     if (!accountInfo || !selectedState) return;
     const state = states.find((s) => s.name === selectedState);
     if (!state) return;
     const bytes = b64ToBytes(accountInfo.data);
-    setParsedFields(parseAccountData(bytes, state));
+    setParsedFields(parseAccountData(bytes, state, states));
   }, [accountInfo, selectedState, states]);
 
   return (
@@ -386,8 +484,15 @@ export function AccountStateInspector() {
           className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
         >
           <option value="devnet">Devnet</option>
-          <option value="mainnet-beta">Mainnet</option>
+          <option value="mainnet">Mainnet</option>
           <option value="localnet">Localnet</option>
+          {customEndpoints.length > 0 && (
+            <optgroup label="Custom">
+              {customEndpoints.map((ep) => (
+                <option key={ep.id} value={ep.id}>{ep.name}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
 
         {states.length > 0 && (

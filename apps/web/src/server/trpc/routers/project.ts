@@ -293,6 +293,7 @@ export const projectRouter = router({
     .input(
       z.object({
         id: z.string(),
+        name: z.string().min(1).max(200).optional(),
         flowData: z.object({
           nodes: z.array(z.any()),
           edges: z.array(z.any()),
@@ -328,6 +329,7 @@ export const projectRouter = router({
           flowData: input.flowData as any,
           irData: irData as any,
           ...(input.framework && { framework: input.framework }),
+          ...(input.name && { name: input.name }),
         },
       });
 

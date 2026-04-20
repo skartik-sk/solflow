@@ -46,50 +46,65 @@ const CATEGORIES = [
 type CategoryFilter = (typeof CATEGORIES)[number];
 
 interface PageProps {
-  searchParams: Promise<{ category?: string; q?: string }>;
+  searchParams: Promise<{ category?: string; q?: string; page?: string }>;
 }
 
 export default async function MarketplacePage({ searchParams }: PageProps) {
   const params = await searchParams;
   const category = (params.category ?? "All") as CategoryFilter;
   const q = params.q ?? "";
+  const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
+  const pageSize = 24;
+  const skip = (page - 1) * pageSize;
+
+  const whereClause = {
+    status: "PUBLISHED" as const,
+    ...(category !== "All" && {
+      category: category as Exclude<CategoryFilter, "All">,
+    }),
+    ...(q && {
+      OR: [
+        { title: { contains: q, mode: "insensitive" as const } },
+        { description: { contains: q, mode: "insensitive" as const } },
+        { tags: { has: q } },
+      ],
+    }),
+  };
 
   let listings: ListingSummary[] = [];
+  let totalCount = 0;
   try {
-    listings = (await prisma.marketplaceListing.findMany({
-      where: {
-        status: "PUBLISHED",
-        ...(category !== "All" && {
-          category: category as Exclude<CategoryFilter, "All">,
-        }),
-        ...(q && {
-          OR: [
-            { title: { contains: q, mode: "insensitive" } },
-            { description: { contains: q, mode: "insensitive" } },
-          ],
-        }),
-      },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        category: true,
-        tags: true,
-        thumbnailUrl: true,
-        pricingModel: true,
-        priceSOL: true,
-        downloads: true,
-        forks: true,
-        rating: true,
-        featured: true,
-        author: { select: { id: true, name: true, image: true } },
-      },
-      orderBy: [{ featured: "desc" }, { downloads: "desc" }],
-      take: 48,
-    })) as ListingSummary[];
+    [listings, totalCount] = await Promise.all([
+      prisma.marketplaceListing.findMany({
+        where: whereClause,
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          category: true,
+          tags: true,
+          thumbnailUrl: true,
+          pricingModel: true,
+          priceSOL: true,
+          downloads: true,
+          forks: true,
+          rating: true,
+          featured: true,
+          author: { select: { id: true, name: true, image: true } },
+        },
+        orderBy: [{ featured: "desc" }, { downloads: "desc" }],
+        take: pageSize,
+        skip,
+      }) as Promise<ListingSummary[]>,
+      prisma.marketplaceListing.count({ where: whereClause }),
+    ]);
   } catch (error) {
     console.warn("Failed to fetch marketplace listings", error);
   }
+
+  const totalPages = Math.ceil(totalCount / pageSize);
+  const hasNextPage = page < totalPages;
+  const hasPrevPage = page > 1;
 
   return (
     <div className="min-h-screen bg-background text-foreground font-bricolage selection:bg-primary/30 selection:text-primary-foreground">
@@ -137,6 +152,11 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
 
         {/* ── Search + filter bar ───────────────────────────────── */}
         <form method="GET" className="mb-12 flex flex-col gap-6">
+          {/* Preserve category in hidden field */}
+          {category !== "All" && (
+            <input type="hidden" name="category" value={category} />
+          )}
+
           {/* Search input */}
           <div className="relative flex-1 max-w-xl group">
             <div className="relative flex items-center bg-card rounded-lg border border-border px-3 py-1 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/20 transition-colors">
@@ -196,6 +216,67 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
             {listings.map((listing) => (
               <ListingCard key={listing.id} listing={listing} />
             ))}
+          </div>
+        )}
+
+        {/* ── Pagination ──────────────────────────────────────── */}
+        {totalCount > 0 && (
+          <div className="mt-10 flex items-center justify-between border-t border-border pt-6">
+            <p className="text-xs text-muted-foreground">
+              Showing {skip + 1}–{Math.min(skip + pageSize, totalCount)} of {totalCount}
+            </p>
+            <div className="flex items-center gap-2">
+              {hasPrevPage ? (
+                <Link
+                  href={`/marketplace?category=${category}${q ? `&q=${encodeURIComponent(q)}` : ""}&page=${page - 1}`}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                >
+                  Previous
+                </Link>
+              ) : (
+                <span className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground/40 cursor-not-allowed">
+                  Previous
+                </span>
+              )}
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum: number;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (page <= 3) {
+                  pageNum = i + 1;
+                } else if (page >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = page - 2 + i;
+                }
+                const isActive = pageNum === page;
+                return (
+                  <Link
+                    key={pageNum}
+                    href={`/marketplace?category=${category}${q ? `&q=${encodeURIComponent(q)}` : ""}&page=${pageNum}`}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      isActive
+                        ? "bg-primary text-primary-foreground"
+                        : "border border-border text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    {pageNum}
+                  </Link>
+                );
+              })}
+              {hasNextPage ? (
+                <Link
+                  href={`/marketplace?category=${category}${q ? `&q=${encodeURIComponent(q)}` : ""}&page=${page + 1}`}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent transition-colors"
+                >
+                  Next
+                </Link>
+              ) : (
+                <span className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground/40 cursor-not-allowed">
+                  Next
+                </span>
+              )}
+            </div>
           </div>
         )}
       </main>

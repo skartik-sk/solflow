@@ -57,6 +57,31 @@ function isValidPascalIdentifier(value: string): boolean {
   return /^[A-Z][a-zA-Z0-9]*$/.test(value);
 }
 
+/** Validate a semver-like version string. */
+function isValidVersion(value: string): boolean {
+  if (!value.trim()) return true;
+  return /^\d+\.\d+\.\d+(-[\w.]+)?$/.test(value.trim());
+}
+
+/** Validate a base58 Solana pubkey (roughly — 32-44 chars, base58 alphabet). */
+function isValidPubkey(value: string): boolean {
+  if (!value.trim()) return true;
+  return /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(value.trim());
+}
+
+/** Check if a field name is duplicated within a list. */
+function isDuplicateName(names: string[], index: number): boolean {
+  const name = names[index];
+  if (!name) return false;
+  return names.some((n, i) => i !== index && n === name);
+}
+
+/** Validate a numeric value string (integer or empty). */
+function isValidInteger(value: string): boolean {
+  if (!value.trim()) return true;
+  return /^\d+$/.test(value.trim());
+}
+
 function ValidationHint({ show, message }: { show: boolean; message: string }) {
   if (!show) return null;
   return <p className="text-[10px] text-red-400 mt-0.5">{message}</p>;
@@ -265,6 +290,8 @@ function ProgramForm({
   const set = (partial: Partial<ProgramNodeData>) => update(nodeId, partial);
 
   const nameInvalid = data.name ? !isValidIdentifier(data.name) : false;
+  const versionInvalid = data.version ? !isValidVersion(data.version) : false;
+  const programIdInvalid = data.programId ? !isValidPubkey(data.programId) : false;
 
   return (
     <div className="space-y-3">
@@ -288,19 +315,21 @@ function ProgramForm({
       </FieldRow>
       <FieldRow label="Version">
         <input
-          className={inputClass}
+          className={`${versionInvalid ? inputInvalidClass : inputClass}`}
           value={data.version ?? "0.1.0"}
           onChange={(e) => set({ version: e.target.value })}
           placeholder="0.1.0"
         />
+        <ValidationHint show={versionInvalid} message="Must be semver format (e.g. 0.1.0)" />
       </FieldRow>
       <FieldRow label="Program ID (optional)">
         <input
-          className={`${inputClass} font-mono`}
+          className={`${programIdInvalid ? inputInvalidClass : inputClass} font-mono`}
           value={data.programId ?? ""}
           onChange={(e) => set({ programId: e.target.value })}
           placeholder="11111111…"
         />
+        <ValidationHint show={programIdInvalid} message="Must be a valid base58 pubkey" />
       </FieldRow>
       <FieldRow label="License">
         <select
@@ -394,11 +423,14 @@ function InstructionForm({
           </button>
         </div>
         <div className="space-y-1.5">
-          {args.map((arg, i) => (
+          {args.map((arg, i) => {
+            const argNameInvalid = arg.name ? !isValidIdentifier(arg.name) : false;
+            const argDuplicate = isDuplicateName(args.map((a) => a.name), i);
+            return (
             <div key={arg.name || i} className="space-y-1 rounded border border-border p-1.5">
               <div className="flex items-center gap-1.5">
                 <input
-                  className={`${inputClass} flex-1 font-mono`}
+                  className={`${(argNameInvalid || argDuplicate) ? inputInvalidClass : inputClass} flex-1 font-mono`}
                   value={arg.name}
                   onChange={(e) => updateArg(i, "name", e.target.value)}
                   placeholder="name"
@@ -410,6 +442,8 @@ function InstructionForm({
                   <X size={12} />
                 </button>
               </div>
+              <ValidationHint show={argNameInvalid} message="Must be snake_case, not a Rust keyword" />
+              <ValidationHint show={argDuplicate && !argNameInvalid} message="Duplicate argument name" />
               <TypeEditor
                 value={arg.type as SolanaType}
                 onChange={(t) => updateArg(i, "type", t)}
@@ -417,7 +451,8 @@ function InstructionForm({
                 compact
               />
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -562,7 +597,7 @@ function AccountForm({
           {rules.space && (
             <FieldRow label="Space (bytes or 'auto')">
               <input
-                className={inputClass}
+                className={`${inputClass}${data.space !== undefined && data.space !== "auto" && (typeof data.space === "number" && data.space < 8) ? " border-yellow-500/50" : ""}`}
                 value={data.space !== undefined ? String(data.space) : ""}
                 onChange={(e) =>
                   set({
@@ -571,6 +606,7 @@ function AccountForm({
                 }
                 placeholder="auto"
               />
+              <ValidationHint show={data.space !== undefined && data.space !== "auto" && typeof data.space === "number" && data.space < 8} message="Anchor accounts need at least 8 bytes (discriminator)" />
             </FieldRow>
           )}
         </>
@@ -767,11 +803,14 @@ function StateForm({
           </button>
         </div>
         <div className="space-y-1.5">
-          {fields.map((f, i) => (
+          {fields.map((f, i) => {
+            const fieldNameInvalid = f.name ? !isValidIdentifier(f.name) : false;
+            const fieldDuplicate = isDuplicateName(fields.map((fd) => fd.name), i);
+            return (
             <div key={f.name || i} className="space-y-1 rounded border border-border p-1.5">
               <div className="flex items-center gap-1.5">
                 <input
-                  className={`${inputClass} flex-1 font-mono`}
+                  className={`${(fieldNameInvalid || fieldDuplicate) ? inputInvalidClass : inputClass} flex-1 font-mono`}
                   value={f.name}
                   onChange={(e) => updateField(i, "name", e.target.value)}
                   placeholder="amount"
@@ -783,6 +822,8 @@ function StateForm({
                   <X size={12} />
                 </button>
               </div>
+              <ValidationHint show={fieldNameInvalid} message="Must be snake_case, not a Rust keyword" />
+              <ValidationHint show={fieldDuplicate && !fieldNameInvalid} message="Duplicate field name" />
               <TypeEditor
                 value={f.type}
                 onChange={(t) => updateField(i, "type", t)}
@@ -794,6 +835,7 @@ function StateForm({
                   <input
                     className={inputClass}
                     type="number"
+                    min={1}
                     value={f.maxLen ?? ""}
                     onChange={(e) => updateField(i, "maxLen", Number(e.target.value) || undefined)}
                     placeholder="64"
@@ -801,7 +843,8 @@ function StateForm({
                 </FieldRow>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
@@ -970,6 +1013,8 @@ function ErrorForm({ nodeId, data }: { nodeId: string; data: ErrorNodeData }) {
   const update = useFlowStore((s) => s.updateNodeData);
   const set = (partial: Partial<ErrorNodeData>) => update(nodeId, partial);
 
+  const codeInvalid = data.code !== undefined && data.code !== null && (data.code < 0 || !Number.isInteger(data.code));
+
   return (
     <div className="space-y-3">
       <FieldRow label="Error Name (PascalCase)">
@@ -977,10 +1022,12 @@ function ErrorForm({ nodeId, data }: { nodeId: string; data: ErrorNodeData }) {
       </FieldRow>
       <ValidationHint show={!!data.name && !isValidPascalIdentifier(data.name)} message="Must be PascalCase, not a Rust keyword" />
       <FieldRow label="Error Code">
-        <input className={inputClass} type="number" value={data.code ?? ""} onChange={(e) => set({ code: e.target.value === "" ? undefined : Number(e.target.value) })} placeholder="6000" />
+        <input className={`${codeInvalid ? inputInvalidClass : inputClass}`} type="number" value={data.code ?? ""} onChange={(e) => set({ code: e.target.value === "" ? undefined : Number(e.target.value) })} placeholder="6000" />
+        <ValidationHint show={codeInvalid} message="Must be a non-negative integer" />
       </FieldRow>
       <FieldRow label="Message">
-        <input className={inputClass} value={data.message ?? ""} onChange={(e) => set({ message: e.target.value })} placeholder="Insufficient funds" />
+        <input className={`${inputClass}${data.message !== undefined && !data.message.trim() ? " border-yellow-500/50" : ""}`} value={data.message ?? ""} onChange={(e) => set({ message: e.target.value })} placeholder="Insufficient funds" />
+        <ValidationHint show={data.message !== undefined && data.message !== null && !data.message.trim()} message="Error message is recommended" />
       </FieldRow>
     </div>
   );
@@ -1015,15 +1062,21 @@ function EventForm({ nodeId, data }: { nodeId: string; data: EventNodeData }) {
           <button onClick={addField} className="text-[10px] text-primary hover:underline">+ Add</button>
         </div>
         <div className="space-y-1.5">
-          {fields.map((f, i) => (
+          {fields.map((f, i) => {
+            const fieldNameInvalid = f.name ? !isValidIdentifier(f.name) : false;
+            const fieldDuplicate = isDuplicateName(fields.map((fd) => fd.name), i);
+            return (
             <div key={f.name || i} className="space-y-1 rounded border border-border p-1.5">
               <div className="flex items-center gap-1.5">
-                <input className={`${inputClass} flex-1 font-mono`} value={f.name} onChange={(e) => updateField(i, "name", e.target.value)} placeholder="amount" />
+                <input className={`${(fieldNameInvalid || fieldDuplicate) ? inputInvalidClass : inputClass} flex-1 font-mono`} value={f.name} onChange={(e) => updateField(i, "name", e.target.value)} placeholder="amount" />
                 <button onClick={() => removeField(i)} className="shrink-0 text-muted-foreground/60 hover:text-destructive"><X size={12} /></button>
               </div>
+              <ValidationHint show={fieldNameInvalid} message="Must be snake_case, not a Rust keyword" />
+              <ValidationHint show={fieldDuplicate && !fieldNameInvalid} message="Duplicate field name" />
               <TypeEditor value={f.type} onChange={(t) => updateField(i, "type", t)} availableStates={allStates} compact />
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
