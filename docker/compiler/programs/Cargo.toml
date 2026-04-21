@@ -23,8 +23,8 @@ idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
 # Anchor framework
-anchor-lang = { version = "0.31.0", features = ["init-if-needed", "allow-missing-optionals", "anchor-debug"] }
-anchor-spl = { version = "0.31.0", features = ["metadata", "dex", "governance"] }
+anchor-lang = { version = "0.32.1", features = ["init-if-needed", "allow-missing-optionals", "anchor-debug"] }
+anchor-spl = { version = "0.32.1", features = ["metadata", "dex", "governance"] }
 
 # Quasar framework (zero-copy Solana programs)
 quasar-lang = "0.1"
@@ -35,7 +35,7 @@ pinocchio-system = "0.2"
 pinocchio-token = "0.4"
 
 # Common Solana dependencies
-solana-program = "~2.1"
+solana-program = "~3.1"
 spl-token = "~6"
 spl-associated-token-account = "~6"
 spl-token-2022 = "~6"

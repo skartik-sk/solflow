@@ -20,7 +20,7 @@
 #   --memory=2g --cpus=2 --network=none
 
 ################# BASE IMAGE #################
-FROM ubuntu:24.04 AS base
+FROM --platform=linux/amd64 ubuntu:24.04 AS base
 
 ARG DEBIAN_FRONTEND="noninteractive"
 ENV HOME="/root"
@@ -37,22 +37,14 @@ ENV PATH="${HOME}/.cargo/bin:${PATH}"
 RUN rustup component add rustfmt clippy
 
 ################# SOLANA CLI #################
-ARG SOLANA_VERSION="2.1.0"
 
-RUN sh -c "$(curl -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install)"
+RUN curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash 
 ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
 
 # Verify cargo-build-sbf is available
 RUN cargo-build-sbf --version
 
-################# ANCHOR CLI #################
-ARG ANCHOR_VERSION="0.31.0"
-
-RUN cargo install --git https://github.com/coral-xyz/anchor \
-    --tag v${ANCHOR_VERSION} \
-    --locked \
-    anchor-cli \
-    --no-default-features
+# Anchor CLI is already installed by the Solana install script (via avm)
 RUN anchor --version
 
 ################# TEMPLATE CARGO.TOML (cached deps) #################
@@ -77,12 +69,13 @@ RUN cd /home/builder/template && anchor build 2>/dev/null || true
 RUN rm -rf /home/builder/template
 
 ################# RUNTIME USER #################
+ENV PATH="/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:${PATH}"
 RUN useradd -m builder
 USER builder
 WORKDIR /home/builder/project
 
 # Verify all tools are accessible as builder user
-RUN solana --version && anchor --version && cargo-build-sbf --version
+RUN sudo ls && solana --version && anchor --version && cargo-build-sbf --version
 
 # Default: keep container alive for builds
 CMD ["sleep", "infinity"]

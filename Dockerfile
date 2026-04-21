@@ -5,7 +5,7 @@
 
 FROM node:20-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends openssl curl && rm -rf /var/lib/apt/lists/*
-RUN npm install -g bun
+RUN npm install -g bun@1.3.10
 WORKDIR /app
 
 # ─── Stage 1: Install dependencies ────────────────────────────────────────────
@@ -27,7 +27,10 @@ COPY packages/solana-utils/package.json ./packages/solana-utils/package.json
 COPY packages/anchor-templates/package.json ./packages/anchor-templates/package.json
 COPY packages/pinocchio-templates/package.json ./packages/pinocchio-templates/package.json
 COPY packages/idl-import/package.json ./packages/idl-import/package.json
+COPY packages/cli/package.json ./packages/cli/package.json
+COPY packages/rust-parser/package.json ./packages/rust-parser/package.json
 COPY apps/web/package.json ./apps/web/package.json
+COPY apps/standalone/package.json ./apps/standalone/package.json
 COPY plugins/plugin-pyth/package.json ./plugins/plugin-pyth/package.json
 COPY plugins/plugin-metaplex/package.json ./plugins/plugin-metaplex/package.json
 COPY plugins/plugin-spl-token/package.json ./plugins/plugin-spl-token/package.json

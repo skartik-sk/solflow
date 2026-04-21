@@ -1107,7 +1107,7 @@ export const deployRouter = router({
             where: { id: deploymentId },
             data: { status: "FAILED", txSignature: "failed" },
           })
-          .catch((e) => {
+          .catch((e: unknown) => {
             console.warn(`[deploy] Failed to update deployment ${deploymentId} status:`, e instanceof Error ? e.message : e);
           });
 
