@@ -39,10 +39,17 @@ export interface DockerBuildResult {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /** Write pre-generated source files to a temp directory and return its path. */
+// Shared build directory visible to both the app container and the host Docker daemon.
+// When using Docker socket mount, `docker run -v` resolves paths on the HOST,
+// so temp dirs inside the app container are invisible. This path must be a
+// Docker named volume or host bind-mount that both sides can see.
+const BUILD_ROOT = process.env.SOLFLOW_BUILD_DIR || join(tmpdir(), "solflow-builds");
+
 async function createTempProject(
   files: { path: string; content: string }[],
 ): Promise<string> {
-  const dir = join(tmpdir(), `solflow-${randomBytes(8).toString("hex")}`);
+  await mkdir(BUILD_ROOT, { recursive: true });
+  const dir = join(BUILD_ROOT, `build-${randomBytes(8).toString("hex")}`);
   await mkdir(dir, { recursive: true });
 
   for (const file of files) {
