@@ -18,8 +18,8 @@
 services:
   compiler:
     build:
-      context: ../
-      dockerfile: docker/compiler/Dockerfile
+      context: compiler
+      dockerfile: Dockerfile
     image: solflow-compiler:latest
     container_name: solflow-compiler
     # Keep container alive for exec-based builds
