@@ -26,6 +26,7 @@ COPY packages/eslint-config/package.json ./packages/eslint-config/package.json
 COPY packages/solana-utils/package.json ./packages/solana-utils/package.json
 COPY packages/anchor-templates/package.json ./packages/anchor-templates/package.json
 COPY packages/pinocchio-templates/package.json ./packages/pinocchio-templates/package.json
+COPY packages/idl-import/package.json ./packages/idl-import/package.json
 COPY apps/web/package.json ./apps/web/package.json
 COPY plugins/plugin-pyth/package.json ./plugins/plugin-pyth/package.json
 COPY plugins/plugin-metaplex/package.json ./plugins/plugin-metaplex/package.json
