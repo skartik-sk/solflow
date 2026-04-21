@@ -32,13 +32,9 @@ RUN apt-get update -qq && apt-get upgrade -qq && apt-get install -qq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
-RUN sh -c "$(curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs)" -- -y
+RUN sh -c "$(curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash )" -- -y
 ENV PATH="${HOME}/.cargo/bin:${PATH}"
-RUN rustup component add rustfmt clippy
 
-################# SOLANA CLI #################
-
-RUN curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash 
 ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
 
 # Verify cargo-build-sbf is available
