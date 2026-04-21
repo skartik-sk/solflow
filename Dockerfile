@@ -40,8 +40,7 @@ FROM deps AS builder
 COPY . .
 
 # Generate Prisma client from the db workspace so Bun resolves the local prisma binary correctly
-RUN cd packages/db && npx prisma generate
-
+RUN bun run --cwd packages/db db:generate
 # Build all workspace packages first, then the web app
 RUN npx turbo build --filter=@solflow/web
 
