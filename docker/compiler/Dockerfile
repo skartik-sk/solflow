@@ -32,7 +32,8 @@ RUN apt-get update -qq && apt-get upgrade -qq && apt-get install -qq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust
-RUN sh -c "$(curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash )" -- -y
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
 ENV PATH="${HOME}/.cargo/bin:${PATH}"
 
 ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
@@ -67,11 +68,13 @@ RUN rm -rf /home/builder/template
 ################# RUNTIME USER #################
 ENV PATH="/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:${PATH}"
 RUN useradd -m builder
+RUN chmod a+rx /root && chmod -R a+rx /root/.cargo /root/.local /root/.rustup /root/.avm /root/.nvm || true
 USER builder
 WORKDIR /home/builder/project
 
+
 # Verify all tools are accessible as builder user
-RUN sudo ls && solana --version && anchor --version && cargo-build-sbf --version
+RUN  solana --version && anchor --version && cargo-build-sbf --version
 
 # Default: keep container alive for builds
 CMD ["sleep", "infinity"]

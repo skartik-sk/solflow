@@ -54,22 +54,22 @@ async function createTempProject(
 
   return dir;
 }
-
 /** Get the build command for each framework. */
 function getBuildCommand(framework: "ANCHOR" | "PINOCCHIO" | "QUASAR"): string {
+  const envPath = "export PATH=\"/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:$PATH\" && ";
   switch (framework) {
     case "ANCHOR":
       // Anchor: use `anchor build` which handles cargo-build-sbf + IDL generation
       // IDL parse is best-effort: log failure but don't fail the overall build
-      return "cd /home/builder/project/programs/* && anchor build && (anchor idl parse --file src/lib.rs --o /home/builder/project/idl.json || echo 'WARN: IDL parse failed')";
+      return envPath + "cd /home/builder/project/programs/* && anchor build && (anchor idl parse --file src/lib.rs --o /home/builder/project/idl.json || echo 'WARN: IDL parse failed')";
     case "QUASAR":
       // Quasar: standard cargo build-sbf (quasar-lang is just a crate dependency)
-      return "cd /home/builder/project/programs/* && cargo build-sbf --release";
+      return envPath + "cd /home/builder/project/programs/* && cargo build-sbf --release";
     case "PINOCCHIO":
       // Pinocchio: standard cargo build-sbf
-      return "cd /home/builder/project/programs/* && cargo build-sbf --release";
+      return envPath + "cd /home/builder/project/programs/* && cargo build-sbf --release";
     default:
-      return "cargo build-sbf --release";
+      return envPath + "cargo build-sbf --release";
   }
 }
 

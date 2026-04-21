@@ -4,7 +4,7 @@
 # =============================================================================
 
 FROM node:20-slim AS base
-RUN apt-get update && apt-get install -y --no-install-recommends openssl curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl curl docker.io && rm -rf /var/lib/apt/lists/*
 RUN npm install -g bun@1.3.10
 WORKDIR /app
 
