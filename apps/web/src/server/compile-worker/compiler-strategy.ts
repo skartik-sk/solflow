@@ -55,9 +55,37 @@ export async function compileWithStrategy(
   input: CompileInput,
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<CompileResult> {
-  // Strategy 1: Docker build (preferred — supports all 3 frameworks)
+  console.error(`[compile] framework: ${input.framework}`);
+
+  // ── Anchor: use Solana PG cloud API (fast, reliable, handles workspace structure) ──
+  if (input.framework === "ANCHOR") {
+    onLog("[strategy] Anchor → using cloud build (Solana PG API)", "info");
+    try {
+      const result = await runWasmBuild(input, onLog);
+      if (result.success) return result;
+      // Cloud failed — report error, don't fall through
+      onLog("[strategy] Cloud build failed for Anchor.", "error");
+      return result;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onLog(`[strategy] Cloud build error: ${msg}`, "error");
+      return {
+        success: false,
+        logs: [`[strategy] Cloud build error: ${msg}`],
+        errors: [msg],
+        warnings: [],
+        workDir: "",
+        binaryPath: null,
+        binarySize: null,
+        duration: 0,
+        method: "cloud",
+      };
+    }
+  }
+
+  // ── Pinocchio / Quasar: use Docker (local compiler container) ──
   const dockerReady = await isDockerAvailable();
-  console.error(`[compile] Docker available: ${dockerReady}, framework: ${input.framework}`);
+  console.error(`[compile] Docker available: ${dockerReady}`);
 
   if (dockerReady) {
     try {
@@ -82,8 +110,6 @@ export async function compileWithStrategy(
         };
       }
 
-      // Docker failed — return Docker's error directly to the user.
-      // Don't fall through to local CLI (won't work inside app container).
       const dockerErrors = result.errors.length > 0
         ? result.errors
         : result.logs.filter(l => /error/i.test(l));
@@ -121,34 +147,11 @@ export async function compileWithStrategy(
     }
   }
 
-  onLog("[strategy] Docker not available — trying cloud build...", "info");
-
-  // Strategy 2: WASM/cloud build (only supports Anchor)
-  try {
-    const result = await runWasmBuild(input, onLog);
-    if (result.success) {
-      return result;
-    }
-    if (result.method === "codegen-only" && result.errors.length > 0) {
-      onLog("[strategy] Cloud build unavailable.", "warn");
-    } else {
-      return result;
-    }
-  } catch (err) {
-    onLog(
-      `[strategy] Cloud build error: ${err instanceof Error ? err.message : String(err)}`,
-      "warn",
-    );
-  }
-
-  // No more fallbacks — local CLI won't work inside a container
+  // Docker not available
   return {
     success: false,
-    logs: ["[strategy] No compilation toolchain available."],
-    errors: [
-      "No compilation toolchain available. Generated source code is available for download.",
-      "Docker not available and cloud build failed.",
-    ],
+    logs: ["[strategy] Docker not available."],
+    errors: ["Docker not available and cloud build not applicable for this framework."],
     warnings: [],
     workDir: "",
     binaryPath: null,
