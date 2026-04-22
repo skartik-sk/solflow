@@ -179,12 +179,12 @@ export async function runDockerBuild(
   onLog(`[docker] Framework: ${input.framework}, Build: ${buildCmd}`, "info");
 
   // Docker run arguments
+  // Note: no --network=none — compiler needs internet to fetch crates from crates.io
   const dockerArgs = [
     "run",
     "--rm",
     "--memory=2g",
     "--cpus=2",
-    "--network=none",
     "-v",
     `${workDir}:/home/builder/project`,
     "solflow-compiler:latest",
