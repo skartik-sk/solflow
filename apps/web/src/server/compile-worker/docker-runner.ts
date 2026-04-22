@@ -71,12 +71,12 @@ function getBuildCommand(framework: "ANCHOR" | "PINOCCHIO" | "QUASAR"): string {
       return envPath + "cd /home/builder/project/programs/* && anchor build && (anchor idl parse --file src/lib.rs --o /home/builder/project/idl.json || echo 'WARN: IDL parse failed')";
     case "QUASAR":
       // Quasar: standard cargo build-sbf (quasar-lang is just a crate dependency)
-      return envPath + "cd /home/builder/project/programs/* && cargo build-sbf --release";
+      return envPath + "cd /home/builder/project/programs/* && cargo build-sbf";
     case "PINOCCHIO":
       // Pinocchio: standard cargo build-sbf
-      return envPath + "cd /home/builder/project/programs/* && cargo build-sbf --release";
+      return envPath + "cd /home/builder/project/programs/* && cargo build-sbf";
     default:
-      return envPath + "cargo build-sbf --release";
+      return envPath + "cargo build-sbf";
   }
 }
 
