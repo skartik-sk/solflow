@@ -69,14 +69,16 @@ async function createTempProject(
 
 function getBuildCommand(framework: "ANCHOR" | "PINOCCHIO" | "QUASAR", projectDir: string): string {
   const envPath = 'export PATH="/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:$PATH" && ';
+  // Shared target dir on the bind-mounted volume — compiled deps persist between builds
+  const targetDir = `CARGO_TARGET_DIR=/tmp/solflow-builds/_cache/${framework.toLowerCase()}-target`;
   switch (framework) {
     case "ANCHOR":
-      return envPath + `cd ${projectDir}/programs/* && anchor build && (anchor idl parse --file src/lib.rs --o ${projectDir}/idl.json || echo 'WARN: IDL parse failed')`;
+      return envPath + `mkdir -p /tmp/solflow-builds/_cache/anchor-target && ${targetDir} cd ${projectDir}/programs/* && anchor build && (anchor idl parse --file src/lib.rs --o ${projectDir}/idl.json || echo 'WARN: IDL parse failed')`;
     case "QUASAR":
     case "PINOCCHIO":
-      return envPath + `cd ${projectDir}/programs/* && cargo build-sbf`;
+      return envPath + `mkdir -p /tmp/solflow-builds/_cache/${framework.toLowerCase()}-target && ${targetDir} cargo build-sbf --manifest-path ${projectDir}/programs/*/Cargo.toml`;
     default:
-      return envPath + `cd ${projectDir}/programs/* && cargo build-sbf`;
+      return envPath + `mkdir -p /tmp/solflow-builds/_cache/target && ${targetDir} cargo build-sbf --manifest-path ${projectDir}/programs/*/Cargo.toml`;
   }
 }
 
@@ -95,6 +97,14 @@ async function findBinary(workDir: string, programName?: string): Promise<{ path
   const { extname } = await import("path");
 
   const searchPaths = [
+    // Shared CARGO_TARGET_DIR on bind-mounted volume (fastest to check)
+    join(BUILD_ROOT, "_cache", "quasar-target", "deploy"),
+    join(BUILD_ROOT, "_cache", "pinocchio-target", "deploy"),
+    join(BUILD_ROOT, "_cache", "anchor-target", "deploy"),
+    join(BUILD_ROOT, "_cache", "quasar-target", "sbf-solana-solana", "release"),
+    join(BUILD_ROOT, "_cache", "pinocchio-target", "sbf-solana-solana", "release"),
+    join(BUILD_ROOT, "_cache", "anchor-target", "sbf-solana-solana", "release"),
+    // Fallback: project-local target dirs
     join(workDir, "target", "deploy"),
     programName ? join(workDir, "programs", programName, "target", "deploy") : null,
     programName ? join(workDir, "programs", programName, "target", "sbf-solana-solana", "release") : null,

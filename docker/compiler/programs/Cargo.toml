@@ -27,11 +27,13 @@ anchor-lang = { version = "0.32.1", features = ["init-if-needed", "allow-missing
 anchor-spl = { version = "0.32.1", features = ["metadata", "dex", "governance"] }
 
 # Quasar framework (zero-copy Solana programs)
-quasar-lang = "0.1"
+quasar-lang = "0.0"
+quasar-pod = "0.0"
+quasar-derive = "0.0"
 
 # Pinocchio (zero-dependency Solana programs)
-pinocchio = "0.8"
-pinocchio-system = "0.2"
+pinocchio = "0.11"
+pinocchio-system = "0.6"
 pinocchio-token = "0.4"
 
 # Common Solana dependencies
