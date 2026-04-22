@@ -56,14 +56,17 @@ export async function compileWithStrategy(
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<CompileResult> {
   // Strategy 1: Docker build (preferred — supports all 3 frameworks)
-  // Quick availability check to avoid 2-5s spawn timeout
   const dockerReady = await isDockerAvailable();
-  console.error(`[DEBUG] Docker available: ${dockerReady}, framework: ${input.framework}`);
+  console.error(`[compile] Docker available: ${dockerReady}, framework: ${input.framework}`);
+
   if (dockerReady) {
     try {
-      console.error(`[DEBUG] Trying Docker build...`);
       const result = await runDockerBuild(input, onLog);
-      console.error(`[DEBUG] Docker done: success=${result.success}, errors=${JSON.stringify(result.errors)}, logs=${result.logs.length}`);
+      console.error(`[compile] Docker result: success=${result.success}, logs count=${result.logs.length}`);
+      for (const logLine of result.logs) {
+        console.error(`[compile][docker] ${logLine}`);
+      }
+
       if (result.success) {
         return {
           success: true,
@@ -78,27 +81,56 @@ export async function compileWithStrategy(
           idlJson: result.idlJson,
         };
       }
-      onLog("[strategy] Docker build failed — trying other methods...", "warn");
+
+      // Docker failed — return Docker's error directly to the user.
+      // Don't fall through to local CLI (won't work inside app container).
+      const dockerErrors = result.errors.length > 0
+        ? result.errors
+        : result.logs.filter(l => /error/i.test(l));
+      onLog("[strategy] Docker build failed.", "error");
+      for (const e of dockerErrors.slice(0, 10)) {
+        onLog(e, "error");
+      }
+
+      return {
+        success: false,
+        logs: result.logs,
+        errors: dockerErrors.length > 0 ? dockerErrors : ["Docker build failed with no specific error."],
+        warnings: result.warnings,
+        workDir: "",
+        binaryPath: null,
+        binarySize: null,
+        duration: result.duration,
+        method: "docker",
+      };
     } catch (err) {
-      console.error(`[DEBUG] Docker threw: ${err instanceof Error ? err.message : String(err)}`);
-      onLog(
-        `[strategy] Docker build error: ${err instanceof Error ? err.message : String(err)}`,
-        "warn",
-      );
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[compile] Docker threw: ${msg}`);
+      onLog(`[strategy] Docker build error: ${msg}`, "error");
+      return {
+        success: false,
+        logs: [`[strategy] Docker build error: ${msg}`],
+        errors: [msg],
+        warnings: [],
+        workDir: "",
+        binaryPath: null,
+        binarySize: null,
+        duration: 0,
+        method: "docker",
+      };
     }
-  } else {
-    onLog("[strategy] Docker not available — skipping", "info");
   }
 
-  // Strategy 2: WASM/cloud build
+  onLog("[strategy] Docker not available — trying cloud build...", "info");
+
+  // Strategy 2: WASM/cloud build (only supports Anchor)
   try {
     const result = await runWasmBuild(input, onLog);
     if (result.success) {
       return result;
     }
-
     if (result.method === "codegen-only" && result.errors.length > 0) {
-      onLog("[strategy] Cloud build unavailable — trying local CLI...", "warn");
+      onLog("[strategy] Cloud build unavailable.", "warn");
     } else {
       return result;
     }
@@ -109,34 +141,13 @@ export async function compileWithStrategy(
     );
   }
 
-  // Strategy 3: Local CLI
-  try {
-    const result = await runLocalBuild(input, onLog);
-    if (result.success) {
-      return { ...result, method: "local-cli" };
-    }
-    return { ...result, method: "local-cli" };
-  } catch (err) {
-    onLog(
-      `[strategy] Local CLI error: ${err instanceof Error ? err.message : String(err)}`,
-      "warn",
-    );
-  }
-
-  // Strategy 4: Codegen only (no binary)
-  onLog(
-    "[strategy] No compilation toolchain available — generating source only.",
-    "warn",
-  );
-
+  // No more fallbacks — local CLI won't work inside a container
   return {
     success: false,
-    logs: [
-      "[strategy] Code generation complete but no compilation toolchain available.",
-      "[strategy] Generated source code is available for download.",
-    ],
+    logs: ["[strategy] No compilation toolchain available."],
     errors: [
       "No compilation toolchain available. Generated source code is available for download.",
+      "Docker not available and cloud build failed.",
     ],
     warnings: [],
     workDir: "",
