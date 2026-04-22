@@ -58,9 +58,12 @@ export async function compileWithStrategy(
   // Strategy 1: Docker build (preferred — supports all 3 frameworks)
   // Quick availability check to avoid 2-5s spawn timeout
   const dockerReady = await isDockerAvailable();
+  console.error(`[DEBUG] Docker available: ${dockerReady}, framework: ${input.framework}`);
   if (dockerReady) {
     try {
+      console.error(`[DEBUG] Trying Docker build...`);
       const result = await runDockerBuild(input, onLog);
+      console.error(`[DEBUG] Docker done: success=${result.success}, errors=${JSON.stringify(result.errors)}, logs=${result.logs.length}`);
       if (result.success) {
         return {
           success: true,
@@ -77,6 +80,7 @@ export async function compileWithStrategy(
       }
       onLog("[strategy] Docker build failed — trying other methods...", "warn");
     } catch (err) {
+      console.error(`[DEBUG] Docker threw: ${err instanceof Error ? err.message : String(err)}`);
       onLog(
         `[strategy] Docker build error: ${err instanceof Error ? err.message : String(err)}`,
         "warn",
