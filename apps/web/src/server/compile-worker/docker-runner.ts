@@ -180,11 +180,14 @@ export async function runDockerBuild(
 
   // Docker run arguments
   // Note: no --network=none — compiler needs internet to fetch crates from crates.io
+  // Note: -u root — volume-mounted files are owned by root, builder user can't write
   const dockerArgs = [
     "run",
     "--rm",
     "--memory=2g",
     "--cpus=2",
+    "-u",
+    "root",
     "-v",
     `${workDir}:/home/builder/project`,
     "solflow-compiler:latest",
