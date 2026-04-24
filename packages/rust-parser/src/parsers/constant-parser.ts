@@ -8,6 +8,7 @@ const RE_CONST = /pub\s+const\s+(\w+)\s*:\s*(.+?)\s*=\s*(.+?)\s*;/g;
 export function parseConstants(src: string): ParsedConstant[] {
   const constants: ParsedConstant[] = [];
   const re = new RegExp(RE_CONST.source, "g");
+  re.lastIndex = 0;
   let match;
 
   while ((match = re.exec(src)) !== null) {

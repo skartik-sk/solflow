@@ -38,6 +38,9 @@ export function getProjectPath(projectPath: string): string {
   return join(getConfigDir(projectPath), "project.json");
 }
 
+const VALID_FRAMEWORKS = ["anchor", "pinocchio", "quasar"] as const;
+const VALID_MODES = ["rust", "editor"] as const;
+
 /**
  * Read config from .solstudio/config.json. Returns defaults if not found.
  */
@@ -47,8 +50,22 @@ export function readConfig(projectPath: string): SolStudioConfig {
 
   try {
     const raw = readFileSync(configPath, "utf-8");
-    return { ...DEFAULT_CONFIG, ...JSON.parse(raw) };
-  } catch {
+    const parsed = JSON.parse(raw);
+    const merged = { ...DEFAULT_CONFIG, ...parsed };
+
+    // Validate values
+    if (!VALID_FRAMEWORKS.includes(merged.framework)) {
+      merged.framework = DEFAULT_CONFIG.framework;
+    }
+    if (!VALID_MODES.includes(merged.mode)) {
+      merged.mode = DEFAULT_CONFIG.mode;
+    }
+    if (typeof merged.port !== "number" || merged.port < 1 || merged.port > 65535) {
+      merged.port = DEFAULT_CONFIG.port;
+    }
+    return merged;
+  } catch (err) {
+    console.error(`Warning: Failed to read config at ${configPath}: ${err instanceof Error ? err.message : String(err)}`);
     return { ...DEFAULT_CONFIG };
   }
 }

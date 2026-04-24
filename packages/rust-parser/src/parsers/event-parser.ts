@@ -1,7 +1,8 @@
 // Event parser — parse #[event] structs.
+// Handles doc comments between #[event] and struct.
 
 import { RE_EVENT_STRUCT } from "../utils/anchor-patterns";
-import { extractBalancedBlock, collectDocComments } from "../utils/regex-helpers";
+import { extractBalancedBlock } from "../utils/regex-helpers";
 import { mapRustType } from "../utils/type-mapper";
 import type { ParsedEvent, ParsedField } from "../types";
 
@@ -48,7 +49,7 @@ function parseEventFields(body: string): ParsedField[] {
 
     const fieldMatch = trimmed.match(/^pub\s+(\w+)\s*:\s*(.+?)\s*(?:,|$)/);
     if (fieldMatch) {
-      const fieldType = fieldMatch[2].replace(/<'info>/, "").trim();
+      const fieldType = fieldMatch[2].replace(/<'info>/g, "").trim();
       fields.push({
         name: fieldMatch[1],
         type: mapRustType(fieldType),

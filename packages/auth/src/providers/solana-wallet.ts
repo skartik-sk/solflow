@@ -9,9 +9,17 @@ import { createHmac } from "crypto";
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
+function getAuthSecret(): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error("AUTH_SECRET environment variable is required");
+  }
+  return secret;
+}
+
 export async function generateNonce(): Promise<string> {
   const timestamp = Date.now().toString();
-  const secret = process.env.AUTH_SECRET || "default-secret";
+  const secret = getAuthSecret();
   const hmac = createHmac("sha256", secret).update(timestamp).digest("hex");
   return `${timestamp}.${hmac}`;
 }
@@ -20,13 +28,19 @@ async function verifyNonce(nonce: string): Promise<boolean> {
   try {
     const [timestamp, hmac] = nonce.split(".");
     if (!timestamp || !hmac) return false;
-    
+
     if (Date.now() - parseInt(timestamp, 10) > NONCE_TTL_MS) return false;
-    
-    const secret = process.env.AUTH_SECRET || "default-secret";
+
+    const secret = getAuthSecret();
     const expectedHmac = createHmac("sha256", secret).update(timestamp).digest("hex");
-    
-    return hmac === expectedHmac;
+
+    // Timing-safe comparison
+    if (hmac.length !== expectedHmac.length) return false;
+    let mismatch = 0;
+    for (let i = 0; i < hmac.length; i++) {
+      mismatch |= hmac.charCodeAt(i) ^ expectedHmac.charCodeAt(i);
+    }
+    return mismatch === 0;
   } catch {
     return false;
   }

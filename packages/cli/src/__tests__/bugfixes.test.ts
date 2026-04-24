@@ -271,8 +271,8 @@ pub struct Init { pub user: Signer<'info> }
     const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
 
     try {
-      // .solstudio should NOT exist yet
-      expect(existsSync(getConfigDir(tempDir))).toBe(false);
+      // .solstudio should already exist from auto-parse on startup
+      expect(existsSync(getConfigDir(tempDir))).toBe(true);
 
       // Call /api/parse
       const res = await fetch(`http://localhost:${PORT}/api/parse`, {

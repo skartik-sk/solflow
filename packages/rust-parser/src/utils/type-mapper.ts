@@ -1,4 +1,5 @@
 // Map Rust types to SolanaType used in the IR schema.
+// Handles primitives, Vec<T>, Option<T>, [T; N], Box<T>, HashMap, tuples, references.
 
 import type { SolanaType } from "@solflow/ir";
 
@@ -18,18 +19,24 @@ const PRIMITIVE_MAP: Record<string, SolanaType> = {
   f64: "f64",
   String: "String",
   Pubkey: "Pubkey",
-  str: "String", // &str → String
+  str: "String",
 };
 
 /**
  * Convert a Rust type string to a SolanaType.
- * Handles primitives, Vec<T>, Option<T>, [T; N], Box<T>, and defined types.
+ * Handles primitives, Vec<T>, Option<T>, [T; N], Box<T>, references, and defined types.
  */
 export function mapRustType(raw: string): SolanaType {
-  const t = raw.trim();
+  let t = raw.trim();
+
+  // Strip references: &T, &mut T
+  t = t.replace(/^&mut\s+/, "").replace(/^&\s+/, "");
+
+  // Strip lifetimes: 'info
+  t = t.replace(/'\w+/g, "");
 
   // Direct primitive match
-  if (PRIMITIVE_MAP[t]) return PRIMITIVE_MAP[t];
+  if (PRIMITIVE_MAP[t.trim()]) return PRIMITIVE_MAP[t.trim()];
 
   // Vec<T>
   const vecMatch = t.match(/^Vec\s*<(.+)>$/);
@@ -55,8 +62,17 @@ export function mapRustType(raw: string): SolanaType {
   const btmMatch = t.match(/^BTreeMap\s*<\s*(.+?)\s*,\s*(.+?)\s*>$/);
   if (btmMatch) return { hashMap: [mapRustType(btmMatch[1]), mapRustType(btmMatch[2])] };
 
+  // (A, B, ...) tuple
+  const tupleMatch = t.match(/^\((.+)\)$/);
+  if (tupleMatch) {
+    const parts = splitTopLevelCommas(tupleMatch[1]);
+    if (parts.length > 1) {
+      return { defined: `(${parts.map(p => mapRustType(p.trim())).map(t => typeof t === "string" ? t : JSON.stringify(t)).join(", ")})` };
+    }
+  }
+
   // Defined type (struct/enum name)
-  return { defined: t };
+  return { defined: t.trim() };
 }
 
 /**
@@ -68,8 +84,8 @@ export function detectAccountKind(rustType: string): {
 } {
   const t = rustType.trim();
 
-  if (t.startsWith("Signer<")) return { accountType: "signer" };
-  if (t === "SystemAccount<" || t.startsWith("SystemAccount<"))
+  if (t.startsWith("Signer<") || t === "Signer") return { accountType: "signer" };
+  if (t === "SystemAccount<" || t.startsWith("SystemAccount<") || t === "SystemAccount")
     return { accountType: "system-account" };
   if (t.startsWith("Program<")) return { accountType: "system-program" };
   if (t.startsWith("Account<"))
@@ -80,21 +96,100 @@ export function detectAccountKind(rustType: string): {
     return { accountType: "token-account" };
   if (t.startsWith("Mint<") || t.startsWith("InterfaceMint<"))
     return { accountType: "mint" };
+  if (t.startsWith("Interface<"))
+    return { accountType: "account", stateType: extractGeneric(t) };
   if (t.startsWith("AssociatedToken<"))
     return { accountType: "associated-token" };
-  if (t === "UncheckedAccount" || t === "AccountInfo<" || t === "&AccountInfo")
+  if (t === "UncheckedAccount" || t === "AccountInfo<" || t === "&AccountInfo" || t === "AccountInfo")
     return { accountType: "unchecked-account" };
-  if (t === "System<" || t.startsWith("System<"))
+  if (t === "System<" || t.startsWith("System<") || t === "System")
     return { accountType: "system-program" };
-  if (t === "Token<" || t.startsWith("Token<"))
+  if (t === "Token<" || t.startsWith("Token<") || t === "Token")
     return { accountType: "token-program" };
   if (t === "Rent" || t === "Rent<") return { accountType: "rent" };
   if (t === "Clock" || t === "Clock<") return { accountType: "clock" };
+  if (t.startsWith("Syscall<")) return { accountType: "system-program" };
+  if (t.startsWith("Option<Account<")) {
+    const inner = extractGeneric(t.replace(/^Option<</, "").replace(/>$/, ""));
+    return { accountType: "account", stateType: inner };
+  }
+  if (t.startsWith("Option<"))
+    return { accountType: "unchecked-account" };
 
   return { accountType: "account" };
 }
 
 function extractGeneric(t: string): string {
-  const m = t.match(/<\s*(\w+)\s*>/);
-  return m ? m[1] : t;
+  // Find the last top-level identifier before the closing >
+  const openAngle = t.indexOf("<");
+  if (openAngle === -1) return t;
+
+  // Extract content between first < and matching >
+  let depth = 0;
+  let endAngle = -1;
+  for (let i = openAngle; i < t.length; i++) {
+    if (t[i] === "<") depth++;
+    else if (t[i] === ">") {
+      depth--;
+      if (depth === 0) { endAngle = i; break; }
+    }
+  }
+  if (endAngle === -1) return t;
+
+  const inner = t.slice(openAngle + 1, endAngle).trim();
+
+  // Split on comma at depth 0 to separate lifetime from type
+  let commaDepth = 0;
+  let lastComma = -1;
+  for (let i = 0; i < inner.length; i++) {
+    if (inner[i] === "<") commaDepth++;
+    else if (inner[i] === ">") commaDepth--;
+    else if (inner[i] === "," && commaDepth === 0) lastComma = i;
+  }
+
+  // Take the part after the last top-level comma (skips lifetime, takes the type)
+  const typePart = lastComma >= 0 ? inner.slice(lastComma + 1).trim() : inner;
+
+  // If it starts with a lifetime like 'info, skip it
+  if (typePart.startsWith("'")) {
+    const afterLifetime = typePart.indexOf(",");
+    return afterLifetime >= 0 ? typePart.slice(afterLifetime + 1).trim() : typePart;
+  }
+
+  return typePart;
+}
+
+function splitTopLevelCommas(src: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  let ci = 0;
+
+  while (ci < src.length) {
+    const ch = src[ci];
+    if (ch === '"') {
+      current += ch;
+      ci++;
+      while (ci < src.length && src[ci] !== '"') {
+        if (src[ci] === "\\") { current += src[ci]; ci++; }
+        current += src[ci];
+        ci++;
+      }
+      if (ci < src.length) { current += src[ci]; ci++; }
+      continue;
+    }
+    if (ch === "<" || ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ">" || ch === ")" || ch === "]" || ch === "}") depth--;
+
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+    ci++;
+  }
+  if (current.trim()) parts.push(current);
+
+  return parts;
 }

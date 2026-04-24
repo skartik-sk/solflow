@@ -22,6 +22,15 @@ export const idlCommand = new Command("idl")
       const raw = readFileSync(resolvedPath, "utf-8");
       const idl = JSON.parse(raw);
 
+      // Basic IDL structure validation
+      if (typeof idl !== "object" || idl === null) {
+        throw new Error("IDL must be a JSON object");
+      }
+      const hasInstructions = Array.isArray(idl.instructions) || Array.isArray(idl.ix);
+      if (!hasInstructions && !idl.name && !idl.version) {
+        console.error("Warning: File doesn't look like a standard Solana IDL (no instructions array found)");
+      }
+
       const result = idlToFlow(idl);
 
       if (options.format === "summary") {

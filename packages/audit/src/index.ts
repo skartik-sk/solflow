@@ -59,8 +59,8 @@ export function runInstantAudit(ir: ProgramIR): AuditReport {
     try {
       const ruleFindings = rule.check(ir);
       findings.push(...ruleFindings);
-    } catch {
-      // Never crash the editor because of a bad rule
+    } catch (err) {
+      console.error(`Audit rule ${rule.id} (${rule.name}) failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

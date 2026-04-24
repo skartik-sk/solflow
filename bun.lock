@@ -37,6 +37,7 @@
         "@solflow/ir": "workspace:*",
         "@solflow/rust-parser": "workspace:*",
         "@solflow/ui": "workspace:*",
+        "@solflow/versioning": "workspace:*",
         "@xyflow/react": "^12.5.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -190,7 +191,7 @@
     },
     "packages/cli": {
       "name": "@solflow/cli",
-      "version": "0.0.0",
+      "version": "0.1.0",
       "bin": {
         "solstudio": "./src/index.ts",
       },

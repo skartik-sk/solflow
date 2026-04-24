@@ -11,7 +11,21 @@ export function parseConstraints(attrContent: string): Constraint[] {
   const constraints: Constraint[] = [];
   const tokens = tokenizeConstraints(attrContent);
 
-  for (const token of tokens) {
+  // Post-process: merge realloc::payer and realloc::zero into preceding realloc token
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (token.type === "realloc-ns") {
+      // Find preceding realloc constraint and merge
+      for (let j = constraints.length - 1; j >= 0; j--) {
+        if (constraints[j].type === "realloc") {
+          const rc = constraints[j] as { type: "realloc"; space: number; payer: string; zeroInit: boolean };
+          if (token.field === "payer") rc.payer = token.value || "";
+          if (token.field === "zero") rc.zeroInit = token.value === "true";
+          break;
+        }
+      }
+      continue;
+    }
     const c = parseSingleConstraint(token);
     if (c) constraints.push(c);
   }
@@ -31,6 +45,8 @@ interface ConstraintToken {
   expression?: string;
   authority?: string;
   mint?: string;
+  errorCode?: string;
+  zeroInit?: boolean;
 }
 
 function tokenizeConstraints(content: string): ConstraintToken[] {
@@ -59,6 +75,45 @@ function tokenizeConstraints(content: string): ConstraintToken[] {
 function parseToken(raw: string): ConstraintToken {
   const trimmed = raw.trim();
 
+  // realloc::payer = X, realloc::zero = true (namespaced key-value)
+  const reallocNsMatch = trimmed.match(/^realloc::(\w+)\s*=\s*(.+)$/);
+  if (reallocNsMatch) {
+    return { type: "realloc-ns", field: reallocNsMatch[1], value: reallocNsMatch[2].trim() };
+  }
+
+  // token::authority = X, token::mint = X, token::token_program = X
+  const tokenKvMatch = trimmed.match(/^token::(\w+)\s*=\s*(.+)$/);
+  if (tokenKvMatch) {
+    const subKey = tokenKvMatch[1];
+    const val = tokenKvMatch[2].trim();
+    if (subKey === "authority") return { type: "token-authority", authority: val };
+    if (subKey === "mint") return { type: "token-mint", mint: val };
+    if (subKey === "token_program") return { type: "custom", expression: `token::token_program = ${val}` };
+    return { type: "custom", expression: trimmed };
+  }
+
+  // mint::authority = X, mint::decimals = N, mint::freeze_authority = X, mint::token_program = X
+  const mintKvMatch = trimmed.match(/^mint::(\w+)\s*=\s*(.+)$/);
+  if (mintKvMatch) {
+    const subKey = mintKvMatch[1];
+    const val = mintKvMatch[2].trim();
+    if (subKey === "authority") return { type: "mint-authority", authority: val };
+    if (subKey === "decimals") return { type: "mint-decimals", value: val };
+    if (subKey === "freeze_authority") return { type: "custom", expression: `mint::freeze_authority = ${val}` };
+    if (subKey === "token_program") return { type: "custom", expression: `mint::token_program = ${val}` };
+    return { type: "custom", expression: trimmed };
+  }
+
+  // associated_token::authority = X, associated_token::mint = X
+  const atKvMatch = trimmed.match(/^associated_token::(\w+)\s*=\s*(.+)$/);
+  if (atKvMatch) {
+    const subKey = atKvMatch[1];
+    const val = atKvMatch[2].trim();
+    if (subKey === "authority") return { type: "associated-token-authority", authority: val };
+    if (subKey === "mint") return { type: "associated-token-mint", mint: val };
+    return { type: "custom", expression: trimmed };
+  }
+
   // key = value patterns
   const kvMatch = trimmed.match(/^(\w+)\s*=\s*(.+)$/);
   if (kvMatch) {
@@ -79,16 +134,28 @@ function parseToken(raw: string): ConstraintToken {
         return { type: "seeds", seeds: value };
       case "bump":
         return { type: "seeds", bump: value };
+      case "realloc":
+        return { type: "realloc", space: value };
+      case "address":
+        return { type: "address", value };
+      case "owner":
+        return { type: "owner", value };
+      case "sweep":
+        return { type: "custom", expression: `sweep = ${value}` };
     }
   }
 
-  // token::authority = X
-  const tokenAuthMatch = trimmed.match(/^token::authority\s*=\s*(\w+)$/);
-  if (tokenAuthMatch) return { type: "token-authority", authority: tokenAuthMatch[1] };
+  // has_one with error code: has_one = field @ ErrorCode
+  const hasOneErrMatch = trimmed.match(/^has_one\s*=\s*(\w+)\s*@\s*(\w+)$/);
+  if (hasOneErrMatch) {
+    return { type: "has_one", field: hasOneErrMatch[1], target: hasOneErrMatch[1], errorCode: hasOneErrMatch[2] };
+  }
 
-  // token::mint = X
-  const tokenMintMatch = trimmed.match(/^token::mint\s*=\s*(\w+)$/);
-  if (tokenMintMatch) return { type: "token-mint", mint: tokenMintMatch[1] };
+  // constraint with error code: constraint = expr @ ErrorCode
+  const constraintErrMatch = trimmed.match(/^constraint\s*=\s*(.+?)\s*@\s*(\w+)$/);
+  if (constraintErrMatch) {
+    return { type: "custom", expression: constraintErrMatch[1].trim(), errorCode: constraintErrMatch[2] };
+  }
 
   // Simple flags
   switch (trimmed) {
@@ -102,6 +169,15 @@ function parseToken(raw: string): ConstraintToken {
       return { type: "init-if-needed" };
     case "bump":
       return { type: "seeds", bump: "" };
+    case "executable":
+      return { type: "custom", expression: "executable" };
+    case "rent_exempt":
+    case "rent_exempt = skip":
+      return { type: "custom", expression: trimmed };
+    case "zero":
+      return { type: "custom", expression: "zero" };
+    case "dup":
+      return { type: "custom", expression: "dup" };
     case "zero_copy":
     case "zero_copy(unsafe)":
       return { type: "custom", expression: "zero_copy" };
@@ -131,7 +207,7 @@ function parseSingleConstraint(token: ConstraintToken): Constraint | null {
     case "close":
       return { type: "close", target: token.target || "" };
     case "has_one":
-      return { type: "has-one", field: token.field || "", target: token.target || token.field || "" };
+      return { type: "has-one", field: token.field || "", target: token.target || token.field || "", errorCode: token.errorCode };
     case "seeds":
       return {
         type: "seeds",
@@ -142,8 +218,29 @@ function parseSingleConstraint(token: ConstraintToken): Constraint | null {
       return { type: "token-authority", authority: token.authority || "" };
     case "token-mint":
       return { type: "token-mint", mint: token.mint || "" };
+    case "mint-authority":
+      return { type: "mint-authority", authority: token.authority || "" };
+    case "mint-decimals":
+      return { type: "mint-decimals", decimals: parseInt(token.value || "0") || 0 };
+    case "associated-token-authority":
+      return { type: "associated-token-authority", authority: token.authority || "" };
+    case "associated-token-mint":
+      return { type: "associated-token-mint", mint: token.mint || "" };
+    case "realloc": {
+      // Accumulate realloc with payer and zero from subsequent tokens
+      const space = token.space ? parseInt(token.space) : 0;
+      return { type: "realloc", space, payer: "", zeroInit: false };
+    }
+    case "realloc-ns":
+      // These are handled in post-processing below — return null here,
+      // we merge them into realloc tokens during tokenization post-processing
+      return null;
+    case "address":
+      return { type: "address", address: token.value || "" };
+    case "owner":
+      return { type: "owner", owner: token.value || "" };
     case "custom":
-      return { type: "custom", expression: token.expression || "" };
+      return { type: "custom", expression: token.expression || "", errorCode: token.errorCode };
     default:
       return null;
   }

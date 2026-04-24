@@ -31,6 +31,7 @@ export interface ParsedAccount {
   isSigner: boolean;
   isInit: boolean;
   isClose: boolean;
+  isExecutable?: boolean;
   constraints: ParsedConstraint[];
   description?: string;
   seeds?: Array<{ type: string; value: string }>;

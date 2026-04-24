@@ -56,3 +56,37 @@ export async function runAudit(flowData: {
   if (!res.ok) throw new Error(`Audit failed: ${res.statusText}`);
   return res.json();
 }
+
+export interface SourceFile {
+  path: string;
+  content: string;
+  language: "rust" | "toml";
+}
+
+export async function fetchSourceFiles(): Promise<{ files: SourceFile[] }> {
+  const res = await fetch(`${API_BASE}/api/source`);
+  if (!res.ok) throw new Error(`Failed to fetch source: ${res.statusText}`);
+  return res.json();
+}
+
+export async function saveSourceFile(
+  path: string,
+  content: string,
+): Promise<{ ok: boolean; nodes: Node[]; edges: Edge[]; warnings: string[] }> {
+  const res = await fetch(`${API_BASE}/api/source`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path, content }),
+  });
+  if (!res.ok) throw new Error(`Failed to save source: ${res.statusText}`);
+  return res.json();
+}
+
+export async function reparseProject(): Promise<{ nodes: Node[]; edges: Edge[]; warnings: string[] }> {
+  const res = await fetch(`${API_BASE}/api/parse`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!res.ok) throw new Error(`Re-parse failed: ${res.statusText}`);
+  return res.json();
+}

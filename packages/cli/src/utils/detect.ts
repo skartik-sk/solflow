@@ -21,6 +21,7 @@ export function detectProjectType(dir: string): ProjectType {
       const cargo = readFileSync(cargoPath, "utf-8");
       if (cargo.includes("anchor-lang")) return "anchor";
       if (cargo.includes("pinocchio")) return "pinocchio";
+      if (cargo.includes("quasar-lang")) return "unknown"; // Quasar not fully supported yet
     }
 
     // Check programs/*/Cargo.toml for Anchor workspace layout
@@ -54,12 +55,13 @@ export function detectProjectType(dir: string): ProjectType {
   return "unknown";
 }
 
-function hasAnchorProgram(dir: string): boolean {
+function hasAnchorProgram(dir: string, depth = 0): boolean {
+  if (depth > 10) return false;
   try {
     const entries = readdirSync(dir, { withFileTypes: true });
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (hasAnchorProgram(join(dir, entry.name))) return true;
+        if (hasAnchorProgram(join(dir, entry.name), depth + 1)) return true;
       } else if (entry.name.endsWith(".rs")) {
         const content = readFileSync(join(dir, entry.name), "utf-8");
         if (content.includes("#[program]")) return true;

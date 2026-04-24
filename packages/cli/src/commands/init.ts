@@ -8,7 +8,7 @@ import { writeConfig, isInitialized, readConfig, getConfigDir } from "../utils/c
 
 const MINIMAL_ANCHOR = `use anchor_lang::prelude::*;
 
-declare_id!("PLACEHOLDER1111111111111111111111111111111111");
+declare_id!("11111111111111111111111111111111111111111");
 
 #[program]
 pub mod {{name}} {
@@ -41,7 +41,10 @@ export const initCommand = new Command("init")
     }
 
     const projectName = basename(resolvedPath);
-    const detected = options.framework as "anchor" | "pinocchio" | "quasar" | undefined || detectProjectType(resolvedPath);
+    const VALID_FRAMEWORKS = ["anchor", "pinocchio", "quasar"] as const;
+    const detected = (options.framework && VALID_FRAMEWORKS.includes(options.framework as typeof VALID_FRAMEWORKS[number])
+      ? options.framework as typeof VALID_FRAMEWORKS[number]
+      : undefined) || detectProjectType(resolvedPath);
     const framework = detected === "unknown" ? "anchor" : detected;
 
     if (isInitialized(resolvedPath)) {

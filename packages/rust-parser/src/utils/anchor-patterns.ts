@@ -1,23 +1,25 @@
 // Anchor-specific regex patterns used by all parsers.
+// These patterns are designed to be flexible enough for real-world code.
 
 // ─── Program ─────────────────────────────────────────────────────────
 
-/** Match #[program] mod declaration */
-export const RE_PROGRAM_BLOCK = /#\[program\]\s*(?:\/\/\/\s*(.*))?\s*pub\s+mod\s+(\w+)\s*\{/;
+/** Match #[program] mod declaration — allows any whitespace/attrs between. pub is optional. */
+export const RE_PROGRAM_BLOCK = /#\[program\]\s*(?:\/\/\/[^\n]*\s*)*(?:pub\s+)?mod\s+(\w+)\s*\{/;
 
-/** Match instruction handler inside #[program] block */
+/** Match instruction handler inside #[program] block.
+ *  Accepts any param name (ctx, context, c, etc.), handles Context<'info, X> and different return types */
 export const RE_INSTRUCTION_FN =
-  /(?:\/\/\/\s*(.*))?\s*pub\s+fn\s+(\w+)\s*\(\s*ctx\s*:\s*Context\s*<\s*(\w+)\s*>\s*(?:,\s*(.+?))?\s*\)\s*(?:->\s*Result\s*<\s*\(\)\s*>\s*)?\{/g;
+  /(?:\/\/\/\s*(.*))?\s*pub\s+fn\s+(\w+)\s*\(\s*\w+\s*:\s*Context\s*<\s*(?:'info\s*,\s*)?(\w+)\s*>\s*(?:,\s*(.+?))?\s*\)\s*(?:->\s*[^{]+?)?\{/g;
 
 /** Match a fn signature more broadly (for handler bodies already extracted) */
 export const RE_FN_SIG =
-  /pub\s+fn\s+(\w+)\s*\(\s*ctx\s*:\s*Context\s*<\s*(\w+)\s*>\s*(?:,\s*(.+?))?\s*\)/;
+  /pub\s+fn\s+(\w+)\s*\(\s*\w+\s*:\s*Context\s*<\s*(?:'info\s*,\s*)?(\w+)\s*>\s*(?:,\s*(.+?))?\s*\)/;
 
 // ─── Accounts ────────────────────────────────────────────────────────
 
-/** Match #[derive(Accounts)] struct */
+/** Match #[derive(Accounts)] struct — allows other derives alongside Accounts (e.g. Debug, Clone) */
 export const RE_ACCOUNTS_STRUCT =
-  /(?:#\[instruction\s*\(([^)]*)\)\s*\])?\s*#\[derive\s*\(\s*Accounts\s*\)\s*\]\s*(?:\/\/\/\s*(.*))?\s*pub\s+struct\s+(\w+)\s*<\s*'info\s*>\s*\{/;
+  /(?:#\[instruction\s*\(([^)]*)\)\s*\])?\s*#\[derive\s*\(\s*[^)]*\bAccounts\b[^)]*\)\s*\]\s*(?:\/\/\/\s*(.*))?\s*pub\s+struct\s+(\w+)\s*(?:<\s*'info\s*>)?\s*\{/;
 
 /** Match a field inside an Accounts struct */
 export const RE_ACCOUNT_FIELD =
@@ -25,28 +27,29 @@ export const RE_ACCOUNT_FIELD =
 
 // ─── State ───────────────────────────────────────────────────────────
 
-/** Match #[account] (data struct, not inside Accounts derive) */
+/** Match #[account] (data struct, not inside Accounts derive).
+ *  Allows doc comments and other attributes between #[account] and struct */
 export const RE_STATE_STRUCT =
-  /#\[account\s*(?:\(([^)]*)\))?\]\s*(?:\/\/\/\s*(.*))?\s*pub\s+struct\s+(\w+)\s*\{/;
+  /#\[account\s*(?:\(([^)]*)\))?\]\s*(?:(?:\/\/\/[^\n]*|#[^\n]*)\s*)*pub\s+struct\s+(\w+)\s*(?:<\s*'info\s*>)?\s*\{/;
 
 // ─── Errors ──────────────────────────────────────────────────────────
 
-/** Match #[error_code] enum */
-export const RE_ERROR_ENUM = /#\[error_code\]\s*pub\s+enum\s+(\w+)\s*\{/;
+/** Match #[error_code] enum — also handles #[error_code(offset = N)] */
+export const RE_ERROR_ENUM = /#\[error_code\s*(?:\(\s*(?:offset\s*=\s*\d+)?.*?\))?\]\s*pub\s+enum\s+(\w+)\s*\{/;
 
-/** Match an error variant */
+/** Match an error variant — captures message and name */
 export const RE_ERROR_VARIANT = /#\[msg\s*\(\s*"([^"]+)"\s*\)\s*\]\s*(\w+)/g;
 
 // ─── Events ──────────────────────────────────────────────────────────
 
-/** Match #[event] struct */
-export const RE_EVENT_STRUCT = /#\[event\]\s*pub\s+struct\s+(\w+)\s*\{/;
+/** Match #[event] struct — allows doc comments between attribute and struct */
+export const RE_EVENT_STRUCT = /#\[event\]\s*(?:(?:\/\/\/[^\n]*)\s*)*pub\s+struct\s+(\w+)\s*(?:<\s*'info\s*>)?\s*\{/;
 
 // ─── Constraints ─────────────────────────────────────────────────────
 
 /** Parse individual constraint tokens from an #[account(...)] attribute */
 export const RE_CONSTRAINT_TOKENS =
-  /(?:init_if_needed|init|mut|signer|close\s*=\s*(\w+)|has_one\s*=\s*(\w+)|payer\s*=\s*(\w+)|space\s*=\s*([^,\)]+)|seeds\s*=\s*(\[.*?\])\s*(?:,\s*bump(?:\s*=\s*(\w+))?)?|bump|constraint\s*=\s*([^,\)]+)|token::authority\s*=\s*(\w+)|token::mint\s*=\s*(\w+)|mint::authority\s*=\s*(\w+)|mint::decimals\s*=\s*(\d+))/g;
+  /(?:init_if_needed|init|mut|signer|close\s*=\s*(\w+)|has_one\s*=\s*(\w+)(?:\s*@\s*(\w+))?|payer\s*=\s*(\w+)|space\s*=\s*([^,\)]+)|seeds\s*=\s*(\[.*?\])\s*(?:,\s*bump(?:\s*=\s*(\w+))?)?|bump|constraint\s*=\s*([^,\)]+)(?:\s*@\s*(\w+))?|token::authority\s*=\s*(\w+)|token::mint\s*=\s*(\w+)|token::token_program\s*=\s*(\w+)|mint::authority\s*=\s*(\w+)|mint::decimals\s*=\s*(\d+)|mint::freeze_authority\s*=\s*(\w+)|mint::token_program\s*=\s*(\w+)|associated_token::authority\s*=\s*(\w+)|associated_token::mint\s*=\s*(\w+)|realloc\s*=\s*([^,\)]+)|realloc::payer\s*=\s*(\w+)|realloc::zero\s*=\s*(true|false)|address\s*=\s*([^,\)]+)|owner\s*=\s*([^,\)]+)|executable|rent_exempt(?:\s*=\s*skip)?|dup|zero|sweep\s*=\s*([^,\)]+))/g;
 
 // ─── Logic operations ────────────────────────────────────────────────
 

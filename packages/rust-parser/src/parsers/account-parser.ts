@@ -1,4 +1,5 @@
 // Account parser — parse #[derive(Accounts)] structs.
+// Handles multiple derives, multi-line attributes, and all Anchor constraint types.
 
 import { RE_ACCOUNTS_STRUCT } from "../utils/anchor-patterns";
 import { extractBalancedBlock } from "../utils/regex-helpers";
@@ -13,7 +14,6 @@ import type { ParsedAccount } from "../types";
 export function parseAccounts(src: string): Record<string, ParsedAccount[]> {
   const result: Record<string, ParsedAccount[]> = {};
 
-  // Use a fresh regex each time to avoid state issues
   let searchFrom = 0;
   while (searchFrom < src.length) {
     const remaining = src.slice(searchFrom);
@@ -21,7 +21,6 @@ export function parseAccounts(src: string): Record<string, ParsedAccount[]> {
     const match = re.exec(remaining);
     if (!match) break;
 
-    const docComment = match[2]?.trim();
     const structName = match[3];
     const absIndex = searchFrom + match.index;
 
@@ -43,7 +42,8 @@ export function parseAccounts(src: string): Record<string, ParsedAccount[]> {
 function parseAccountFields(body: string): ParsedAccount[] {
   const accounts: ParsedAccount[] = [];
   let pendingDoc: string | undefined;
-  let pendingAttr: string | undefined;
+  let pendingAttrs: string[] = [];
+  let accumulating: string | undefined;
 
   const lines = body.split("\n");
 
@@ -57,17 +57,37 @@ function parseAccountFields(body: string): ParsedAccount[] {
       continue;
     }
 
-    // Collect #[account(...)] attributes
-    const attrMatch = trimmed.match(/^#\[account\(([^)]*)\)\]$/);
-    if (attrMatch) {
-      pendingAttr = attrMatch[1];
+    // Collect #[account(...)] attributes — handle multi-line by accumulating
+    if (trimmed.startsWith("#[account")) {
+      let attrText = trimmed;
+      if (!attrText.includes("]")) {
+        accumulating = attrText;
+        continue;
+      }
+      const attrMatch = attrText.match(/^#\[account(?:\(([^)]*)\))?\]$/);
+      if (attrMatch) {
+        pendingAttrs.push(attrMatch[1] || "");
+      }
+      continue;
+    }
+
+    // Continue accumulating multi-line attribute
+    if (accumulating !== undefined && !trimmed.startsWith("pub ")) {
+      accumulating += " " + trimmed;
+      if (accumulating.includes("]")) {
+        const attrMatch = accumulating.match(/^#\[account(?:\(([^)]*)\))?\]$/);
+        if (attrMatch) {
+          pendingAttrs.push(attrMatch[1] || "");
+        }
+        accumulating = undefined;
+      }
       continue;
     }
 
     // Collect individual #[signer], #[mut] attributes
     const singleAttrMatch = trimmed.match(/^#\[(signer|mut)\]$/);
     if (singleAttrMatch) {
-      pendingAttr = singleAttrMatch[1];
+      pendingAttrs.push(singleAttrMatch[1]);
       continue;
     }
 
@@ -78,12 +98,15 @@ function parseAccountFields(body: string): ParsedAccount[] {
       const rawType = fieldMatch[2].replace(/<'info>/, "").trim();
 
       const { accountType, stateType } = detectAccountKind(rawType);
-      const constraints = pendingAttr ? parseConstraints(pendingAttr) : [];
+      const constraints = pendingAttrs.length > 0
+        ? pendingAttrs.flatMap(a => parseConstraints(a))
+        : [];
 
       const isMut = constraints.some((c) => c.type === "mut") || rawType.includes("Mut");
       const isSigner = constraints.some((c) => c.type === "signer") || rawType.includes("Signer");
       const isInit = constraints.some((c) => c.type === "init" || c.type === "init-if-needed");
       const isClose = constraints.some((c) => c.type === "close");
+      const isExecutable = constraints.some((c) => c.type === "custom" && c.expression === "executable");
 
       const seeds = constraints
         .filter((c) => c.type === "seeds")
@@ -97,20 +120,23 @@ function parseAccountFields(body: string): ParsedAccount[] {
         isSigner,
         isInit,
         isClose,
+        isExecutable,
         constraints,
         description: pendingDoc || undefined,
         seeds: seeds.length > 0 ? seeds : undefined,
       });
 
       pendingDoc = undefined;
-      pendingAttr = undefined;
+      pendingAttrs = [];
+      accumulating = undefined;
       continue;
     }
 
     // Reset on non-attribute, non-field lines (but not blank lines)
-    if (trimmed !== "" && !docMatch && !attrMatch && !singleAttrMatch && !fieldMatch) {
+    if (trimmed !== "" && !docMatch && !trimmed.startsWith("#[")) {
       pendingDoc = undefined;
-      pendingAttr = undefined;
+      pendingAttrs = [];
+      accumulating = undefined;
     }
   }
 

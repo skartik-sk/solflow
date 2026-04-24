@@ -9,12 +9,18 @@ export const parseCommand = new Command("parse")
   .description("Parse a Solana project and output structured data")
   .argument("[path]", "Path to the project directory or .rs file", ".")
   .option("-o, --output <file>", "Write output to file instead of stdout")
-  .option("-f, --format <format>", "Output format: json, summary", "json")
-  .action((pathArg: string, options: { output?: string; format: string }) => {
+  .option("-f, --format <format>", "Output format: json, ir, summary", "json")
+  .action(async (pathArg: string, options: { output?: string; format: string }) => {
     const resolvedPath = resolve(pathArg);
 
     if (!existsSync(resolvedPath)) {
       console.error(`Path does not exist: ${resolvedPath}`);
+      process.exit(1);
+    }
+
+    const validFormats = ["json", "ir", "summary"];
+    if (!validFormats.includes(options.format)) {
+      console.error(`Invalid format: ${options.format}. Use one of: ${validFormats.join(", ")}`);
       process.exit(1);
     }
 
@@ -29,6 +35,16 @@ export const parseCommand = new Command("parse")
 
       if (options.format === "summary") {
         outputSummary(result);
+      } else if (options.format === "ir") {
+        const { flowToIR } = await import("@solflow/ir");
+        const ir = flowToIR(result.nodes, result.edges);
+        const json = JSON.stringify(ir, null, 2);
+        if (options.output) {
+          writeFileSync(options.output, json);
+          console.log(`Output written to ${options.output}`);
+        } else {
+          console.log(json);
+        }
       } else {
         const json = JSON.stringify(
           { nodes: result.nodes, edges: result.edges, stats: result.stats, warnings: result.warnings },

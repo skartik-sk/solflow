@@ -1,7 +1,7 @@
 // View command — start local server and open browser.
 
 import { Command } from "commander";
-import { resolve } from "path";
+import { resolve, basename } from "path";
 import { startServer } from "../server/index";
 import { readConfig, writeConfig, isInitialized } from "../utils/config";
 import { detectProjectType } from "../utils/detect";
@@ -15,12 +15,16 @@ export const viewCommand = new Command("view")
   .action(async (pathArg: string, options: { port: string; open: boolean }) => {
     const resolvedPath = resolve(pathArg);
     const port = parseInt(options.port, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      console.error(`Invalid port: ${options.port}. Must be between 1 and 65535.`);
+      process.exit(1);
+    }
 
     // Initialize config if not already done
     if (!isInitialized(resolvedPath)) {
       const projectType = detectProjectType(resolvedPath);
       writeConfig(resolvedPath, {
-        name: resolvedPath.split("/").pop() || "project",
+        name: basename(resolvedPath),
         framework: projectType === "pinocchio" ? "pinocchio" : "anchor",
         mode: projectType === "unknown" ? "editor" : "rust",
         port,
@@ -59,7 +63,11 @@ export const viewCommand = new Command("view")
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Failed to start server: ${message}`);
+      if (message.includes("EADDRINUSE")) {
+        console.error(`Port ${port} is already in use. Try a different port with --port.`);
+      } else {
+        console.error(`Failed to start server: ${message}`);
+      }
       process.exit(1);
     }
   });

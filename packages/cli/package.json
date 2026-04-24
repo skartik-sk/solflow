@@ -1,7 +1,8 @@
 {
   "name": "@solflow/cli",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
+  "type": "module",
   "bin": {
     "solstudio": "./src/index.ts"
   },
@@ -11,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src/",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "build:standalone": "cd ../../apps/standalone && bun run build && mkdir -p ../../packages/cli/static && cp -r out/* ../../packages/cli/static/"
   },
   "dependencies": {
     "commander": "^13.0.0",

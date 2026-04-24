@@ -32,3 +32,7 @@ export function mapType(raw: unknown): SolanaType {
 
   return { defined: "unknown" };
 }
+
+export function isUnknownType(t: SolanaType): boolean {
+  return typeof t === "object" && "defined" in t && t.defined === "unknown";
+}

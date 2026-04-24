@@ -256,6 +256,7 @@ export type LogicOperation =
       result: string;
       checked: boolean;
     }
+  | { type: "close-account"; account: string; destination: string; authority: string }
   | { type: "custom-code"; code: string; inputs: string[]; outputs: string[] };
 
 export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
@@ -331,6 +332,12 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
       right: z.string(),
       result: z.string(),
       checked: z.boolean(),
+    }),
+    z.object({
+      type: z.literal("close-account"),
+      account: z.string(),
+      destination: z.string(),
+      authority: z.string(),
     }),
     z.object({
       type: z.literal("custom-code"),

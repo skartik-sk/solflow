@@ -14,8 +14,8 @@ import { parseStates } from "./parsers/state-parser";
 import { parseErrors } from "./parsers/error-parser";
 import { parseEvents } from "./parsers/event-parser";
 import { parseConstants } from "./parsers/constant-parser";
-import { parseLogic } from "./parsers/logic-parser";
-import { readRustProject, findRustFiles } from "./scanner";
+import { parseLogic, parseLogicWithContext } from "./parsers/logic-parser";
+import { readRustProject, findRustFiles, parseCargoVersion } from "./scanner";
 import { parsedProgramToFlow } from "./converters/to-flow";
 import { extractInstructionBody } from "./parsers/program-parser";
 import type {
@@ -43,7 +43,8 @@ export type {
  */
 export function parseProgram(path: string, options?: ParseOptions): ParseResult {
   const content = readRustProject(path);
-  const parsed = parseContent(content);
+  const version = parseCargoVersion(path) || "0.1.0";
+  const parsed = parseContent(content, version, options?.includeLogic);
   const result = parsedProgramToFlow(parsed);
 
   // Apply auto-layout
@@ -56,7 +57,13 @@ export function parseProgram(path: string, options?: ParseOptions): ParseResult 
  * Parse a single .rs file and return ReactFlow nodes/edges.
  */
 export function parseFile(filePath: string): ParseResult {
-  const content = readFileSync(filePath, "utf-8");
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { nodes: [], edges: [], stats: { instructions: 0, accounts: 0, states: 0, errors: 0, events: 0, logicOps: 0 }, warnings: [`Failed to read file: ${msg}`] };
+  }
   const parsed = parseContent(content);
   const result = parsedProgramToFlow(parsed);
 
@@ -84,7 +91,7 @@ export function parseString(content: string, _fileName?: string): ParsedStructur
 
 // ─── Internal: parse content into ParsedProgram ──────────────────────
 
-function parseContent(content: string): ParsedProgram {
+function parseContent(content: string, version?: string, includeLogic?: boolean): ParsedProgram {
   // 1. Parse program structure (instruction signatures)
   const { programName, instructions } = parseProgramSig(content);
 
@@ -103,17 +110,21 @@ function parseContent(content: string): ParsedProgram {
   // 6. Parse constants
   const constants = parseConstants(content);
 
-  // 7. Parse logic for each instruction
+  // 7. Parse logic for each instruction (if enabled)
+  const shouldParseLogic = includeLogic !== false;
   for (const ix of instructions) {
-    const body = extractInstructionBody(content, ix.name);
-    if (body) {
-      ix.logicOps = parseLogic(body);
+    ix.logicOps = [];
+    if (shouldParseLogic) {
+      const body = extractInstructionBody(content, ix.name);
+      if (body) {
+        ix.logicOps = parseLogicWithContext(body, content, ix.accountsStructName, new Set());
+      }
     }
   }
 
   return {
     name: programName || "unknown_program",
-    version: "0.1.0",
+    version: version || "0.1.0",
     instructions,
     accounts,
     states,

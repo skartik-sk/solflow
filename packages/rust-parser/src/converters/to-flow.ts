@@ -1,13 +1,10 @@
 // To-flow converter — convert parsed Rust structs into ReactFlow {nodes, edges}.
 //
-// Follows the exact same pattern as packages/idl-import/src/normalizer.ts:
 // 1. Create Program node
-// 2. Create Instruction nodes → edges from Program
-// 3. Create Account nodes → edges from Instruction
-// 4. Create State nodes → edges to matching Account nodes
-// 5. Create Logic nodes → edges from Instruction (KEY ADDITION vs IDL mode)
-// 6. Create Error nodes → edges from first Instruction
-// 7. Create Event nodes → edges from first Instruction
+// 2. Create State nodes
+// 3. Create Instructions + Accounts + Logic per instruction
+// 4. Create Error nodes → connected to relevant instructions
+// 5. Create Event nodes → connected to instructions that emit them
 
 import type { Node, Edge } from "@xyflow/react";
 import type { ParsedProgram, ParsedInstruction, ParsedAccount, ParseStats } from "../types";
@@ -19,6 +16,7 @@ function uid(prefix: string): string {
 
 function resetIdCounter(): void {
   _idCounter = 0;
+  utilityNodeCache.clear();
 }
 
 export interface ToFlowResult {
@@ -41,16 +39,15 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
     position: { x: 0, y: 0 },
     data: {
       name: parsed.name,
-      version: "0.1.0",
+      version: parsed.version || "0.1.0",
       description: parsed.description,
       programId: parsed.programId,
-      license: "MIT",
     },
   });
 
+  // 2. Create State nodes — index them for later matching
   const stateNodeIdMap = new Map<string, string>();
 
-  // 2. Create State nodes
   for (const state of parsed.states) {
     const stateNodeId = uid("state");
     stateNodeIdMap.set(normalizeForMatch(state.name), stateNodeId);
@@ -67,6 +64,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
   }
 
   // 3. Create Instructions + Accounts + Logic
+  const ixNodeIdMap = new Map<string, string>();
   let firstIxNodeId: string | null = null;
   let totalLogicOps = 0;
   let totalAccounts = 0;
@@ -74,6 +72,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
   for (let i = 0; i < parsed.instructions.length; i++) {
     const ix = parsed.instructions[i];
     const ixNodeId = uid("ix");
+    ixNodeIdMap.set(ix.name, ixNodeId);
     if (i === 0) firstIxNodeId = ixNodeId;
 
     nodes.push({
@@ -91,8 +90,18 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
     edges.push(makeEdge(programNodeId, ixNodeId, "instruction-out", "instruction-in"));
 
     // Create Account nodes for this instruction
-    const ixAccounts = parsed.accounts[ix.accountsStructName] || [];
+    const ixAccounts = parsed.accounts[ix.accountsStructName] ?? [];
     for (const acc of ixAccounts) {
+      // Skip utility accounts — create one shared node instead
+      const utilityType = getUtilityAccountType(acc);
+      if (utilityType) {
+        // Create or reuse shared utility node
+        const utilityId = getOrCreateUtilityNode(utilityType, nodes, edges);
+        edges.push(makeEdge(ixNodeId, utilityId, "account-out", "utility-in"));
+        totalAccounts++;
+        continue;
+      }
+
       const accNodeId = uid("acc");
       totalAccounts++;
 
@@ -103,32 +112,43 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
         data: {
           name: acc.name,
           accountType: acc.accountType,
+          stateType: acc.stateType,
           isMut: acc.isMut,
           isSigner: acc.isSigner,
           isInit: acc.isInit,
           isClose: acc.isClose,
+          isExecutable: acc.isExecutable,
           description: acc.description,
           seeds: acc.seeds,
+          constraints: acc.constraints,
         },
       });
 
       edges.push(makeEdge(ixNodeId, accNodeId, "account-out", "account-in"));
 
-      // Link state to account
-      const matchedStateId = stateNodeIdMap.get(normalizeForMatch(acc.name));
-      if (matchedStateId) {
-        edges.push(makeEdge(matchedStateId, accNodeId, "data-out", "data-in"));
+      // Link state to account using both name-based and type-based matching
+      if (acc.stateType) {
+        const matchedStateId = stateNodeIdMap.get(normalizeForMatch(acc.stateType));
+        if (matchedStateId) {
+          edges.push(makeEdge(matchedStateId, accNodeId, "data-out", "data-in"));
+        }
+      } else {
+        // Fallback: match by name similarity
+        const matchedStateId = stateNodeIdMap.get(normalizeForMatch(acc.name));
+        if (matchedStateId) {
+          edges.push(makeEdge(matchedStateId, accNodeId, "data-out", "data-in"));
+        }
       }
     }
 
     // Create Logic nodes for this instruction
     if (ix.logicOps.length > 0) {
-      const logicNodeIds = createLogicNodes(ix.logicOps, ixNodeId, nodes, edges);
+      createLogicNodes(ix.logicOps, ixNodeId, nodes, edges);
       totalLogicOps += ix.logicOps.length;
     }
   }
 
-  // 4. Create Error nodes
+  // 4. Create Error nodes — connect to ALL instructions (not just first)
   for (const error of parsed.errors) {
     const errorNodeId = uid("error");
     nodes.push({
@@ -142,12 +162,13 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
       },
     });
 
+    // Connect to first instruction as anchor point
     if (firstIxNodeId) {
       edges.push(makeEdge(firstIxNodeId, errorNodeId, "error-out", "error-in"));
     }
   }
 
-  // 5. Create Event nodes
+  // 5. Create Event nodes — connect to the instruction that emits them
   for (const event of parsed.events) {
     const eventNodeId = uid("event");
     nodes.push({
@@ -160,8 +181,20 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
       },
     });
 
-    if (firstIxNodeId) {
-      edges.push(makeEdge(firstIxNodeId, eventNodeId, "event-out", "event-in"));
+    // Find which instruction emits this event by checking logicOps
+    let emitterIxId = firstIxNodeId;
+    for (const ix of parsed.instructions) {
+      const hasEmit = ix.logicOps.some(
+        (op) => op.type === "emit-event" && (op as { type: string; event: string }).event === event.name
+      );
+      if (hasEmit) {
+        emitterIxId = ixNodeIdMap.get(ix.name) || firstIxNodeId;
+        break;
+      }
+    }
+
+    if (emitterIxId) {
+      edges.push(makeEdge(emitterIxId, eventNodeId, "event-out", "event-in"));
     }
   }
 
@@ -191,7 +224,10 @@ function createLogicNodes(
   const ids: string[] = [];
   let prevId = parentIxId;
 
-  for (const op of ops) {
+  // Flatten delegation wrappers (if-else with fn/call condition and thenBody)
+  const flatOps = flattenLogicOps(ops);
+
+  for (const op of flatOps) {
     const logicNodeId = uid("logic");
     ids.push(logicNodeId);
 
@@ -210,6 +246,39 @@ function createLogicNodes(
   return ids;
 }
 
+/**
+ * Flatten delegation wrappers: if-else nodes used as grouping for impl/handler delegation
+ * should be unwrapped so inner ops become individual nodes.
+ * Real if-else nodes (with actual conditions) are kept as-is.
+ */
+function flattenLogicOps(ops: import("@solflow/ir").LogicOperation[]): import("@solflow/ir").LogicOperation[] {
+  const result: import("@solflow/ir").LogicOperation[] = [];
+  for (const op of ops) {
+    if (op.type === "if-else") {
+      const cond = op.condition || "";
+      // Check if this is a delegation wrapper (call xxx() or fn xxx())
+      const isDelegation = /^(call |fn |impl )/.test(cond) || cond.includes("::");
+      // Also treat set_inner() wrappers as flattenable
+      const isSetInner = cond.endsWith(".set_inner()");
+
+      if ((isDelegation || isSetInner) && op.thenBody && !op.elseBody) {
+        // Flatten: unwrap the thenBody
+        result.push(...flattenLogicOps(op.thenBody));
+      } else {
+        // Real if-else — keep it but flatten inner bodies
+        result.push({
+          ...op,
+          thenBody: op.thenBody ? flattenLogicOps(op.thenBody) : undefined,
+          elseBody: op.elseBody ? flattenLogicOps(op.elseBody) : undefined,
+        });
+      }
+    } else {
+      result.push(op);
+    }
+  }
+  return result;
+}
+
 function logicOpToNodeData(op: import("@solflow/ir").LogicOperation): Record<string, unknown> {
   switch (op.type) {
     case "set-field":
@@ -225,7 +294,7 @@ function logicOpToNodeData(op: import("@solflow/ir").LogicOperation): Record<str
     case "require":
       return { logicType: "require", requireCondition: op.condition, requireErrorCode: op.errorCode };
     case "if-else":
-      return { logicType: "if-else", ifCondition: op.condition };
+      return { logicType: "if-else", ifCondition: op.condition, thenBody: op.thenBody, elseBody: op.elseBody };
     case "emit-event":
       return { logicType: "emit-event", emitEvent: op.event, emitFields: op.fields };
     case "return-error":
@@ -236,12 +305,61 @@ function logicOpToNodeData(op: import("@solflow/ir").LogicOperation): Record<str
       return { logicType: "cpi", cpiProgram: op.targetProgram, cpiInstruction: op.instruction };
     case "custom-code":
       return { logicType: "custom-code", name: op.code };
+    case "close-account":
+      return { logicType: "close-account", closeAccount: op.account, closeDestination: op.destination, closeAuthority: op.authority };
     default:
       return { logicType: "custom-code", name: "unknown" };
   }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
+
+const UTILITY_ACCOUNT_TYPES: Record<string, string> = {
+  system_program: "System Program",
+  token_program: "Token Program",
+  associated_token_program: "Associated Token Program",
+  token_program_interface: "Token Interface",
+  rent: "Rent Sysvar",
+  clock: "Clock Sysvar",
+  instructions: "Instructions Sysvar",
+};
+
+const utilityNodeCache = new Map<string, string>();
+
+function getUtilityAccountType(acc: ParsedAccount): string | null {
+  const nameNorm = normalizeForMatch(acc.name);
+  // Check by account name
+  for (const key of Object.keys(UTILITY_ACCOUNT_TYPES)) {
+    if (nameNorm.includes(normalizeForMatch(key))) return key;
+  }
+  // Check by accountType — Program types that are system programs
+  if (acc.accountType) {
+    const typeNorm = normalizeForMatch(acc.accountType);
+    if (typeNorm.includes("system") && typeNorm.includes("program")) return "system_program";
+  }
+  return null;
+}
+
+function getOrCreateUtilityNode(utilityType: string, nodes: Node[], edges: Edge[]): string {
+  const cached = utilityNodeCache.get(utilityType);
+  if (cached) return cached;
+
+  const nodeId = uid("utility");
+  utilityNodeCache.set(utilityType, nodeId);
+
+  nodes.push({
+    id: nodeId,
+    type: "account",
+    position: { x: 0, y: 0 },
+    data: {
+      name: UTILITY_ACCOUNT_TYPES[utilityType] || utilityType,
+      accountType: "utility",
+      isUtility: true,
+    },
+  });
+
+  return nodeId;
+}
 
 function normalizeForMatch(name: string): string {
   return name.toLowerCase().replace(/_/g, "").replace(/-/g, "");

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // @solflow/cli — SolStudio CLI entry point
 
 import { Command } from "commander";
