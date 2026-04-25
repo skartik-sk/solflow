@@ -1,0 +1,22 @@
+{
+  "name": "@solflow/cloud-engine",
+  "version": "0.0.1",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@solflow/cloud-nodes": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@solflow/tsconfig": "workspace:*",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
