@@ -4,7 +4,7 @@ import type { ComponentType } from "react";
 
 export interface WorkflowItem {
   json: Record<string, unknown>;
-  binary?: Record<string, { data: Buffer; mimeType: string; fileName?: string }>;
+  binary?: Record<string, { data: Uint8Array; mimeType: string; fileName?: string }>;
   error?: { message: string; stack?: string };
   pairedItem?: { item: number; input?: number };
 }
