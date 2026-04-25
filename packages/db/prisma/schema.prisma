@@ -69,6 +69,11 @@ model User {
   marketplacePurchases MarketplacePurchase[]
   apiKeys      ApiKey[]
 
+  cloudWallets      CloudWallet[]
+  cloudCredentials  CloudCredential[]
+  workflows         Workflow[]
+  templateAuthor    WorkflowTemplate[]
+
   @@index([email])
   @@index([walletAddress])
 }
@@ -389,4 +394,157 @@ model MarketplaceReview {
 
   @@unique([listingId, reviewerId])
   @@index([listingId])
+}
+
+// ─── Cloud Workflow Models ────────────────────────────────────────────────────
+
+model CloudWallet {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label        String
+  publicKey    String
+  encryptedKey String   @db.Text
+  keyIv        String
+  keyTag       String
+  keySalt      String
+  network      String   @default("mainnet")
+  lastUsedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workflows    Workflow[]
+
+  @@unique([userId, label])
+  @@index([userId])
+  @@index([publicKey])
+}
+
+model CloudCredential {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label         String
+  type          String
+  encryptedData String   @db.Text
+  dataIv        String
+  dataTag       String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Workflow {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  status         String    @default("DRAFT")
+  definition     Json
+  settings       Json      @default("{}")
+  cronExpression String?
+  cronTimezone   String?
+  nextRunAt      DateTime?
+  webhookPath    String?   @unique
+  webhookSecret  String?
+  tags           String[]
+  walletId       String?
+  wallet         CloudWallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  executions     WorkflowExecution[]
+  versions       WorkflowVersion[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([nextRunAt])
+}
+
+model WorkflowVersion {
+  id          String   @id @default(cuid())
+  workflowId  String
+  workflow    Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version     Int
+  label       String?
+  definition  Json
+  settings    Json
+  createdAt   DateTime @default(now())
+
+  @@unique([workflowId, version])
+  @@index([workflowId])
+}
+
+model WorkflowExecution {
+  id                 String            @id @default(cuid())
+  workflowId         String
+  workflow           Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  status             String            @default("QUEUED")
+  triggerType        String
+  triggerData        Json?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  duration           Int?
+  nodesExecuted      Int               @default(0)
+  nodesSucceeded     Int               @default(0)
+  nodesFailed        Int               @default(0)
+  executionData      Json?
+  definitionSnapshot Json?
+  errorMessage       String?
+  jobId              String?
+  createdAt          DateTime          @default(now())
+
+  nodeResults        NodeExecution[]
+
+  @@index([workflowId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([workflowId, createdAt])
+}
+
+model NodeExecution {
+  id             String            @id @default(cuid())
+  executionId    String
+  execution      WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  nodeId         String
+  nodeType       String
+  status         String            @default("QUEUED")
+  inputSnapshot  Json?
+  outputSnapshot Json?
+  duration       Int?
+  error          String?
+  logs           Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+
+  @@index([executionId])
+  @@index([executionId, nodeId])
+}
+
+model WorkflowTemplate {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  longDescription String?
+  category        String
+  tags            String[]
+  thumbnailUrl    String?
+  definition      Json
+  settings        Json     @default("{}")
+  nodeTypes       String[]
+  authorId        String?
+  author          User?    @relation(fields: [authorId], references: [id])
+  downloads       Int      @default(0)
+  likes           Int      @default(0)
+  rating          Float?
+  featured        Boolean  @default(false)
+  status          String   @default("PUBLISHED")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([category])
+  @@index([featured])
+  @@index([downloads])
 }
