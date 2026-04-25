@@ -1,4 +1,3 @@
-import type { ComponentType } from "react";
 import type { CloudNodeDefinition, NodeCategory } from "./types";
 
 export class CloudNodeRegistry {
@@ -23,8 +22,8 @@ export class CloudNodeRegistry {
     return this.getAll().filter((n) => n.category === category);
   }
 
-  getNodeTypes(): Record<string, ComponentType> {
-    const types: Record<string, ComponentType> = {};
+  getNodeTypes(): Record<string, any> {
+    const types: Record<string, any> = {};
     for (const node of this.nodes.values()) {
       types[node.type] = node.component;
     }

@@ -26,6 +26,7 @@
     "@solflow/cloud-engine": "workspace:*",
     "@solflow/cloud-nodes": "workspace:*",
     "@solflow/cloud-wallet": "workspace:*",
+    "@solana/web3.js": "^1.98.4",
     "@solflow/db": "workspace:*",
     "@solflow/ui": "workspace:*",
     "@tanstack/react-query": "^5.0.0",

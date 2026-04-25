@@ -1,5 +1,4 @@
 import type { ComponentType } from "react";
-import type { NodeProps } from "@xyflow/react";
 
 // ─── Data Model ──────────────────────────────────────────────────────────────
 
@@ -148,7 +147,7 @@ export interface CloudNodeDefinition {
   inputs: NodePort[];
   outputs: NodePort[];
   defaultData: Record<string, unknown>;
-  component: ComponentType<NodeProps>;
+  component: ComponentType<any>;
   execute?: (ctx: NodeExecutionContext) => Promise<WorkflowItem[]>;
   trigger?: (ctx: NodeTriggerContext) => Promise<NodeTriggerHandle>;
   webhook?: (ctx: NodeWebhookContext) => Promise<WorkflowItem[]>;
