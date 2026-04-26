@@ -11,7 +11,7 @@ export function parseConstraints(attrContent: string): Constraint[] {
   const constraints: Constraint[] = [];
   const tokens = tokenizeConstraints(attrContent);
 
-  // Post-process: merge realloc::payer and realloc::zero into preceding realloc token
+  // Post-process: merge realloc::payer/zero into preceding realloc, seeds::program into preceding seeds
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
     if (token.type === "realloc-ns") {
@@ -21,6 +21,17 @@ export function parseConstraints(attrContent: string): Constraint[] {
           const rc = constraints[j] as { type: "realloc"; space: number; payer: string; zeroInit: boolean };
           if (token.field === "payer") rc.payer = token.value || "";
           if (token.field === "zero") rc.zeroInit = token.value === "true";
+          break;
+        }
+      }
+      continue;
+    }
+    if (token.type === "seeds-program") {
+      // Find preceding seeds constraint and merge programId
+      for (let j = constraints.length - 1; j >= 0; j--) {
+        if (constraints[j].type === "seeds") {
+          const sc = constraints[j] as { type: "seeds"; seeds: unknown[]; bump?: string; programId?: string };
+          sc.programId = token.value || "";
           break;
         }
       }
@@ -47,6 +58,7 @@ interface ConstraintToken {
   mint?: string;
   errorCode?: string;
   zeroInit?: boolean;
+  programId?: string;
 }
 
 function tokenizeConstraints(content: string): ConstraintToken[] {
@@ -112,6 +124,12 @@ function parseToken(raw: string): ConstraintToken {
     if (subKey === "authority") return { type: "associated-token-authority", authority: val };
     if (subKey === "mint") return { type: "associated-token-mint", mint: val };
     return { type: "custom", expression: trimmed };
+  }
+
+  // seeds::program = X (custom program for PDA derivation)
+  const seedsProgramMatch = trimmed.match(/^seeds::program\s*=\s*(.+)$/);
+  if (seedsProgramMatch) {
+    return { type: "seeds-program", value: seedsProgramMatch[1].trim() };
   }
 
   // key = value patterns
@@ -213,6 +231,7 @@ function parseSingleConstraint(token: ConstraintToken): Constraint | null {
         type: "seeds",
         seeds: parseSeedsExpr(token.seeds || ""),
         bump: token.bump,
+        ...(token.programId ? { programId: token.programId } : {}),
       };
     case "token-authority":
       return { type: "token-authority", authority: token.authority || "" };

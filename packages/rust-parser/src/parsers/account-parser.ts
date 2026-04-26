@@ -39,6 +39,52 @@ export function parseAccounts(src: string): Record<string, ParsedAccount[]> {
   return result;
 }
 
+/** Check if an attribute string is complete: the outer #[...] brackets are balanced. */
+function isCompleteAttr(text: string): boolean {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "[" || ch === "(") depth++;
+    else if (ch === "]" || ch === ")") depth--;
+  }
+  return depth === 0;
+}
+
+/**
+ * Extract the content between balanced parens in #[account(...)].
+ * Uses bracket counting instead of regex to handle nested parens/brackets.
+ */
+function extractAttrContent(text: string): string | null {
+  const start = text.indexOf("(");
+  if (start === -1) return "";
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') { inString = true; continue; }
+    if (ch === "(") depth++;
+    else if (ch === ")") {
+      depth--;
+      if (depth === 0) {
+        return text.slice(start + 1, i);
+      }
+    }
+  }
+  return null;
+}
+
 function parseAccountFields(body: string): ParsedAccount[] {
   const accounts: ParsedAccount[] = [];
   let pendingDoc: string | undefined;
@@ -60,13 +106,13 @@ function parseAccountFields(body: string): ParsedAccount[] {
     // Collect #[account(...)] attributes — handle multi-line by accumulating
     if (trimmed.startsWith("#[account")) {
       let attrText = trimmed;
-      if (!attrText.includes("]")) {
+      if (!isCompleteAttr(attrText)) {
         accumulating = attrText;
         continue;
       }
-      const attrMatch = attrText.match(/^#\[account(?:\(([^)]*)\))?\]$/);
-      if (attrMatch) {
-        pendingAttrs.push(attrMatch[1] || "");
+      const content = extractAttrContent(attrText);
+      if (content !== null) {
+        pendingAttrs.push(content);
       }
       continue;
     }
@@ -74,10 +120,10 @@ function parseAccountFields(body: string): ParsedAccount[] {
     // Continue accumulating multi-line attribute
     if (accumulating !== undefined && !trimmed.startsWith("pub ")) {
       accumulating += " " + trimmed;
-      if (accumulating.includes("]")) {
-        const attrMatch = accumulating.match(/^#\[account(?:\(([^)]*)\))?\]$/);
-        if (attrMatch) {
-          pendingAttrs.push(attrMatch[1] || "");
+      if (isCompleteAttr(accumulating)) {
+        const content = extractAttrContent(accumulating);
+        if (content !== null) {
+          pendingAttrs.push(content);
         }
         accumulating = undefined;
       }

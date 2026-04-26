@@ -315,13 +315,13 @@ function logicOpToNodeData(op: import("@solflow/ir").LogicOperation): Record<str
 // ─── Helpers ─────────────────────────────────────────────────────────
 
 const UTILITY_ACCOUNT_TYPES: Record<string, string> = {
-  system_program: "System Program",
-  token_program: "Token Program",
-  associated_token_program: "Associated Token Program",
-  token_program_interface: "Token Interface",
-  rent: "Rent Sysvar",
-  clock: "Clock Sysvar",
-  instructions: "Instructions Sysvar",
+  system_program: "system_program",
+  token_program: "token_program",
+  associated_token_program: "associated_token_program",
+  token_program_interface: "token_interface",
+  rent: "rent",
+  clock: "clock",
+  instructions: "instructions",
 };
 
 const utilityNodeCache = new Map<string, string>();

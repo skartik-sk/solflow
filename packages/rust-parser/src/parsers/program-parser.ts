@@ -363,13 +363,20 @@ function parseInstructionFns(programBody: string): ParsedInstruction[] {
 
     const description = docComment || collectDocComments(cleaned, fnDecl.index) || undefined;
 
+    // Check for #[access_control] before this function
+    let accessControl: "none" | "admin_only" | "custom" = "none";
+    const before = cleaned.slice(Math.max(0, fnDecl.index - 300), fnDecl.index);
+    if (/#\[access_control\s*\(/.test(before)) {
+      accessControl = "custom";
+    }
+
     instructions.push({
       name: fnName,
       args: parsed.args,
       accountsStructName: parsed.accountsStructName,
       description,
       logicOps: [],
-      accessControl: "none",
+      accessControl,
     });
   }
 

@@ -92,6 +92,8 @@ export function detectAccountKind(rustType: string): {
     return { accountType: "account", stateType: extractGeneric(t) };
   if (t.startsWith("AccountLoader<"))
     return { accountType: "account", stateType: extractGeneric(t) };
+  if (t.startsWith("LazyAccount<"))
+    return { accountType: "account", stateType: extractGeneric(t) };
   if (t.startsWith("TokenAccount<") || t.startsWith("InterfaceAccount<"))
     return { accountType: "token-account" };
   if (t.startsWith("Mint<") || t.startsWith("InterfaceMint<"))

@@ -9,6 +9,7 @@ import { CloudNodePalette } from "@/components/editor/CloudNodePalette";
 import { CloudPropertiesPanel } from "@/components/editor/CloudPropertiesPanel";
 import { EditorToolbar } from "@/components/editor/EditorToolbar";
 import { ExecutionPanel } from "@/components/editor/ExecutionPanel";
+import { ErrorBoundary } from "@/components/providers/ErrorBoundary";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { registerBuiltinNodes } from "@solflow/cloud-nodes";
@@ -34,6 +35,7 @@ export default function EditorPage() {
   }, [workflowId, setWorkflow]);
 
   return (
+    <ErrorBoundary>
     <div className="flex h-screen flex-col bg-background">
       <EditorToolbar />
       <div className="flex flex-1 overflow-hidden">
@@ -45,5 +47,6 @@ export default function EditorPage() {
         {propertiesOpen && <CloudPropertiesPanel />}
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

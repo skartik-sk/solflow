@@ -1087,7 +1087,7 @@ function EventForm({ nodeId, data }: { nodeId: string; data: EventNodeData }) {
 // ─── Logic form ───────────────────────────────────────────────────────────────
 
 const LOGIC_TYPES: LogicType[] = [
-  "set-field","transfer-sol","transfer-token","mint-to","burn",
+  "set-field","transfer-sol","transfer-token","mint-to","burn","close-account",
   "require","if-else","emit-event","return-error","math","cpi","custom-code",
 ];
 
@@ -1175,6 +1175,18 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           <FieldRow label="Amount">
             <input className={`${inputClass} font-mono`} value={data.transferAmount ?? ""} onChange={(e) => set({ transferAmount: e.target.value })} placeholder="1_000_000" />
           </FieldRow>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="rounded" />
+            <span className="text-xs">PDA signer seeds</span>
+          </label>
+          {data.useSignerSeeds && (
+            <SeedEditor
+              seeds={data.signerSeeds ?? []}
+              onChange={(s) => set({ signerSeeds: s })}
+              siblingAccounts={siblings}
+              instructionArgs={graph.getInstructionArgs(nodeId)}
+            />
+          )}
         </>
       )}
 
@@ -1201,6 +1213,18 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           <FieldRow label="Amount">
             <input className={`${inputClass} font-mono`} value={data.transferAmount ?? ""} onChange={(e) => set({ transferAmount: e.target.value })} placeholder="1_000_000" />
           </FieldRow>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="rounded" />
+            <span className="text-xs">PDA signer seeds</span>
+          </label>
+          {data.useSignerSeeds && (
+            <SeedEditor
+              seeds={data.signerSeeds ?? []}
+              onChange={(s) => set({ signerSeeds: s })}
+              siblingAccounts={siblings}
+              instructionArgs={graph.getInstructionArgs(nodeId)}
+            />
+          )}
         </>
       )}
 
@@ -1226,6 +1250,41 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           </FieldRow>
           <FieldRow label="Amount">
             <input className={`${inputClass} font-mono`} value={data.transferAmount ?? ""} onChange={(e) => set({ transferAmount: e.target.value })} placeholder="1_000_000" />
+          </FieldRow>
+          <label className="flex cursor-pointer items-center gap-2">
+            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="rounded" />
+            <span className="text-xs">PDA signer seeds</span>
+          </label>
+          {data.useSignerSeeds && (
+            <SeedEditor
+              seeds={data.signerSeeds ?? []}
+              onChange={(s) => set({ signerSeeds: s })}
+              siblingAccounts={siblings}
+              instructionArgs={graph.getInstructionArgs(nodeId)}
+            />
+          )}
+        </>
+      )}
+
+      {lt === "close-account" && (
+        <>
+          <FieldRow label="Account to close">
+            <select className={selectClass} value={data.closeAccount ?? ""} onChange={(e) => set({ closeAccount: e.target.value })}>
+              <option value="">Select account...</option>
+              {siblings.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+            </select>
+          </FieldRow>
+          <FieldRow label="Destination (receives lamports)">
+            <select className={selectClass} value={data.closeDestination ?? ""} onChange={(e) => set({ closeDestination: e.target.value })}>
+              <option value="">Select destination...</option>
+              {siblings.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+            </select>
+          </FieldRow>
+          <FieldRow label="Authority (optional)">
+            <select className={selectClass} value={data.closeAuthority ?? ""} onChange={(e) => set({ closeAuthority: e.target.value })}>
+              <option value="">Select authority...</option>
+              {siblings.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
+            </select>
           </FieldRow>
         </>
       )}

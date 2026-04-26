@@ -4,9 +4,7 @@ export class CloudNodeRegistry {
   private nodes: Map<string, CloudNodeDefinition> = new Map();
 
   register(node: CloudNodeDefinition): void {
-    if (this.nodes.has(node.type)) {
-      throw new Error(`Node type "${node.type}" already registered`);
-    }
+    if (this.nodes.has(node.type)) return;
     this.nodes.set(node.type, node);
   }
 

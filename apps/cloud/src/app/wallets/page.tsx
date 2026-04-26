@@ -6,6 +6,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { Wallet, Plus, Trash2, Copy, Shield, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
+import { AppShell } from "@/components/layout/AppShell";
 
 export default function WalletsPage() {
   const [showCreate, setShowCreate] = useState(false);
@@ -38,24 +39,7 @@ export default function WalletsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <nav className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-20">
-        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="text-sm font-bold tracking-tight">
-              SolStudio <span className="text-primary">Cloud</span>
-            </Link>
-            <div className="hidden md:flex items-center gap-4 text-xs text-muted-foreground">
-              <Link href="/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link>
-              <Link href="/workflows" className="hover:text-foreground transition-colors">Workflows</Link>
-              <Link href="/wallets" className="text-foreground font-medium">Wallets</Link>
-              <Link href="/executions" className="hover:text-foreground transition-colors">Executions</Link>
-            </div>
-          </div>
-        </div>
-      </nav>
-
-      <main className="mx-auto max-w-6xl px-4 py-6">
+    <AppShell>
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-lg font-bold">Cloud Wallets</h1>
@@ -208,7 +192,6 @@ export default function WalletsPage() {
             </div>
           </div>
         )}
-      </main>
-    </div>
+    </AppShell>
   );
 }

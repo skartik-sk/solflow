@@ -25,6 +25,7 @@ import {
   Globe,
   Wallet,
   X,
+  RefreshCw,
 } from "lucide-react";
 import { useFlowStore } from "@/web/store/flow-store";
 import { useUIStore } from "@/web/store/ui-store";
@@ -95,6 +96,7 @@ export default function StandalonePage() {
   const [framework, setFramework] = useState<"anchor" | "pinocchio" | "quasar">("anchor");
   const [isSaving, setIsSaving] = useState(false);
   const [network, setNetwork] = useState<string>("localnet");
+  const [detectedFramework, setDetectedFramework] = useState<string>("unknown");
 
   // Build state
   const [compileStatus, setCompileStatus] = useState<BuildStatus>("idle");
@@ -123,13 +125,17 @@ export default function StandalonePage() {
 
   // Load initial project data
   useEffect(() => {
-    loadProject()
-      .then(async (data) => {
+    Promise.all([
+      loadProject(),
+      fetch(`${window.location.origin}/api/status`).then((r) => r.json()).catch(() => ({})),
+    ])
+      .then(async ([data, statusData]) => {
         if (data.name) {
           setProjectName(data.name);
           setNameInput(data.name);
         }
         if (data.framework) setFramework(data.framework as typeof framework);
+        if (statusData.projectType) setDetectedFramework(statusData.projectType);
         if (data.nodes?.length) {
           isRemoteUpdate.current = true;
           setFlow(data.nodes, data.edges ?? []);
@@ -255,6 +261,21 @@ export default function StandalonePage() {
     }
   }, [nodes, edges]);
 
+  // Sync handler — force codegen from flow to source files
+  const handleSync = useCallback(async () => {
+    try {
+      const res = await fetch(`${window.location.origin}/api/sync`, { method: "POST" });
+      const data = await res.json();
+      if (data.ok) {
+        toast.success(`Synced ${data.written} file(s) to disk`);
+      } else {
+        toast.error(data.errors?.join(", ") || "Sync failed");
+      }
+    } catch {
+      toast.error("Sync failed");
+    }
+  }, []);
+
   // Editable project name
   const commitName = () => {
     setEditingName(false);
@@ -267,29 +288,36 @@ export default function StandalonePage() {
 
   // ─── Local build commands ────────────────────────────────────────────
 
+  const buildCmd = detectedFramework === "anchor" ? "anchor build" : "cargo build-sbf";
+  const testCmd = detectedFramework === "anchor" ? "anchor test" : "cargo test";
+
   const runCompile = useCallback(async () => {
     setCompileStatus("running");
     setBottomPanelTab("console");
+    setConsoleOutput(prev => prev + `\n\n$ ${buildCmd}\n`);
     try {
       const res = await fetch(`${window.location.origin}/api/compile`, { method: "POST" });
       const data: BuildOutput = await res.json();
-      setConsoleOutput(prev => prev + "\n\n$ anchor build\n" + (data.stdout || "") + (data.stderr || ""));
+      const output = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "");
+      setConsoleOutput(prev => prev + output + "\n");
       setCompileStatus(data.success ? "success" : "error");
       toast[data.success ? "success" : "error"](data.success ? "Build succeeded" : "Build failed");
     } catch (e) {
-      setConsoleOutput(prev => prev + "\n\nCompile error: " + (e instanceof Error ? e.message : "Unknown error"));
+      setConsoleOutput(prev => prev + "\nCompile error: " + (e instanceof Error ? e.message : "Unknown error") + "\n");
       setCompileStatus("error");
       toast.error("Compile failed");
     }
-  }, [setBottomPanelTab]);
+  }, [setBottomPanelTab, buildCmd]);
 
   const runTest = useCallback(async () => {
     setTestStatus("running");
     setBottomPanelTab("tests");
+    setTestOutput(`$ ${testCmd}\n`);
     try {
       const res = await fetch(`${window.location.origin}/api/test`, { method: "POST" });
       const data: BuildOutput = await res.json();
-      setTestOutput((data.stdout || "") + (data.stderr || ""));
+      const output = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "");
+      setTestOutput(output);
       setTestStatus(data.success ? "success" : "error");
       toast[data.success ? "success" : "error"](data.success ? "Tests passed" : "Tests failed");
     } catch (e) {
@@ -297,7 +325,9 @@ export default function StandalonePage() {
       setTestStatus("error");
       toast.error("Test failed");
     }
-  }, [setBottomPanelTab]);
+  }, [setBottomPanelTab, testCmd]);
+
+  const deployCmd = detectedFramework === "anchor" ? "anchor deploy" : "solana program deploy";
 
   const runDeploy = useCallback(async () => {
     setDeployStatus("running");
@@ -309,7 +339,7 @@ export default function StandalonePage() {
         body: JSON.stringify({ network }),
       });
       const data: BuildOutput = await res.json();
-      setConsoleOutput(prev => prev + "\n\n$ anchor deploy\n" + (data.stdout || "") + (data.stderr || ""));
+      setConsoleOutput(prev => prev + `\n\n$ ${deployCmd}\n` + (data.stdout || "") + (data.stderr || ""));
       setDeployStatus(data.success ? "success" : "error");
       toast[data.success ? "success" : "error"](data.success ? "Deployed!" : "Deploy failed");
     } catch (e) {
@@ -317,7 +347,7 @@ export default function StandalonePage() {
       setDeployStatus("error");
       toast.error("Deploy failed");
     }
-  }, [network, setBottomPanelTab]);
+  }, [network, setBottomPanelTab, deployCmd]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -506,6 +536,15 @@ export default function StandalonePage() {
           >
             {isSaving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             {isSaving ? "Saving..." : "Save"}
+          </button>
+
+          <button
+            onClick={handleSync}
+            title="Sync flow → source files"
+            className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <RefreshCw size={12} />
+            Sync
           </button>
 
           <div className="mx-0.5 h-4 w-px bg-border" />

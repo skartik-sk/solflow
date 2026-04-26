@@ -184,6 +184,7 @@ export const AccountTypeSchema = z.enum([
   "rent",
   "clock",
   "custom",
+  "utility",
 ]);
 export type AccountType = z.infer<typeof AccountTypeSchema>;
 

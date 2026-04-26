@@ -49,7 +49,7 @@ export const RE_EVENT_STRUCT = /#\[event\]\s*(?:(?:\/\/\/[^\n]*)\s*)*pub\s+struc
 
 /** Parse individual constraint tokens from an #[account(...)] attribute */
 export const RE_CONSTRAINT_TOKENS =
-  /(?:init_if_needed|init|mut|signer|close\s*=\s*(\w+)|has_one\s*=\s*(\w+)(?:\s*@\s*(\w+))?|payer\s*=\s*(\w+)|space\s*=\s*([^,\)]+)|seeds\s*=\s*(\[.*?\])\s*(?:,\s*bump(?:\s*=\s*(\w+))?)?|bump|constraint\s*=\s*([^,\)]+)(?:\s*@\s*(\w+))?|token::authority\s*=\s*(\w+)|token::mint\s*=\s*(\w+)|token::token_program\s*=\s*(\w+)|mint::authority\s*=\s*(\w+)|mint::decimals\s*=\s*(\d+)|mint::freeze_authority\s*=\s*(\w+)|mint::token_program\s*=\s*(\w+)|associated_token::authority\s*=\s*(\w+)|associated_token::mint\s*=\s*(\w+)|realloc\s*=\s*([^,\)]+)|realloc::payer\s*=\s*(\w+)|realloc::zero\s*=\s*(true|false)|address\s*=\s*([^,\)]+)|owner\s*=\s*([^,\)]+)|executable|rent_exempt(?:\s*=\s*skip)?|dup|zero|sweep\s*=\s*([^,\)]+))/g;
+  /(?:init_if_needed|init|mut|signer|close\s*=\s*(\w+)|has_one\s*=\s*(\w+)(?:\s*@\s*(\w+))?|payer\s*=\s*(\w+)|space\s*=\s*([^,\)]+)|seeds\s*=\s*(\[.*?\])\s*(?:,\s*bump(?:\s*=\s*(\w+))?)?|seeds::program\s*=\s*(\w+)|bump|constraint\s*=\s*([^,\)]+)(?:\s*@\s*(\w+))?|token::authority\s*=\s*(\w+)|token::mint\s*=\s*(\w+)|token::token_program\s*=\s*(\w+)|mint::authority\s*=\s*(\w+)|mint::decimals\s*=\s*(\d+)|mint::freeze_authority\s*=\s*(\w+)|mint::token_program\s*=\s*(\w+)|associated_token::authority\s*=\s*(\w+)|associated_token::mint\s*=\s*(\w+)|realloc\s*=\s*([^,\)]+)|realloc::payer\s*=\s*(\w+)|realloc::zero\s*=\s*(true|false)|address\s*=\s*([^,\)]+)|owner\s*=\s*([^,\)]+)|executable|rent_exempt(?:\s*=\s*skip)?|dup|zero|sweep\s*=\s*([^,\)]+))/g;
 
 // ─── Logic operations ────────────────────────────────────────────────
 

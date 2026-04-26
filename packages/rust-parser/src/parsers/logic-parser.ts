@@ -210,14 +210,14 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
       nextLine: currentLine + 1,
     };
   }
-  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?mint_to\s*\(/);
+  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?mint_to(?:_checked)?\s*\(/);
   if (m) {
-    const info = findMintBurnInfo(lines, currentLine, "MintTo");
+    const info = findMintBurnInfo(lines, currentLine, m[0].includes("checked") ? "MintToChecked" : "MintTo");
     return { op: { type: "mint-to", mint: info?.mint || "", to: info?.to || "", authority: info?.authority || "", amount: extractAmount(line) || "" }, nextLine: currentLine + 1 };
   }
-  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?burn\s*\(/);
+  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?burn(?:_checked)?\s*\(/);
   if (m) {
-    const info = findMintBurnInfo(lines, currentLine, "Burn");
+    const info = findMintBurnInfo(lines, currentLine, m[0].includes("checked") ? "BurnChecked" : "Burn");
     return { op: { type: "burn", mint: info?.mint || "", from: info?.from || "", authority: info?.authority || "", amount: extractAmount(line) || "" }, nextLine: currentLine + 1 };
   }
   m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?close_account\s*\(/);
@@ -228,10 +228,10 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
       nextLine: currentLine + 1,
     };
   }
-  // 6a. approve, freeze_account, thaw_account, set_authority, revoke (Anchor SPL)
-  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?approve\s*\(/);
+  // 6a. approve, approve_checked, freeze_account, thaw_account, set_authority, revoke, sync_native (Anchor SPL)
+  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?approve(?:_checked)?\s*\(/);
   if (m) {
-    return { op: { type: "custom-code", code: "approve (token)", inputs: [], outputs: [] }, nextLine: currentLine + 1 };
+    return { op: { type: "custom-code", code: `${m[0].includes("checked") ? "approve_checked" : "approve"} (token)`, inputs: [], outputs: [] }, nextLine: currentLine + 1 };
   }
   m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?freeze_account\s*\(/);
   if (m) {
@@ -248,6 +248,10 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
   m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?revoke\s*\(/);
   if (m) {
     return { op: { type: "custom-code", code: "revoke (token)", inputs: [], outputs: [] }, nextLine: currentLine + 1 };
+  }
+  m = line.match(/(?:anchor_spl::token_interface::|anchor_spl::token::)?sync_native\s*\(/);
+  if (m) {
+    return { op: { type: "custom-code", code: "sync_native (token)", inputs: [], outputs: [] }, nextLine: currentLine + 1 };
   }
 
   // 6b. Pinocchio-style Transfer { ... }.invoke() / .invoke_signed()
@@ -272,8 +276,8 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
     };
   }
 
-  // 6d. Pinocchio-style SetAuthority, Approve, FreezeAccount, ThawAccount, Revoke, SyncNative
-  m = line.match(/^(SetAuthority|Approve|ApproveChecked|FreezeAccount|ThawAccount|Revoke|SyncNative)\s*\{[^}]*\}\s*\.invoke/);
+  // 6d. Pinocchio-style SetAuthority, Approve, FreezeAccount, ThawAccount, Revoke, SyncNative, MintToChecked, BurnChecked
+  m = line.match(/^(SetAuthority|Approve|ApproveChecked|FreezeAccount|ThawAccount|Revoke|SyncNative|MintToChecked|BurnChecked)\s*\{[^}]*\}\s*\.invoke/);
   if (m) {
     const opName = m[1];
     return {
@@ -487,7 +491,7 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
   }
 
   // 15d. Pinocchio other CPI structs with inline .invoke(): SetAuthority { ... }.invoke(), etc.
-  m = line.match(/^(SetAuthority|Approve|ApproveChecked|FreezeAccount|ThawAccount|Revoke|SyncNative)\s*\{[^}]*\}\s*\.invoke/);
+  m = line.match(/^(SetAuthority|Approve|ApproveChecked|FreezeAccount|ThawAccount|Revoke|SyncNative|MintToChecked|BurnChecked)\s*\{[^}]*\}\s*\.invoke/);
   if (m) {
     return { op: { type: "custom-code", code: `${m[1]} (Pinocchio CPI)`, inputs: [], outputs: [] }, nextLine: currentLine + 1 };
   }
@@ -616,9 +620,9 @@ function tryParseQuasarCpiChain(
   // Check if this line starts a CPI chain
   const isStart = /^self\.\w+(_program|\s*)$/.test(line) || /^self\.\w+$/.test(line);
   // Or is a single-line chain: self.token_program.transfer_checked(...).invoke()
-  const isSingleLine = /^self\.\w+_program\s*\.\s*(transfer|transfer_checked|mint_to|burn|approve|close_account|freeze_account|thaw_account|set_authority|revoke)\s*\(/.test(line);
+  const isSingleLine = /^self\.\w+_program\s*\.\s*(transfer|transfer_checked|mint_to|mint_to_checked|burn|burn_checked|approve|approve_checked|close_account|freeze_account|thaw_account|set_authority|revoke|sync_native)\s*\(/.test(line);
   // Or continuation: .transfer_checked( / .invoke() / .set_inner( on its own line
-  const isMethodStart = /^\.\s*(transfer|transfer_checked|mint_to|burn|approve|close_account|set_inner|freeze_account|thaw_account|set_authority|revoke)\s*\(/.test(line);
+  const isMethodStart = /^\.\s*(transfer|transfer_checked|mint_to|mint_to_checked|burn|burn_checked|approve|approve_checked|close_account|set_inner|freeze_account|thaw_account|set_authority|revoke|sync_native)\s*\(/.test(line);
 
   if (!isStart && !isSingleLine && !isMethodStart) return null;
 
@@ -634,7 +638,7 @@ function tryParseQuasarCpiChain(
         foundSetInner = true;
         break;
       }
-      if (/^\.\s*(transfer|mint_to|burn|approve|close_account|freeze_account|thaw_account|set_authority|revoke)/.test(lines[i].trim())) break;
+      if (/^\.\s*(transfer|mint_to|mint_to_checked|burn|burn_checked|approve|approve_checked|close_account|freeze_account|thaw_account|set_authority|revoke|sync_native)/.test(lines[i].trim())) break;
       if (i - currentLine > 2) break;
     }
 
@@ -704,7 +708,7 @@ function tryParseQuasarCpiChain(
   const full = fullLines.join(" ").replace(/\s+/g, " ");
 
   // Extract the method name
-  const methodMatch = full.match(/\.\s*(transfer|transfer_checked|mint_to|burn|approve|close_account|freeze_account|thaw_account|set_authority|revoke)\s*\(/);
+  const methodMatch = full.match(/\.\s*(transfer|transfer_checked|mint_to|mint_to_checked|burn|burn_checked|approve|approve_checked|close_account|freeze_account|thaw_account|set_authority|revoke|sync_native)\s*\(/);
   if (!methodMatch) return null;
 
   const method = methodMatch[1];
@@ -735,7 +739,8 @@ function tryParseQuasarCpiChain(
         nextLine: endLine + 1,
       };
     }
-    case "mint_to": {
+    case "mint_to":
+    case "mint_to_checked": {
       return {
         op: {
           type: "mint-to" as const,
@@ -747,7 +752,8 @@ function tryParseQuasarCpiChain(
         nextLine: endLine + 1,
       };
     }
-    case "burn": {
+    case "burn":
+    case "burn_checked": {
       return {
         op: {
           type: "burn" as const,
@@ -771,10 +777,12 @@ function tryParseQuasarCpiChain(
       };
     }
     case "approve":
+    case "approve_checked":
     case "freeze_account":
     case "thaw_account":
     case "set_authority":
-    case "revoke": {
+    case "revoke":
+    case "sync_native": {
       return {
         op: { type: "custom-code" as const, code: `${method} (CPI)`, inputs: [], outputs: [] },
         nextLine: endLine + 1,
@@ -946,7 +954,7 @@ function isCpiSetupLine(line: string): boolean {
   // let sp2 = sp.clone()
   if (/^let\s+\w+\s*=\s*\w+\.clone\(\)/.test(line)) return true;
   // Transfer { / TransferChecked { / CloseAccount { / SetAuthority { / Approve { / etc.
-  if (/^(let\s+\w+\s*=\s*)?(Transfer|TransferChecked|CloseAccount|SetAuthority|Approve|ApproveChecked|FreezeAccount|ThawAccount|Revoke|SyncNative)\s*\{/.test(line)) return true;
+  if (/^(let\s+\w+\s*=\s*)?(Transfer|TransferChecked|CloseAccount|MintTo|MintToChecked|Burn|BurnChecked|SetAuthority|Approve|ApproveChecked|FreezeAccount|ThawAccount|Revoke|SyncNative)\s*\{/.test(line)) return true;
   // closing };
   if (/^\};?\s*$/.test(line)) return true;
   // Struct field lines: from:..., to:..., mint:..., authority:..., account:..., destination:..., new_authority:..., authority_type:..., amount:..., decimals:...
@@ -1015,9 +1023,9 @@ function isCpiSetupLine(line: string): boolean {
   // signer — standalone (inside CpiContext::new_with_signer call)
   if (/^signer,?\s*$/.test(line)) return true;
   // MintTo { — struct construction for CPI
-  if (/^MintTo\s*\{/.test(line)) return true;
+  if (/^MintTo(?:Checked)?\s*\{/.test(line)) return true;
   // Burn { — struct construction for CPI
-  if (/^Burn\s*\{/.test(line)) return true;
+  if (/^Burn(?:Checked)?\s*\{/.test(line)) return true;
   // Approve { / ApproveChecked { — struct construction for CPI
   if (/^Approve(?:Checked)?\s*\{/.test(line)) return true;
   // SetAuthority { — struct construction for CPI

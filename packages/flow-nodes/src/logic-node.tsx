@@ -15,6 +15,7 @@ export type LogicType =
   | "transfer-token"
   | "mint-to"
   | "burn"
+  | "close-account"
   | "require"
   | "if-else"
   | "emit-event"
@@ -59,6 +60,13 @@ export interface LogicNodeData {
   mintAuthority?: string;
   burnMint?: string;
   burnAuthority?: string;
+  // close-account
+  closeAccount?: string;
+  closeDestination?: string;
+  closeAuthority?: string;
+  // signer seeds (for PDA-signed token ops)
+  useSignerSeeds?: boolean;
+  signerSeeds?: Array<{ type: "literal" | "account-field" | "instruction-arg" | "pubkey"; value: string }>;
   // custom-code
   customCode?: string;
   customInputs?: string[];
@@ -72,6 +80,7 @@ const LOGIC_LABELS: Record<LogicType, string> = {
   "transfer-token": "Transfer Token",
   "mint-to":        "Mint To",
   "burn":           "Burn",
+  "close-account":  "Close Account",
   "require":        "Require",
   "if-else":        "If / Else",
   "emit-event":     "Emit Event",
@@ -153,6 +162,12 @@ export const LogicNode = memo(function LogicNode({
             {d.burnMint && <Row label="mint" value={d.burnMint} mono />}
             {d.transferFrom && <Row label="from" value={d.transferFrom} mono />}
             {d.transferAmount && <Row label="amt" value={d.transferAmount} mono />}
+          </>
+        )}
+        {ltype === "close-account" && (
+          <>
+            {d.closeAccount && <Row label="acct" value={d.closeAccount} mono />}
+            {d.closeDestination && <Row label="dest" value={d.closeDestination} mono />}
           </>
         )}
         {ltype === "require" && d.requireCondition && (

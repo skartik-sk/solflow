@@ -253,7 +253,7 @@ describe("server: parse creates .solstudio dir", () => {
   it("POST /api/parse creates .solstudio dir if missing", async () => {
     const { startServer } = await import("../server/index");
     const tempDir = mkdtempSync(join(tmpdir(), "solstudio-parse-dir-"));
-    const PORT = 16340;
+    const PORT = 16340 + Math.floor(Math.random() * 1000);
 
     // Write .rs file but do NOT init (no .solstudio dir)
     const srcDir = join(tempDir, "src");
@@ -267,8 +267,13 @@ pub mod dir_prog { pub fn init(ctx: Context<Init>) -> Result<()> { Ok(()) } }
 pub struct Init { pub user: Signer<'info> }
     `);
 
-    // Start server
-    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+    // Start server with timeout
+    const handle = await Promise.race([
+      startServer({ port: PORT, projectPath: tempDir, watch: false }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Server startup timed out")), 20000)
+      ),
+    ]);
 
     try {
       // .solstudio should already exist from auto-parse on startup
@@ -292,7 +297,7 @@ pub struct Init { pub user: Signer<'info> }
       await handle.close();
       rmSync(tempDir, { recursive: true, force: true });
     }
-  });
+  }, 30000);
 });
 
 // ─── Server: WebSocket broadcast on parse ────────────────────────────

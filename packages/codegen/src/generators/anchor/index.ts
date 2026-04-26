@@ -616,6 +616,25 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
     case "custom-code":
       return op.code.split("\n");
 
+    case "close-account": {
+      const acct = op.account || "account";
+      const dest = op.destination || "destination";
+      return [
+        `{`,
+        `    let acct_info = ctx.accounts.${acct}.to_account_info();`,
+        `    let dest_info = ctx.accounts.${dest}.to_account_info();`,
+        `    anchor_spl::token::close_account(CpiContext::new(`,
+        `        ctx.accounts.token_program.to_account_info(),`,
+        `        CloseAccount {`,
+        `            account: acct_info,`,
+        `            destination: dest_info,`,
+        `            authority: ctx.accounts.${op.authority || "authority"}.to_account_info(),`,
+        `        },`,
+        `    ))?;`,
+        `}`,
+      ];
+    }
+
     default:
       return [`// WARNING: unimplemented logic operation type — add a handler in codegen`];
   }

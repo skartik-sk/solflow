@@ -23,6 +23,7 @@ import type { CloudFlowNodeData } from "@solflow/cloud-nodes";
 interface WorkflowState {
   workflowId: string | null;
   workflowName: string;
+  workflowStatus: string;
   nodes: Node[];
   edges: Edge[];
   selectedNodeId: string | null;
@@ -43,6 +44,7 @@ interface WorkflowState {
 
   setWorkflow: (id: string, name: string, nodes: Node[], edges: Edge[]) => void;
   clearWorkflow: () => void;
+  setWorkflowStatus: (status: string) => void;
   markDirty: () => void;
   isDirty: boolean;
 }
@@ -104,6 +106,7 @@ export const useWorkflowStore = create<WorkflowState>()(
     (set, get) => ({
       workflowId: null,
       workflowName: "Untitled Workflow",
+      workflowStatus: "DRAFT",
       nodes: [],
       edges: [],
       selectedNodeId: null,
@@ -245,6 +248,8 @@ export const useWorkflowStore = create<WorkflowState>()(
           isDirty: false,
         });
       },
+
+      setWorkflowStatus: (status) => set({ workflowStatus: status }),
 
       markDirty: () => set({ isDirty: true }),
     }),

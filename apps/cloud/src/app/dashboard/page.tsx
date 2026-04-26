@@ -4,6 +4,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   Workflow,
   Plus,
@@ -15,55 +16,28 @@ import {
   Shield,
   Bot,
   TrendingUp,
+  Loader2,
 } from "lucide-react";
-
-const FEATURED_TEMPLATES = [
-  {
-    name: "Price Alert Bot",
-    description: "Monitor token prices and get notified when thresholds are hit",
-    nodes: ["trigger:cron", "action:price-fetch", "logic:if-else"],
-    color: "#22c55e",
-  },
-  {
-    name: "DCA Strategy",
-    description: "Automatically swap tokens on a schedule using Jupiter",
-    nodes: ["trigger:cron", "action:jupiter-swap"],
-    color: "#3b82f6",
-  },
-  {
-    name: "Portfolio Monitor",
-    description: "Track wallet balances and token holdings across protocols",
-    nodes: ["trigger:cron", "action:price-fetch", "logic:if-else"],
-    color: "#f59e0b",
-  },
-];
+import { trpc } from "@/lib/trpc/client";
+import { getIconByName } from "@solflow/cloud-nodes";
+import { AppShell } from "@/components/layout/AppShell";
 
 export default function DashboardPage() {
-  return (
-    <div className="min-h-screen bg-background">
-      {/* Nav */}
-      <nav className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-20">
-        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="text-sm font-bold tracking-tight">
-              SolStudio <span className="text-primary">Cloud</span>
-            </Link>
-            <div className="hidden md:flex items-center gap-4 text-xs text-muted-foreground">
-              <Link href="/dashboard" className="text-foreground font-medium">Dashboard</Link>
-              <Link href="/workflows" className="hover:text-foreground transition-colors">Workflows</Link>
-              <Link href="/wallets" className="hover:text-foreground transition-colors">Wallets</Link>
-              <Link href="/executions" className="hover:text-foreground transition-colors">Executions</Link>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="h-7 w-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary">
-              S
-            </div>
-          </div>
-        </div>
-      </nav>
+  const router = useRouter();
+  const { data: templates, isLoading: templatesLoading } =
+    trpc.template.list.useQuery({ limit: 6 });
+  const forkTemplate = trpc.template.fork.useMutation();
 
-      <main className="mx-auto max-w-6xl px-4 py-8">
+  const handleUseTemplate = async (templateId: string, title: string) => {
+    const workflow = await forkTemplate.mutateAsync({
+      templateId,
+      name: title,
+    });
+    router.push(`/editor/${workflow.id}`);
+  };
+
+  return (
+    <AppShell>
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
@@ -158,42 +132,91 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Featured Templates */}
+        {/* Starter Templates */}
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Starter Templates
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {FEATURED_TEMPLATES.map((template) => (
-              <div
-                key={template.name}
-                className="group rounded-xl border border-border bg-card p-4 hover:border-border/80 hover:shadow-lg transition-all cursor-pointer"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span
-                    className="h-2 w-2 rounded-full"
-                    style={{ background: template.color }}
-                  />
-                  <p className="text-sm font-semibold">{template.name}</p>
-                </div>
-                <p className="text-xs text-muted-foreground mb-3">
-                  {template.description}
-                </p>
-                <div className="flex flex-wrap gap-1">
-                  {template.nodes.map((node) => (
-                    <span
-                      key={node}
-                      className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                    >
-                      {node.split(":")[1]}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            ))}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Starter Templates
+            </h2>
+            {templates && templates.length > 0 && (
+              <span className="text-[11px] text-muted-foreground">
+                {templates.length} template{templates.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
+
+          {templatesLoading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          )}
+
+          {!templatesLoading && templates && templates.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {templates.map((template: any) => (
+                <div
+                  key={template.id}
+                  className="group rounded-xl border border-border bg-card p-4 hover:border-border/80 hover:shadow-lg transition-all"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{
+                          background:
+                            template.category === "DEFI"
+                              ? "#3b82f6"
+                              : template.category === "UTILITY"
+                              ? "#f59e0b"
+                              : "#22c55e",
+                        }}
+                      />
+                      <p className="text-sm font-semibold">{template.title}</p>
+                    </div>
+                    {template.featured && (
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                        Featured
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mb-3">
+                    {template.description}
+                  </p>
+                  <div className="flex flex-wrap gap-1 mb-3">
+                    {(template.nodeTypes as string[]).map((node: string) => (
+                      <span
+                        key={node}
+                        className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                      >
+                        {node.split(":")[1]}
+                      </span>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => handleUseTemplate(template.id, template.title)}
+                    disabled={forkTemplate.isPending}
+                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+                  >
+                    {forkTemplate.isPending ? (
+                      <Loader2 size={10} className="animate-spin" />
+                    ) : (
+                      <Plus size={10} />
+                    )}
+                    Use Template
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {!templatesLoading && templates && templates.length === 0 && (
+            <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                No templates available yet. Run <code className="rounded bg-muted px-1 py-0.5 text-xs">bun run db:cloud-seed</code> to add starter templates.
+              </p>
+            </div>
+          )}
         </div>
-      </main>
-    </div>
+    </AppShell>
   );
 }

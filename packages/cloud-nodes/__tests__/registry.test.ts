@@ -32,9 +32,10 @@ describe("CloudNodeRegistry", () => {
     expect(registry.get("nonexistent")).toBeUndefined();
   });
 
-  it("throws on duplicate registration", () => {
+  it("silently skips duplicate registration", () => {
     registry.register(mockNode);
-    expect(() => registry.register(mockNode)).toThrow("already registered");
+    expect(() => registry.register(mockNode)).not.toThrow();
+    expect(registry.getAll()).toHaveLength(1);
   });
 
   it("getAll returns all registered nodes", () => {

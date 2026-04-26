@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
+import { getTriggerManager } from "../../trigger-manager";
+import { startCronWorker } from "../../trigger-manager/cron-worker";
 
 export const workflowRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -94,5 +96,42 @@ export const workflowRouter = router({
       if (original.walletId) data.walletId = original.walletId;
 
       return ctx.prisma.workflow.create({ data });
+    }),
+
+  activate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await ctx.prisma.workflow.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+      });
+      if (!workflow) throw new Error("Workflow not found");
+
+      // Ensure cron worker is running
+      startCronWorker();
+
+      const triggerManager = getTriggerManager();
+      await triggerManager.activate(input.id);
+
+      return ctx.prisma.workflow.findFirst({
+        where: { id: input.id },
+        select: { id: true, status: true, cronExpression: true, webhookPath: true },
+      });
+    }),
+
+  deactivate: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const workflow = await ctx.prisma.workflow.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+      });
+      if (!workflow) throw new Error("Workflow not found");
+
+      const triggerManager = getTriggerManager();
+      await triggerManager.deactivate(input.id);
+
+      return ctx.prisma.workflow.findFirst({
+        where: { id: input.id },
+        select: { id: true, status: true },
+      });
     }),
 });
