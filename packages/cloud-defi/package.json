@@ -4,7 +4,18 @@
   "private": true,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
-  "scripts": { "build": "tsc" },
-  "dependencies": { "@solflow/cloud-nodes": "workspace:*" },
-  "devDependencies": { "@solflow/tsconfig": "workspace:*", "typescript": "^5.7.0" }
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@solflow/cloud-nodes": "workspace:*",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "@solflow/tsconfig": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
 }
