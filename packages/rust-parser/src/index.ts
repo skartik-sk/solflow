@@ -15,18 +15,22 @@ import { parseErrors } from "./parsers/error-parser";
 import { parseEvents } from "./parsers/event-parser";
 import { parseConstants } from "./parsers/constant-parser";
 import { parseLogic, parseLogicWithContext } from "./parsers/logic-parser";
-import { readRustProject, findRustFiles, parseCargoVersion } from "./scanner";
+import { readRustProject, parseCargoVersion, scanRustProject } from "./scanner";
 import { parsedProgramToFlow } from "./converters/to-flow";
 import { extractInstructionBody } from "./parsers/program-parser";
 import type {
+  ParseFramework,
   ParseOptions,
+  ParseReport,
+  ParseReportFile,
   ParseResult,
   ParseStats,
   ParsedProgram,
   ParsedStructures,
+  SourceCoverageOptions,
 } from "./types";
 
-export type { ParseOptions, ParseResult, ParseStats, ParsedStructures };
+export type { ParseOptions, ParseReport, ParseResult, ParseStats, ParsedStructures, SourceCoverageOptions };
 export type {
   ParsedProgram,
   ParsedInstruction,
@@ -42,7 +46,8 @@ export type {
  * Parse a full project directory and return ReactFlow nodes/edges.
  */
 export function parseProgram(path: string, options?: ParseOptions): ParseResult {
-  const content = readRustProject(path);
+  const scan = scanRustProject(path, 10, options?.sourceCoverage);
+  const content = readRustProject(path, options?.sourceCoverage);
   const version = parseCargoVersion(path) || "0.1.0";
   const parsed = parseContent(content, version, options?.includeLogic);
   const result = parsedProgramToFlow(parsed);
@@ -50,7 +55,17 @@ export function parseProgram(path: string, options?: ParseOptions): ParseResult 
   // Apply auto-layout
   autoLayout(result.nodes, result.edges);
 
-  return result;
+  return {
+    ...result,
+    report: createParseReport({
+      framework: options?.framework ?? scan.framework,
+      parsedFiles: scan.parsedFiles,
+      skippedFiles: scan.skippedFiles,
+      stats: result.stats,
+      warnings: result.warnings,
+      content,
+    }),
+  };
 }
 
 /**
@@ -62,14 +77,39 @@ export function parseFile(filePath: string): ParseResult {
     content = readFileSync(filePath, "utf-8");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return { nodes: [], edges: [], stats: { instructions: 0, accounts: 0, states: 0, errors: 0, events: 0, logicOps: 0 }, warnings: [`Failed to read file: ${msg}`] };
+    const stats = emptyStats();
+    const warnings = [`Failed to read file: ${msg}`];
+    return {
+      nodes: [],
+      edges: [],
+      stats,
+      warnings,
+      report: createParseReport({
+        framework: "unknown",
+        parsedFiles: [],
+        skippedFiles: [{ path: basename(filePath), status: "skipped", reason: msg }],
+        stats,
+        warnings,
+        content: "",
+      }),
+    };
   }
   const parsed = parseContent(content);
   const result = parsedProgramToFlow(parsed);
 
   autoLayout(result.nodes, result.edges);
 
-  return result;
+  return {
+    ...result,
+    report: createParseReport({
+      framework: detectFrameworkFromContent(content),
+      parsedFiles: [{ path: basename(filePath), status: "parsed" }],
+      skippedFiles: [],
+      stats: result.stats,
+      warnings: result.warnings,
+      content,
+    }),
+  };
 }
 
 /**
@@ -132,4 +172,107 @@ function parseContent(content: string, version?: string, includeLogic?: boolean)
     events,
     constants,
   };
+}
+
+function emptyStats(): ParseStats {
+  return {
+    instructions: 0,
+    accounts: 0,
+    states: 0,
+    errors: 0,
+    events: 0,
+    logicOps: 0,
+  };
+}
+
+function createParseReport(input: {
+  framework: ParseFramework;
+  parsedFiles: ParseReportFile[];
+  skippedFiles: ParseReportFile[];
+  stats: ParseStats;
+  warnings: string[];
+  content: string;
+}): ParseReport {
+  const unsupportedConstructs = detectUnsupportedConstructs(input.content, input.stats, input.framework);
+  const confidenceReasons: string[] = [];
+  let confidence: ParseReport["confidence"] = "high";
+
+  if (input.stats.instructions === 0) {
+    confidence = "low";
+    confidenceReasons.push("No instructions were detected");
+  } else {
+    confidenceReasons.push(`${input.stats.instructions} instruction(s) detected`);
+  }
+
+  if (input.framework === "unknown") {
+    confidence = confidence === "high" ? "medium" : confidence;
+    confidenceReasons.push("Project framework could not be detected");
+  } else {
+    confidenceReasons.push(`${input.framework} framework detected`);
+  }
+
+  if (input.parsedFiles.length === 0) {
+    confidence = "low";
+    confidenceReasons.push("No Rust source files were parsed");
+  } else {
+    confidenceReasons.push(`${input.parsedFiles.length} Rust source file(s) scanned`);
+  }
+
+  if (unsupportedConstructs.length > 0) {
+    confidence = confidence === "high" ? "medium" : confidence;
+    confidenceReasons.push(`${unsupportedConstructs.length} construct(s) require manual review`);
+  }
+
+  if (input.warnings.length > 0) {
+    confidence = confidence === "high" ? "medium" : confidence;
+    confidenceReasons.push(`${input.warnings.length} warning(s) emitted`);
+  }
+
+  return {
+    framework: input.framework,
+    filesParsed: input.parsedFiles.length,
+    filesSkipped: input.skippedFiles.length,
+    parsedFiles: input.parsedFiles,
+    skippedFiles: input.skippedFiles,
+    unsupportedConstructs,
+    confidence,
+    confidenceReasons,
+  };
+}
+
+function detectFrameworkFromContent(content: string): ParseFramework {
+  if (content.includes("anchor_lang") || content.includes("#[program]")) return "anchor";
+  if (content.includes("quasar_lang") || content.includes("quasar_lang::prelude")) return "quasar";
+  if (
+    content.includes("pinocchio")
+    || content.includes("entrypoint!")
+    || content.includes("program_entrypoint!")
+    || content.includes("lazy_program_entrypoint!")
+  ) {
+    return "pinocchio";
+  }
+  return "unknown";
+}
+
+function detectUnsupportedConstructs(content: string, stats: ParseStats, framework: ParseFramework): string[] {
+  const unsupported = new Set<string>();
+
+  if (content.includes("#[access_control")) {
+    unsupported.add("Anchor access_control macros require manual review");
+  }
+  if (content.includes("remaining_accounts")) {
+    unsupported.add("remaining_accounts usage is not expanded into explicit account nodes");
+  }
+  if (/\bInterfaceAccount\b|\bInterface\b/.test(content)) {
+    unsupported.add("Interface account constraints are normalized only where the type mapper recognizes them");
+  }
+  if (
+    framework === "pinocchio"
+    && stats.instructions === 0
+    && (content.includes("program_entrypoint!") || content.includes("lazy_program_entrypoint!"))
+  ) {
+    unsupported.add("Pinocchio entrypoint dispatch was detected but no instruction handlers were extracted");
+  }
+
+  return Array.from(unsupported);
 }

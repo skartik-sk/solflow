@@ -1,12 +1,12 @@
-// Detect project type — Anchor, Pinocchio, or unknown.
+// Detect project type — Anchor, Pinocchio, Quasar, or unknown.
 
 import { readFileSync, readdirSync, existsSync } from "fs";
 import { join } from "path";
 
-export type ProjectType = "anchor" | "pinocchio" | "unknown";
+export type ProjectType = "anchor" | "pinocchio" | "quasar" | "unknown";
 
 /**
- * Detect if a directory is an Anchor or Pinocchio project.
+ * Detect if a directory is an Anchor, Pinocchio, or Quasar project.
  */
 export function detectProjectType(dir: string): ProjectType {
   try {
@@ -15,13 +15,18 @@ export function detectProjectType(dir: string): ProjectType {
     // Check for Anchor.toml
     if (entries.includes("Anchor.toml")) return "anchor";
 
+    // Check for Quasar.toml
+    if (entries.includes("Quasar.toml")) return "quasar";
+
     // Check root Cargo.toml for dependencies
     const cargoPath = join(dir, "Cargo.toml");
     if (entries.includes("Cargo.toml")) {
       const cargo = readFileSync(cargoPath, "utf-8");
       if (cargo.includes("anchor-lang")) return "anchor";
       if (cargo.includes("pinocchio")) return "pinocchio";
-      if (cargo.includes("quasar-lang")) return "unknown"; // Quasar not fully supported yet
+      if (cargo.includes("quasar-lang")) return "quasar";
+      const workspaceType = detectWorkspaceMemberType(dir, cargo);
+      if (workspaceType !== "unknown") return workspaceType;
     }
 
     // Check programs/*/Cargo.toml for Anchor workspace layout
@@ -35,6 +40,7 @@ export function detectProjectType(dir: string): ProjectType {
             const cargo = readFileSync(subCargo, "utf-8");
             if (cargo.includes("anchor-lang")) return "anchor";
             if (cargo.includes("pinocchio")) return "pinocchio";
+            if (cargo.includes("quasar-lang")) return "quasar";
           } catch { /* skip */ }
         }
       }
@@ -52,6 +58,46 @@ export function detectProjectType(dir: string): ProjectType {
     // Ignore errors
   }
 
+  return "unknown";
+}
+
+function detectWorkspaceMemberType(dir: string, cargo: string): ProjectType {
+  const memberMatch = cargo.match(/members\s*=\s*\[([^\]]+)\]/);
+  if (!memberMatch) return "unknown";
+
+  const members = memberMatch[1].match(/"([^"]+)"/g)?.map((m) => m.replace(/"/g, "")) ?? [];
+  for (const member of members) {
+    const memberRoot = member.replace("/*", "");
+    const parentDir = join(dir, memberRoot);
+
+    if (member.includes("*")) {
+      if (!existsSync(parentDir)) continue;
+      try {
+        const entries = readdirSync(parentDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue;
+          const detected = detectCargoDependency(join(parentDir, entry.name, "Cargo.toml"));
+          if (detected !== "unknown") return detected;
+        }
+      } catch { /* skip */ }
+      continue;
+    }
+
+    const detected = detectCargoDependency(join(dir, member, "Cargo.toml"));
+    if (detected !== "unknown") return detected;
+  }
+
+  return "unknown";
+}
+
+function detectCargoDependency(cargoPath: string): ProjectType {
+  if (!existsSync(cargoPath)) return "unknown";
+  try {
+    const cargo = readFileSync(cargoPath, "utf-8");
+    if (cargo.includes("anchor-lang")) return "anchor";
+    if (cargo.includes("pinocchio")) return "pinocchio";
+    if (cargo.includes("quasar-lang")) return "quasar";
+  } catch { /* skip */ }
   return "unknown";
 }
 

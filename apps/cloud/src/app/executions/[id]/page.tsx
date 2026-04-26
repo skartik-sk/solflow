@@ -50,6 +50,18 @@ const NODE_STATUS_CONFIG: Record<
     bg: "bg-amber-500/10",
     border: "border-amber-500/30",
   },
+  TIMED_OUT: {
+    icon: Timer,
+    color: "text-orange-400",
+    bg: "bg-orange-500/10",
+    border: "border-orange-500/30",
+  },
+  CANCELLED: {
+    icon: CircleSlash,
+    color: "text-zinc-400",
+    bg: "bg-zinc-500/10",
+    border: "border-zinc-500/30",
+  },
   SKIPPED: {
     icon: CircleSlash,
     color: "text-zinc-400",

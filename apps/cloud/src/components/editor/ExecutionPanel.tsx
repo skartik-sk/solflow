@@ -103,8 +103,10 @@ export function ExecutionPanel() {
                         ? "text-emerald-400"
                         : result.status === "error"
                           ? "text-red-400"
-                          : result.status === "running"
-                            ? "text-blue-400"
+                        : result.status === "running"
+                          ? "text-blue-400"
+                          : result.status === "skipped"
+                            ? "text-zinc-400"
                             : "text-muted-foreground"
                     }`}
                   >

@@ -26,6 +26,7 @@ const STATUS_CONFIG: Record<
   RUNNING: { icon: Loader2, color: "text-blue-400", bg: "bg-blue-500/10" },
   QUEUED: { icon: Clock, color: "text-amber-400", bg: "bg-amber-500/10" },
   CANCELLED: { icon: CircleSlash, color: "text-zinc-400", bg: "bg-zinc-500/10" },
+  TIMED_OUT: { icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10" },
 };
 
 function formatDuration(ms: number | null | undefined): string {

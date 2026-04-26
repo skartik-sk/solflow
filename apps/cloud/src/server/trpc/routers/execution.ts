@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { manualExecutionRateLimit } from "@/lib/rate-limit";
 import { router, protectedProcedure } from "../trpc";
 import { queueExecution, startExecutionWorker } from "../../execution-worker/queue";
 
@@ -58,6 +60,14 @@ export const executionRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const rl = manualExecutionRateLimit(ctx.session.user.id ?? "anonymous");
+      if (!rl.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Execution rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+        });
+      }
+
       const workflow = await ctx.prisma.workflow.findFirst({
         where: { id: input.workflowId, userId: ctx.session.user.id },
       });
@@ -83,12 +93,18 @@ export const executionRouter = router({
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.workflowExecution.update({
+      const execution = await ctx.prisma.workflowExecution.findFirst({
         where: {
           id: input.id,
           workflow: { userId: ctx.session.user.id },
           status: "RUNNING",
         },
+        select: { id: true },
+      });
+      if (!execution) throw new Error("Running execution not found");
+
+      return ctx.prisma.workflowExecution.update({
+        where: { id: execution.id },
         data: { status: "CANCELLED", completedAt: new Date() },
       });
     }),

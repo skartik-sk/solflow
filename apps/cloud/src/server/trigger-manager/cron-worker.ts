@@ -43,9 +43,7 @@ export function startCronWorker(): void {
       });
 
       if (!workflow) {
-        console.log(
-          `[cron-worker] Workflow ${workflowId} not found or not active, skipping`
-        );
+        logCronWorkerEvent("workflow_skipped", { workflowId });
         return;
       }
 
@@ -76,9 +74,10 @@ export function startCronWorker(): void {
         });
       }
 
-      console.log(
-        `[cron-worker] Triggered workflow ${workflowId} — execution ${execution.id}`
-      );
+      logCronWorkerEvent("workflow_triggered", {
+        workflowId,
+        executionId: execution.id,
+      });
     },
     {
       connection: getConnectionConfig(),
@@ -87,22 +86,50 @@ export function startCronWorker(): void {
   );
 
   _cronWorker.on("failed", (job, err) => {
-    console.error(
-      `[cron-worker] Job ${job?.id} failed for workflow ${job?.data?.workflowId}:`,
-      err
-    );
+    logCronWorkerEvent("job_failed", {
+      jobId: job?.id,
+      workflowId: job?.data.workflowId,
+      error: err.message,
+    }, "error");
   });
 
   _cronWorker.on("completed", (job) => {
-    console.log(`[cron-worker] Job ${job.id} completed for workflow ${job.data.workflowId}`);
+    logCronWorkerEvent("job_completed", {
+      jobId: job.id,
+      workflowId: job.data.workflowId,
+    });
   });
 
-  console.log("[cron-worker] Started");
+  logCronWorkerEvent("started", {});
 }
 
 export async function stopCronWorker(): Promise<void> {
   if (_cronWorker) {
     await _cronWorker.close();
     _cronWorker = null;
+  }
+}
+
+export function isCronWorkerRunning(): boolean {
+  return _cronWorker !== null;
+}
+
+function logCronWorkerEvent(
+  event: string,
+  data: Record<string, unknown>,
+  level: "info" | "error" = "info",
+): void {
+  const payload = JSON.stringify({
+    ts: new Date().toISOString(),
+    level,
+    component: "cron-worker",
+    event,
+    ...data,
+  });
+
+  if (level === "error") {
+    console.error(payload);
+  } else {
+    console.log(payload);
   }
 }

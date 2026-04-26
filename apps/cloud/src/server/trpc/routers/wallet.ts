@@ -2,20 +2,14 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import { encryptPrivateKey } from "@solflow/cloud-wallet";
 import { Keypair } from "@solana/web3.js";
+import { cloudWalletPublicSelect } from "../public-selects";
 
 export const walletRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.prisma.cloudWallet.findMany({
       where: { userId: ctx.session.user.id },
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        label: true,
-        publicKey: true,
-        network: true,
-        lastUsedAt: true,
-        createdAt: true,
-      },
+      select: cloudWalletPublicSelect,
     });
   }),
 
@@ -44,21 +38,22 @@ export const walletRouter = router({
           keySalt: encrypted.salt,
           network: input.network,
         },
-        select: {
-          id: true,
-          label: true,
-          publicKey: true,
-          network: true,
-          createdAt: true,
-        },
+        select: cloudWalletPublicSelect,
       });
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.cloudWallet.delete({
+      const existing = await ctx.prisma.cloudWallet.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!existing) throw new Error("Wallet not found");
+
+      return ctx.prisma.cloudWallet.delete({
+        where: { id: input.id },
+        select: cloudWalletPublicSelect,
       });
     }),
 });

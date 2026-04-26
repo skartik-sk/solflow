@@ -3,7 +3,11 @@
 
 import { describe, it, expect } from "vitest";
 import type { ProgramIR } from "@solflow/ir";
-import { runInstantAudit } from "../index";
+import {
+  getStandardIdsForAuditRule,
+  runInstantAudit,
+  SOLANA_SECURITY_STANDARD_RULES,
+} from "../index";
 
 // ─── IR Fixture Helpers ───────────────────────────────────────────────────────
 
@@ -546,5 +550,60 @@ describe("Score calculation", () => {
     const report = runInstantAudit(ir);
     expect(report.score).toBeLessThan(100);
     expect(report.summary.critical).toBeGreaterThan(0);
+  });
+});
+
+describe("SW001-SW010 security standard mapping", () => {
+  it("covers every product-facing Solana security rule", () => {
+    expect(SOLANA_SECURITY_STANDARD_RULES.map((rule) => rule.id)).toEqual([
+      "SW001",
+      "SW002",
+      "SW003",
+      "SW004",
+      "SW005",
+      "SW006",
+      "SW007",
+      "SW008",
+      "SW009",
+      "SW010",
+    ]);
+
+    for (const rule of SOLANA_SECURITY_STANDARD_RULES) {
+      expect(rule.auditRuleIds.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("annotates findings with matching SW identifiers", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "withdraw",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "authority",
+              accountType: "system-account",
+              constraints: [{ type: "mut" }],
+            },
+          ],
+          body: [
+            {
+              type: "transfer-sol",
+              from: "authority",
+              to: "vault",
+              amount: "1000",
+            },
+          ],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    const finding = report.findings.find((f) => f.ruleId === "SOL-001");
+    expect(finding?.standardIds).toContain("SW001");
+    expect(getStandardIdsForAuditRule("SOL-040")).toEqual(["SW003"]);
   });
 });

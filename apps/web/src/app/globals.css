@@ -45,10 +45,10 @@
   --color-node-integration: oklch(0.55 0.18 95);
 
   /* ─── Typography ───────────────────────────────────────────────── */
-  --font-sans: var(--font-bricolage), "Inter", "system-ui", sans-serif;
+  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
   --font-mono:
-    var(--font-mono), "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
-  --font-bricolage: var(--font-bricolage), sans-serif;
+    "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-bricolage: "Bricolage Grotesque", Inter, system-ui, sans-serif;
 
   /* ─── Radius ───────────────────────────────────────────────────── */
   --radius: 0.5rem;
@@ -158,8 +158,8 @@
 }
 
 @theme inline {
-  --font-sans: var(--font-bricolage), "Inter", "system-ui", sans-serif;
-  --font-mono: var(--font-mono), "JetBrains Mono", monospace;
+  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
   --font-serif: Georgia, serif;
   --radius: 0.5rem;
   --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
@@ -259,9 +259,9 @@
   --sidebar-accent-foreground: oklch(0.3171 0 0);
   --sidebar-border: oklch(0.9271 0.0101 238.5177);
   --sidebar-ring: oklch(0.8012 0.1089 201.1736);
-  --font-sans: var(--font-bricolage), "Inter", "system-ui", sans-serif;
+  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: var(--font-mono), "JetBrains Mono", monospace;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
   --shadow-color: rgba(29, 161, 242, 0.15);
   --shadow-opacity: 0;
   --shadow-blur: 0px;
@@ -325,9 +325,9 @@
   --sidebar-accent-foreground: oklch(0.9328 0.0025 228.7857);
   --sidebar-border: oklch(0.3184 0.0077 240.0771);
   --sidebar-ring: oklch(0.8012 0.1089 201.1736);
-  --font-sans: var(--font-bricolage), "Inter", "system-ui", sans-serif;
+  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: var(--font-mono), "JetBrains Mono", monospace;
+  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
   --shadow-color: rgba(0, 0, 0, 0.5);
   --shadow-opacity: 0;
   --shadow-blur: 0px;

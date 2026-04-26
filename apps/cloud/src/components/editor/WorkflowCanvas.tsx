@@ -60,7 +60,9 @@ function ExecutionOverlayLayer() {
               ? "rgba(59,130,246,0.75)"
               : result.status === "success"
                 ? "rgba(34,197,94,0.75)"
-                : "rgba(239,68,68,0.75)";
+                : result.status === "skipped"
+                  ? "rgba(113,113,122,0.75)"
+                  : "rgba(239,68,68,0.75)";
           const width = (n as { measured?: { width?: number } }).measured?.width ?? 180;
           const height = (n as { measured?: { height?: number } }).measured?.height ?? 60;
 

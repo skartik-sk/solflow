@@ -21,6 +21,9 @@ import {
 import { useUIStore } from "@/store/ui-store";
 import { usePluginStore } from "@/store/plugin-store";
 import { pluginRegistry } from "@solflow/plugin-sdk";
+import { registerBuiltInPlugins } from "@/lib/plugins/built-ins";
+
+registerBuiltInPlugins();
 
 interface NodeDef {
   type: string;

@@ -119,10 +119,8 @@ export function EditorToolbar() {
     setIsRunning(true);
 
     try {
-      // If no tRPC backend, fall back to mock execution
       if (workflowId.startsWith("mock-") || !workflowId.includes("-")) {
-        await handleMockRun();
-        return;
+        throw new Error("Workflow must be saved before it can run");
       }
 
       // First save the workflow definition
@@ -174,12 +172,20 @@ export function EditorToolbar() {
                 addLog("error", `${nr.nodeType} failed: ${nr.error ?? "Unknown error"}`);
               } else if (nr.status === "RUNNING") {
                 setNodeStatus(nr.nodeId, "running");
+              } else if (nr.status === "SKIPPED") {
+                setNodeStatus(nr.nodeId, "skipped");
+                addLog("warn", `${nr.nodeType} skipped: ${nr.error ?? "Dependency skipped"}`);
               }
             }
           }
 
           // Check if execution is complete
-          if (result.status === "COMPLETED" || result.status === "FAILED" || result.status === "CANCELLED") {
+          if (
+            result.status === "COMPLETED" ||
+            result.status === "FAILED" ||
+            result.status === "CANCELLED" ||
+            result.status === "TIMED_OUT"
+          ) {
             clearInterval(pollInterval);
             const finalStatus = result.status === "COMPLETED" ? "success" : "error";
             completeExecution(finalStatus);
@@ -203,62 +209,10 @@ export function EditorToolbar() {
         }
       }, 300_000);
     } catch (err) {
-      // If tRPC fails, fall back to mock
-      addLog("warn", `tRPC run failed, using mock: ${err}`);
-      await handleMockRun();
-    }
-  };
-
-  const handleMockRun = async () => {
-    const executionId = crypto.randomUUID();
-    startExecution(executionId);
-    addLog("info", `Starting mock execution ${executionId}`);
-
-    try {
-      const triggerNodes = nodes.filter(
-        (n) => !(edges.some((e) => e.target === n.id)),
-      );
-
-      if (triggerNodes.length === 0) {
-        addLog("error", "No trigger node found. Add a trigger to start.");
-        completeExecution("error");
-        setIsRunning(false);
-        return;
-      }
-
-      const visited = new Set<string>();
-      const queue = triggerNodes.map((n) => n.id);
-
-      while (queue.length > 0) {
-        const nodeId = queue.shift()!;
-        if (visited.has(nodeId)) continue;
-        visited.add(nodeId);
-
-        const node = nodes.find((n) => n.id === nodeId);
-        if (!node) continue;
-
-        setNodeStatus(nodeId, "running");
-        addLog("info", `Executing ${node.type}`);
-
-        await new Promise((r) => setTimeout(r, 500));
-
-        setNodeStatus(nodeId, "success");
-        setNodeOutput(nodeId, { result: "ok", timestamp: Date.now() });
-        addLog("info", `${node.type} completed successfully`);
-
-        const downstream = edges
-          .filter((e) => e.source === nodeId)
-          .map((e) => e.target);
-        queue.push(...downstream);
-      }
-
-      completeExecution("success");
-      addLog("info", "Workflow execution completed");
-      openBottomPanelTab("output");
-    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       completeExecution("error");
-      addLog("error", `Execution failed: ${err}`);
-    } finally {
+      addLog("error", `Execution failed: ${message}`);
+      openBottomPanelTab("output");
       setIsRunning(false);
     }
   };

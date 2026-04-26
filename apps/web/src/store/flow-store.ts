@@ -16,6 +16,7 @@ import {
   type Connection,
 } from "@xyflow/react";
 import { isValidNodeConnection } from "@solflow/flow-nodes";
+import { normalizeEditorNodeType } from "@/lib/plugins/editor-nodes";
 import { useCodeStore } from "./code-store";
 import { useProjectStore } from "./project-store";
 
@@ -70,7 +71,10 @@ function validateConnection(connection: Connection, nodes: Node[]): boolean {
   const target = nodes.find((n) => n.id === connection.target);
   if (!source || !target) return false;
   if (source.id === target.id) return false;
-  return isValidNodeConnection(source.type ?? "", target.type ?? "");
+  return isValidNodeConnection(
+    normalizeEditorNodeType(source.type),
+    normalizeEditorNodeType(target.type),
+  );
 }
 
 /**

@@ -115,6 +115,14 @@ describe("flowToIR", () => {
     expect(ir.states[0].fields).toHaveLength(2);
   });
 
+  it("rejects state names that only start with PascalCase", () => {
+    const prog = programNode();
+    const ix = instructionNode();
+    const state = stateNode({ name: "Vault-State" });
+
+    expect(() => flowToIR([prog, ix, state], [edge(prog.id, ix.id)])).toThrow();
+  });
+
   it("collects error nodes from the flow", () => {
     const prog = programNode();
     const ix = instructionNode();
@@ -155,6 +163,44 @@ describe("flowToIR", () => {
 
     expect(ir.events).toHaveLength(1);
     expect(ir.events[0].name).toBe("TransferEvent");
+  });
+
+  it("collects namespaced plugin nodes as integrations", () => {
+    const prog = programNode();
+    const ix = instructionNode();
+    const pluginNode: Node = {
+      id: uid(),
+      type: "spl-token:create-mint",
+      position: { x: 0, y: 200 },
+      data: {
+        label: "Create Mint",
+        pluginId: "spl-token",
+        integrationId: "create-mint",
+        config: {
+          decimals: 9,
+          mintAuthority: "authority",
+        },
+      },
+    };
+
+    const ir = flowToIR(
+      [prog, ix, pluginNode],
+      [edge(prog.id, ix.id), edge(ix.id, pluginNode.id)],
+    );
+
+    expect(ir.integrations).toHaveLength(1);
+    expect(ir.integrations[0]).toMatchObject({
+      pluginId: "spl-token",
+      integrationId: "create-mint",
+      config: {
+        decimals: 9,
+        mintAuthority: "authority",
+      },
+      attachedTo: {
+        instructionId: expect.any(String),
+        position: "before-body",
+      },
+    });
   });
 
   it("resolves multiple instructions from program", () => {

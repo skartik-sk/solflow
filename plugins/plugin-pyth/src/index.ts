@@ -47,6 +47,12 @@ export const pythPlugin: SolFlowPlugin = {
   author: "SolFlow",
   icon: "/plugins/pyth-logo.svg",
   website: "https://pyth.network",
+  security: {
+    trustLevel: "first-party",
+    publisher: "SolFlow",
+    verified: true,
+    audited: true,
+  },
 
   nodes: [
     {

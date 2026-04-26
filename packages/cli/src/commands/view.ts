@@ -25,7 +25,7 @@ export const viewCommand = new Command("view")
       const projectType = detectProjectType(resolvedPath);
       writeConfig(resolvedPath, {
         name: basename(resolvedPath),
-        framework: projectType === "pinocchio" ? "pinocchio" : "anchor",
+        framework: projectType,
         mode: projectType === "unknown" ? "editor" : "rust",
         port,
       });

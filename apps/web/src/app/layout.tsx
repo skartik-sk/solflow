@@ -1,30 +1,10 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
-import { Inter, JetBrains_Mono, Bricolage_Grotesque } from "next/font/google";
 import { Toaster } from "sonner";
 import { TRPCProvider } from "@/components/providers/TRPCProvider";
 import { ClientWalletProvider } from "@/components/providers/ClientWalletProvider";
 import { MonitoringProvider } from "@/components/providers/MonitoringProvider";
 import { FloatingBrowser } from "@/components/FloatingBrowser";
-
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-});
-
-const bricolage = Bricolage_Grotesque({
-  subsets: ["latin"],
-  variable: "--font-bricolage",
-  display: "swap",
-  adjustFontFallback: false,
-});
 
 export const metadata: Metadata = {
   title: {
@@ -68,7 +48,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${jetbrainsMono.variable} ${bricolage.variable} dark`}
+      className="dark"
       suppressHydrationWarning
     >
       <body className="font-bricolage min-h-screen antialiased bg-background text-foreground">

@@ -6,7 +6,7 @@ import { create } from "zustand";
 
 export interface NodeExecutionResult {
   nodeId: string;
-  status: "idle" | "running" | "success" | "error";
+  status: "idle" | "running" | "success" | "error" | "skipped";
   output?: unknown;
   error?: string;
   startedAt?: number;
@@ -50,7 +50,7 @@ export const useExecutionStore = create<ExecutionState>()((set, get) => ({
       ...existing,
       status,
       startedAt: status === "running" ? Date.now() : existing.startedAt,
-      completedAt: status === "success" || status === "error" ? Date.now() : existing.completedAt,
+      completedAt: status === "success" || status === "error" || status === "skipped" ? Date.now() : existing.completedAt,
     });
     set({ nodeResults: results });
   },

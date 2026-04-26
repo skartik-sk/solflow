@@ -89,6 +89,22 @@ export const webhookTriggerDef: CloudNodeDefinition = {
       default: "X-Webhook-Secret",
     },
     {
+      key: "replayProtection",
+      label: "Replay Protection",
+      type: "boolean",
+      required: false,
+      description: "Require X-Webhook-Timestamp and X-Webhook-Signature HMAC headers",
+      default: false,
+    },
+    {
+      key: "maxBodyKb",
+      label: "Max Body KB",
+      type: "number",
+      required: false,
+      description: "Reject requests with bodies larger than this limit",
+      default: 256,
+    },
+    {
       key: "responseCode",
       label: "Response Code",
       type: "number",
@@ -102,6 +118,8 @@ export const webhookTriggerDef: CloudNodeDefinition = {
   defaultData: {
     httpMethod: "POST",
     authentication: "none",
+    replayProtection: false,
+    maxBodyKb: 256,
     responseCode: 200,
   },
   component: WebhookTriggerNode,

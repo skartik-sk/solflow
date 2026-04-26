@@ -11,7 +11,8 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "migrate:deploy-keys": "bun run scripts/migrate-deploy-keys.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -40,8 +41,11 @@
     "@solflow/db": "workspace:*",
     "@solflow/flow-nodes": "workspace:*",
     "@solflow/idl-import": "workspace:*",
+    "@solflow/plugin-metaplex": "workspace:*",
+    "@solflow/plugin-pyth": "workspace:*",
     "@solflow/ir": "workspace:*",
     "@solflow/plugin-sdk": "workspace:*",
+    "@solflow/plugin-spl-token": "workspace:*",
     "@solflow/sdk-gen": "workspace:*",
     "@solflow/solana-utils": "workspace:*",
     "@solflow/ui": "workspace:*",

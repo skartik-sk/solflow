@@ -21,7 +21,7 @@ const safeSnakeName = z.string()
 
 /** Validates a PascalCase identifier that is not a Rust keyword. */
 const safePascalName = z.string()
-  .regex(/^[A-Z][a-zA-Z0-9]*/, "Must be PascalCase")
+  .regex(/^[A-Z][a-zA-Z0-9]*$/, "Must be PascalCase")
   .refine((s) => !RUST_KEYWORDS.has(s), "Rust keyword cannot be used as identifier");
 
 // ─── Primitive Types ───────────────────────────────────────────────

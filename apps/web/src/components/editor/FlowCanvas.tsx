@@ -20,14 +20,16 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
-  nodeTypes,
   NODE_COLOR_MAP,
-  createNodeFromType,
-  type NodeTypeName,
 } from "@solflow/flow-nodes";
 import { useFlowStore } from "@/store/flow-store";
 import { useUIStore } from "@/store/ui-store";
 import { setRFInstance } from "@/lib/rf-instance";
+import {
+  createEditorNodeFromType,
+  editorNodeTypes,
+  normalizeEditorNodeType,
+} from "@/lib/plugins/editor-nodes";
 import { Copy, Trash2, AlignHorizontalSpaceAround, AlignVerticalSpaceAround } from "lucide-react";
 
 // ─── Stable constants (defined outside the component to avoid referential
@@ -370,7 +372,8 @@ export function FlowCanvas() {
 
   // Memoize the minimap nodeColor callback — stable reference
   const minimapNodeColor = useCallback(
-    (n: { type?: string }) => NODE_COLOR_MAP[n.type ?? ""] ?? "#666",
+    (n: { type?: string }) =>
+      NODE_COLOR_MAP[normalizeEditorNodeType(n.type)] ?? "#666",
     [],
   );
 
@@ -385,7 +388,7 @@ export function FlowCanvas() {
       e.preventDefault();
       const type = e.dataTransfer.getData(
         "application/solflow-node",
-      ) as NodeTypeName;
+      );
       if (!type || !rfInstance) return;
 
       const bounds = reactFlowWrapper.current?.getBoundingClientRect();
@@ -399,7 +402,9 @@ export function FlowCanvas() {
             y: e.clientY - bounds.top,
           };
 
-      const newNode = createNodeFromType(type, position);
+      const newNode = createEditorNodeFromType(type, position);
+      if (!newNode) return;
+
       addNode(newNode);
     },
     [rfInstance, addNode],
@@ -410,7 +415,7 @@ export function FlowCanvas() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        nodeTypes={nodeTypes}
+        nodeTypes={editorNodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect as OnConnect}

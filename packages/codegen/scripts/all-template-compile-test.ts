@@ -1,6 +1,7 @@
 /**
- * End-to-end compilation test for ALL 7 marketplace templates.
- * Simple Vault, Token Mint, Escrow, DAO Voting, NFT Collection, Staking Pool, AMM Basic.
+ * End-to-end compilation test for marketplace templates.
+ * Uses the Prisma seed list when available so this does not silently drift
+ * when marketplace templates are added.
  *
  * Usage: bun run scripts/all-template-compile-test.ts
  */
@@ -491,11 +492,27 @@ async function main() {
   console.log("  ALL TEMPLATE COMPILATION TEST");
   console.log("══════════════════════════════════════════════════════════════\n");
 
+  let SEED_TEMPLATES: Array<{
+    title: string;
+    templateIR: ProgramIR;
+    templateFlowData: { nodes: Node[]; edges: Edge[] };
+  }> | undefined;
+  try {
+    const seedMod = await import("../../db/prisma/seed.ts") as any;
+    SEED_TEMPLATES = seedMod.TEMPLATES;
+  } catch {
+    console.log("  Seed import unavailable; falling back to legacy inline template IR.");
+  }
+
   // ── Pass 1: Direct IR (existing test) ──
   console.log("── Pass 1: Direct IR ─────────────────────────────────────────\n");
   let totalPass = 0, totalFail = 0;
 
-  for (const [name, ir] of Object.entries(TEMPLATES)) {
+  const directTemplates = SEED_TEMPLATES
+    ? Object.fromEntries(SEED_TEMPLATES.map((template) => [template.title, template.templateIR]))
+    : TEMPLATES;
+
+  for (const [name, ir] of Object.entries(directTemplates)) {
     console.log(`\n>>> ${name}`);
     const { pass, fail } = await testTemplate(name, ir);
     totalPass += pass;
@@ -512,14 +529,7 @@ async function main() {
   // This catches field name mismatches between flow nodes and the transformer.
   console.log("── Pass 2: flowToIR (frontend path) ─────────────────────────\n");
 
-  // Import seed template flow data. We use a dynamic import with a top-level
-  // await; bun handles TS natively.  The seed's main() runs at import time,
-  // but the TEMPLATES array is populated before any Prisma calls.
-  let SEED_TEMPLATES: Array<{ title: string; templateFlowData: { nodes: Node[]; edges: Edge[] } }>;
-  try {
-    const seedMod = await import("../../db/prisma/seed.ts") as any;
-    SEED_TEMPLATES = seedMod.TEMPLATES;
-  } catch {
+  if (!SEED_TEMPLATES) {
     console.log("  Skipping: could not import seed.ts");
     process.exit(totalFail > 0 ? 1 : 0);
     return;

@@ -50,6 +50,13 @@ export function generatePinocchio(ir: ProgramIR): {
   const version     = ir.program.version;
   const programId   = ir.program.programId; // base58 public key (may be undefined)
 
+  for (const integration of ir.integrations) {
+    warnings.push({
+      message: `Plugin integration "${integration.pluginId}:${integration.integrationId}" is not generated for Pinocchio yet`,
+      nodeId: integration.id,
+    });
+  }
+
   // Determine if any instruction uses CPI operations (including init via CreateAccount)
   const usesCpi = ir.instructions.some((ix) =>
     ix.body.some((op) =>

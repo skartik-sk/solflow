@@ -1,0 +1,5 @@
+[programs.localnet]
+anchor_vault = "VaU1t111111111111111111111111111111111111111"
+
+[workspace]
+members = ["programs/anchor-vault"]

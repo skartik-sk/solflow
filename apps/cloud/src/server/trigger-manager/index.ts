@@ -6,6 +6,10 @@ import { prisma } from "@solflow/db";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
 import { queueExecution, startExecutionWorker } from "../execution-worker/queue";
 import { nanoid } from "nanoid";
+import {
+  redactWebhookHeaders,
+  validateWebhookReplayProtection,
+} from "./webhook-security";
 
 registerBuiltinNodes();
 
@@ -143,15 +147,20 @@ class TriggerManager {
     workflowId: string,
     node: { id: string; type: string; data: Record<string, unknown> }
   ): Promise<void> {
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { webhookPath: true, webhookSecret: true },
+    });
+
     let webhookPath = node.data.webhookPath as string | undefined;
 
     // Generate a path if not provided
     if (!webhookPath) {
-      webhookPath = nanoid(16);
+      webhookPath = workflow?.webhookPath ?? nanoid(16);
     }
 
-    // Generate a webhook secret for authentication
-    const webhookSecret = nanoid(32);
+    // Preserve existing webhook secret across worker restores/re-activations.
+    const webhookSecret = workflow?.webhookSecret ?? nanoid(32);
 
     await prisma.workflow.update({
       where: { id: workflowId },
@@ -162,7 +171,7 @@ class TriggerManager {
     });
 
     console.log(
-      `[trigger-manager] Webhook trigger activated: /webhooks/${webhookPath} for workflow ${workflowId}`
+      `[trigger-manager] Webhook trigger activated: /api/webhook/${webhookPath} for workflow ${workflowId}`
     );
   }
 
@@ -219,13 +228,16 @@ class TriggerManager {
     method: string,
     headers: Record<string, string>,
     body: unknown,
-    query: Record<string, string>
+    query: Record<string, string>,
+    rawBody = "",
   ): Promise<{ status: number; body: unknown }> {
+    const receivedAt = Date.now();
     const workflow = await prisma.workflow.findFirst({
       where: { webhookPath: path, status: "ACTIVE" },
     });
 
     if (!workflow) {
+      logWebhookEvent("not_found", { path, method });
       return { status: 404, body: { error: "Webhook not found" } };
     }
 
@@ -247,7 +259,26 @@ class TriggerManager {
     if (webhookNode) {
       const expectedMethod = (webhookNode.data.httpMethod as string) || "POST";
       if (expectedMethod !== "ANY" && expectedMethod !== method) {
+        logWebhookEvent("method_rejected", {
+          workflowId: workflow.id,
+          path,
+          method,
+          expectedMethod,
+        });
         return { status: 405, body: { error: `Method ${method} not allowed` } };
+      }
+
+      const maxBodyKb = Number(webhookNode.data.maxBodyKb ?? 256);
+      const rawBodyBytes = new TextEncoder().encode(rawBody).byteLength;
+      if (Number.isFinite(maxBodyKb) && maxBodyKb > 0 && rawBodyBytes > maxBodyKb * 1024) {
+        logWebhookEvent("body_rejected", {
+          workflowId: workflow.id,
+          path,
+          method,
+          bodyBytes: rawBodyBytes,
+          maxBodyKb,
+        });
+        return { status: 413, body: { error: "Webhook request body is too large" } };
       }
 
       // Check authentication if configured
@@ -258,7 +289,31 @@ class TriggerManager {
           "X-Webhook-Secret";
         const headerValue = headers[authHeaderName.toLowerCase()];
         if (headerValue !== workflow.webhookSecret) {
+          logWebhookEvent("auth_rejected", {
+            workflowId: workflow.id,
+            path,
+            method,
+          });
           return { status: 401, body: { error: "Unauthorized" } };
+        }
+      }
+
+      if (webhookNode.data.replayProtection === true) {
+        const replay = await validateWebhookReplayProtection({
+          headers,
+          secret: workflow.webhookSecret,
+          rawBody,
+          now: receivedAt,
+        });
+        if (!replay.ok) {
+          logWebhookEvent("replay_rejected", {
+            workflowId: workflow.id,
+            path,
+            method,
+            status: replay.status,
+            reason: replay.error,
+          });
+          return { status: replay.status, body: { error: replay.error } };
         }
       }
     }
@@ -267,10 +322,16 @@ class TriggerManager {
     const triggerData = {
       triggerType: "webhook",
       method,
-      headers,
+      headers: redactWebhookHeaders(headers),
       body,
       query,
-      timestamp: Date.now(),
+      timestamp: receivedAt,
+      meta: {
+        path,
+        replayProtection: webhookNode?.data.replayProtection === true,
+        contentLength: headers["content-length"] ?? null,
+        contentType: headers["content-type"] ?? null,
+      },
     };
 
     const execution = await prisma.workflowExecution.create({
@@ -286,6 +347,12 @@ class TriggerManager {
     // Enqueue execution
     startExecutionWorker();
     await queueExecution(execution.id, workflow.id);
+    logWebhookEvent("queued", {
+      workflowId: workflow.id,
+      executionId: execution.id,
+      path,
+      method,
+    });
 
     const responseCode = webhookNode
       ? ((webhookNode.data.responseCode as number) || 200)
@@ -359,4 +426,15 @@ export function getTriggerManager(): TriggerManager {
     _instance = new TriggerManager();
   }
   return _instance;
+}
+
+function logWebhookEvent(event: string, data: Record<string, unknown>): void {
+  console.log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      component: "cloud-webhook",
+      event,
+      ...data,
+    }),
+  );
 }

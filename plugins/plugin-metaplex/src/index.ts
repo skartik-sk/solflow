@@ -70,6 +70,12 @@ export const metaplexPlugin: SolFlowPlugin = {
   author: "SolFlow",
   icon: "/plugins/metaplex-logo.svg",
   website: "https://metaplex.com",
+  security: {
+    trustLevel: "first-party",
+    publisher: "SolFlow",
+    verified: true,
+    audited: true,
+  },
 
   nodes: [
     {

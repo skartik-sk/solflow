@@ -28,6 +28,7 @@ export function setWebSocketServer(server: WebSocketServer): void {
       ws.ping();
     });
   }, 30_000);
+  heartbeat.unref?.();
   wss.on("close", () => clearInterval(heartbeat));
 
   wss.on("connection", (ws: WebSocket) => {

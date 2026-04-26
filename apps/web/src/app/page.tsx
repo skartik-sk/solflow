@@ -13,6 +13,7 @@ import {
 
 const stagger = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.06 } } };
 const fadeUp = { hidden: { opacity: 0, y: 14 }, visible: { opacity: 1, y: 0, transition: { duration: 0.45, ease: "easeOut" as const } } };
+const CLOUD_URL = process.env.NEXT_PUBLIC_CLOUD_URL ?? "https://cloud.solstudio.fun";
 
 /* ─── Canvas types ──────────────────────────────────────────────── */
 
@@ -113,25 +114,22 @@ export default function HomePage() {
   const nodeOrder: NodeId[] = ["program", "initialize", "deposit", "vault", "constraint"];
 
   useEffect(() => {
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    // Schedule each mutation
-    nodeOrder.forEach((id, i) => {
-      const m = CODE_MUTATIONS[id];
-      timers.push(setTimeout(() => {
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const scheduleMutation = (id: NodeId, i: number) => {
+      const timer = setTimeout(() => {
         setActiveMutation(id);
         setCycleIndex(i);
-      }, m.delay));
-    });
+        timers.delete(timer);
+      }, CODE_MUTATIONS[id].delay);
+      timers.add(timer);
+    };
+
+    nodeOrder.forEach(scheduleMutation);
+
     // After all mutations shown, loop
     const totalDuration = CODE_MUTATIONS.constraint.delay + 3000;
     const loopTimer = setInterval(() => {
-      nodeOrder.forEach((id, i) => {
-        const m = CODE_MUTATIONS[id];
-        timers.push(setTimeout(() => {
-          setActiveMutation(id);
-          setCycleIndex(i);
-        }, m.delay));
-      });
+      nodeOrder.forEach(scheduleMutation);
     }, totalDuration);
     return () => { timers.forEach(clearTimeout); clearInterval(loopTimer); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -168,6 +166,8 @@ export default function HomePage() {
             <Link href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</Link>
             <Link href="#features" className="hover:text-foreground transition-colors">Features</Link>
             <Link href="#marketplace" className="hover:text-foreground transition-colors">Marketplace</Link>
+            <a href={CLOUD_URL} className="hover:text-foreground transition-colors">Cloud</a>
+            <Link href="/docs/learn/cli" className="hover:text-foreground transition-colors">CLI</Link>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/auth/signin" className="inline-flex h-8 items-center rounded-md bg-primary px-3.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors">

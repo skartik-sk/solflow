@@ -6,10 +6,18 @@ import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import { createServer } from "http";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
-import { join, resolve as pathResolve, relative } from "path";
+import { dirname, join, resolve as pathResolve, relative } from "path";
 import { execFile } from "child_process";
 import { readConfig, getProjectPath, getConfigDir } from "../utils/config";
-import { dirname } from "path";
+import { detectProjectType, type ProjectType } from "../utils/detect";
+import {
+  getFrameworkAdapter,
+  resolveCodegenFramework,
+  resolveFrameworkTestPlan,
+  type FrameworkAdapter,
+} from "../utils/framework-adapters";
+import { fileURLToPath } from "url";
+import type { SourceCoverageOptions } from "@solflow/rust-parser";
 
 export interface ServerOptions {
   port: number;
@@ -81,10 +89,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           return;
         }
         const ir = flowToIR(nodes, edges);
-        const validFrameworks = ["anchor", "pinocchio", "quasar"] as const;
-        const framework = validFrameworks.includes(config.framework as typeof validFrameworks[number])
-          ? config.framework as typeof validFrameworks[number]
-          : "anchor";
+        const framework = resolveCodegenFramework(config.framework);
         const result = generateCode(ir, framework);
 
         res.json({
@@ -137,6 +142,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           nodes: result.nodes,
           edges: result.edges,
           stats: result.stats,
+          report: result.report,
         }, null, 2));
 
         res.json({
@@ -144,6 +150,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           edges: result.edges,
           stats: result.stats,
           warnings: result.warnings,
+          report: result.report,
         });
 
         // Notify WebSocket clients
@@ -158,12 +165,16 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     app.post("/api/compile", async (_req, res) => {
       try {
         const projectType = detectProjectType(options.projectPath);
+        const adapter = getFrameworkAdapter(projectType);
+        if (!adapter.compileCommand) {
+          throw new Error(`${adapter.label} projects cannot be compiled from the CLI visualizer yet.`);
+        }
         let prefix = "";
 
         // Sync keys so declare_id! matches keypairs
-        prefix += await syncKeys(options.projectPath, projectType);
+        prefix += await syncKeys(options.projectPath, adapter);
 
-        const { cmd, args } = getCompileCommand(projectType);
+        const { cmd, args } = adapter.compileCommand;
         const output = await runCommand(cmd, args, options.projectPath);
         broadcast(wss, { type: "compile-done", success: output.exitCode === 0 });
         res.json({
@@ -182,18 +193,52 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     app.post("/api/test", async (_req, res) => {
       try {
         const projectType = detectProjectType(options.projectPath);
+        const adapter = getFrameworkAdapter(projectType);
         let prefix = "";
 
-        prefix += await syncKeys(options.projectPath, projectType);
+        prefix += await syncKeys(options.projectPath, adapter);
 
-        const { cmd, args } = getTestCommand(projectType);
-        const output = await runCommand(cmd, args, options.projectPath);
+        const testPlan = resolveFrameworkTestPlan(projectType, options.projectPath);
+        let setupOutput = "";
+        if (testPlan.setupCommand) {
+          const setup = testPlan.setupCommand;
+          const result = await runCommand(setup.cmd, setup.args, setup.cwd ?? options.projectPath);
+          setupOutput = result.stdout || result.stderr
+            ? [
+                `$ ${setup.cmd} ${setup.args.join(" ")}`,
+                result.stdout,
+                result.stderr,
+              ].filter(Boolean).join("\n")
+            : "";
+          if (result.exitCode !== 0) {
+            if (testPlan.runtime === "surfpool" && isBenignSurfpoolStartFailure(setupOutput)) {
+              setupOutput = [
+                setupOutput,
+                "[surfpool] Existing simnet appears to be running; continuing with project tests.",
+              ].filter(Boolean).join("\n");
+            } else {
+              broadcast(wss, { type: "test-done", success: false });
+              res.json({
+                success: false,
+                stdout: prefix + setupOutput,
+                stderr: result.stderr,
+                exitCode: result.exitCode,
+                runtime: testPlan.runtime,
+              });
+              return;
+            }
+          }
+        }
+
+        const { cmd, args, cwd } = testPlan.testCommand;
+        const output = await runCommand(cmd, args, cwd ?? options.projectPath);
         broadcast(wss, { type: "test-done", success: output.exitCode === 0 });
         res.json({
           success: output.exitCode === 0,
-          stdout: prefix + (output.stdout || ""),
+          stdout: [prefix, setupOutput, output.stdout].filter(Boolean).join("\n"),
           stderr: output.stderr,
           exitCode: output.exitCode,
+          runtime: testPlan.runtime,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Test failed";
@@ -205,8 +250,9 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     app.post("/api/sync", async (_req, res) => {
       try {
         const projectType = detectProjectType(options.projectPath);
+        const adapter = getFrameworkAdapter(projectType);
         const result = await codegenToDisk(options.projectPath);
-        const keyMsg = await syncKeys(options.projectPath, projectType);
+        const keyMsg = await syncKeys(options.projectPath, adapter);
         res.json({ ok: true, written: result.written, errors: result.errors, keysSync: keyMsg });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Sync failed";
@@ -218,14 +264,18 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     app.post("/api/deploy", async (req, res) => {
       try {
         const projectType = detectProjectType(options.projectPath);
+        const adapter = getFrameworkAdapter(projectType);
+        if (!adapter.compileCommand || adapter.deploy === "unsupported") {
+          throw new Error(`${adapter.label} projects cannot be deployed from the CLI visualizer yet.`);
+        }
         const network = (req.body?.network as string) || "localnet";
         let prefix = "";
 
         // Key sync
-        prefix += await syncKeys(options.projectPath, projectType);
+        prefix += await syncKeys(options.projectPath, adapter);
 
         // Build first (ensure .so is up to date with synced keys)
-        const { cmd: buildCmd, args: buildArgs } = getCompileCommand(projectType);
+        const { cmd: buildCmd, args: buildArgs } = adapter.compileCommand;
         prefix += `[build] $ ${buildCmd} ${buildArgs.join(" ")}\n`;
         const buildOut = await runCommand(buildCmd, buildArgs, options.projectPath);
         if (buildOut.exitCode !== 0) {
@@ -241,7 +291,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
 
         // Deploy
         prefix += `[deploy] Deploying to ${network}...\n`;
-        const output = await deployProgram(options.projectPath, projectType, network);
+        const output = await deployProgram(options.projectPath, adapter, network);
         broadcast(wss, { type: "deploy-done", success: output.exitCode === 0 });
         res.json({
           success: output.exitCode === 0,
@@ -256,12 +306,12 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     });
 
     // GET /api/source — read all project source files (.rs, Cargo.toml, Anchor.toml)
-    app.get("/api/source", (_req, res) => {
+    app.get("/api/source", (req, res) => {
       try {
         const files: { path: string; content: string; language: string }[] = [];
 
         // Read .rs files
-        const rsFiles = findProjectRustFiles(options.projectPath);
+        const rsFiles = findProjectRustFiles(options.projectPath, sourceCoverageFromQuery(req.query));
         for (const absPath of rsFiles) {
           try {
             const content = readFileSync(absPath, "utf-8");
@@ -349,6 +399,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           nodes: result.nodes,
           edges: result.edges,
           stats: result.stats,
+          report: result.report,
         }, null, 2));
 
         broadcast(wss, {
@@ -364,6 +415,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           edges: result.edges,
           stats: result.stats,
           warnings: result.warnings,
+          report: result.report,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Failed to save source file";
@@ -374,15 +426,14 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     // GET /api/status — project type and tool availability
     app.get("/api/status", (_req, res) => {
       const projectType = detectProjectType(options.projectPath);
-      const { cmd: compileCmd, args: compileArgs } = getCompileCommand(projectType);
-      const { cmd: testCmd, args: testArgs } = getTestCommand(projectType);
+      const adapter = getFrameworkAdapter(projectType);
       res.json({
         projectType,
         projectPath: options.projectPath,
         name: config.name,
         framework: config.framework,
-        buildCommand: `${compileCmd} ${compileArgs.join(" ")}`,
-        testCommand: `${testCmd} ${testArgs.join(" ")}`,
+        buildCommand: adapter.compileCommand ? `${adapter.compileCommand.cmd} ${adapter.compileCommand.args.join(" ")}` : null,
+        testCommand: adapter.testCommand ? `${adapter.testCommand.cmd} ${adapter.testCommand.args.join(" ")}` : null,
       });
     });
 
@@ -429,7 +480,7 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           const configDir = getConfigDir(options.projectPath);
           if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
           writeFileSync(projectJsonPath, JSON.stringify({
-            nodes: result.nodes, edges: result.edges, stats: result.stats,
+            nodes: result.nodes, edges: result.edges, stats: result.stats, report: result.report,
           }, null, 2));
           console.log(`[init] Parsed: ${result.nodes.length} nodes, ${result.edges.length} edges`);
         }
@@ -490,10 +541,7 @@ async function codegenToDisk(projectPath: string): Promise<{ written: number; er
   const { generateCode } = await import("@solflow/codegen");
 
   const cfg = readConfig(projectPath);
-  const validFrameworks = ["anchor", "pinocchio", "quasar"] as const;
-  const framework = validFrameworks.includes(cfg.framework as typeof validFrameworks[number])
-    ? cfg.framework as typeof validFrameworks[number]
-    : "anchor";
+  const framework = resolveCodegenFramework(cfg.framework);
 
   const ir = flowToIR(nodes, edges);
   const result = generateCode(ir, framework);
@@ -517,10 +565,14 @@ async function codegenToDisk(projectPath: string): Promise<{ written: number; er
 
 function findStaticDir(): string | null {
   // Look for the standalone app build output relative to this package
+  const moduleDir = dirname(fileURLToPath(import.meta.url));
+  const entryDir = process.argv[1] ? dirname(pathResolve(process.argv[1])) : moduleDir;
   const candidates = [
-    pathResolve(__dirname, "../../../apps/standalone/out"),
-    pathResolve(__dirname, "../static"),
-    pathResolve(__dirname, "../../static"),
+    pathResolve(moduleDir, "../../../apps/standalone/out"),
+    pathResolve(moduleDir, "../static"),
+    pathResolve(moduleDir, "../../static"),
+    pathResolve(entryDir, "../static"),
+    pathResolve(entryDir, "../../static"),
   ];
   for (const dir of candidates) {
     if (existsSync(dir)) return dir;
@@ -535,43 +587,8 @@ async function createWatcher(
 ) {
   const chokidar = await import("chokidar");
   const projectType = detectProjectType(projectPath);
-
-  // Determine which directories to watch based on framework
-  let watchDirs: string[] = [];
-  if (projectType === "anchor") {
-    // Anchor: programs/*/src/
-    const programsDir = join(projectPath, "programs");
-    if (existsSync(programsDir)) {
-      for (const pe of readdirSync(programsDir, { withFileTypes: true })) {
-        if (pe.isDirectory() && existsSync(join(programsDir, pe.name, "src"))) {
-          watchDirs.push(join(programsDir, pe.name, "src"));
-        }
-      }
-    }
-  } else if (projectType === "pinocchio") {
-    // Pinocchio: programs/*/src/ or src/
-    const programsDir = join(projectPath, "programs");
-    if (existsSync(programsDir)) {
-      for (const pe of readdirSync(programsDir, { withFileTypes: true })) {
-        if (pe.isDirectory() && existsSync(join(programsDir, pe.name, "src"))) {
-          watchDirs.push(join(programsDir, pe.name, "src"));
-        }
-      }
-    }
-    if (existsSync(join(projectPath, "src"))) {
-      watchDirs.push(join(projectPath, "src"));
-    }
-  } else if (projectType === "quasar") {
-    // Quasar: src/ or instructions/
-    if (existsSync(join(projectPath, "src"))) {
-      watchDirs.push(join(projectPath, "src"));
-    }
-  }
-
-  // Fallback: if no framework-specific dirs found, watch src/ if it exists
-  if (watchDirs.length === 0 && existsSync(join(projectPath, "src"))) {
-    watchDirs.push(join(projectPath, "src"));
-  }
+  const adapter = getFrameworkAdapter(projectType);
+  const watchDirs = adapter.getWatchDirs(projectPath);
 
   if (watchDirs.length === 0) return { close: () => Promise.resolve() };
 
@@ -603,6 +620,7 @@ async function createWatcher(
         nodes: result.nodes,
         edges: result.edges,
         stats: result.stats,
+        report: result.report,
       }, null, 2));
 
       broadcast(wss, {
@@ -630,110 +648,14 @@ async function createWatcher(
 
 // ─── Local command execution ───────────────────────────────────────────
 
-type ProjectType = "anchor" | "pinocchio" | "quasar" | "unknown";
-
-function detectProjectType(dir: string): ProjectType {
-  try {
-    // Anchor: Anchor.toml at root
-    if (existsSync(join(dir, "Anchor.toml"))) return "anchor";
-
-    // Quasar: Quasar.toml at root
-    if (existsSync(join(dir, "Quasar.toml"))) return "quasar";
-
-    // Scan programs/*/Cargo.toml for framework deps
-    const programsDir = join(dir, "programs");
-    if (existsSync(programsDir)) {
-      for (const pe of readdirSync(programsDir, { withFileTypes: true })) {
-        if (pe.isDirectory()) {
-          try {
-            const cargo = readFileSync(join(programsDir, pe.name, "Cargo.toml"), "utf-8");
-            if (cargo.includes("anchor-lang")) return "anchor";
-            if (cargo.includes("pinocchio")) return "pinocchio";
-            if (cargo.includes("quasar-lang")) return "quasar";
-          } catch { /* skip */ }
-        }
-      }
-    }
-
-    // Check root Cargo.toml
-    if (existsSync(join(dir, "Cargo.toml"))) {
-      const cargo = readFileSync(join(dir, "Cargo.toml"), "utf-8");
-      if (cargo.includes("anchor-lang")) return "anchor";
-      if (cargo.includes("pinocchio")) return "pinocchio";
-      if (cargo.includes("quasar-lang")) return "quasar";
-    }
-
-    // Check workspace members for framework deps
-    if (existsSync(join(dir, "Cargo.toml"))) {
-      try {
-        const cargo = readFileSync(join(dir, "Cargo.toml"), "utf-8");
-        // If there's a workspace, scan member dirs
-        const memberMatch = cargo.match(/members\s*=\s*\[([^\]]+)\]/);
-        if (memberMatch) {
-          const members = memberMatch[1].match(/"([^"]+)"/g)?.map((m) => m.replace(/"/g, "")) ?? [];
-          for (const member of members) {
-            const memberCargo = join(dir, member.replace("/*", ""), "Cargo.toml");
-            // For glob members, try scanning
-            if (member.includes("*")) {
-              const parentDir = join(dir, member.replace("/*", ""));
-              if (existsSync(parentDir)) {
-                for (const pe of readdirSync(parentDir, { withFileTypes: true })) {
-                  if (pe.isDirectory()) {
-                    try {
-                      const c = readFileSync(join(parentDir, pe.name, "Cargo.toml"), "utf-8");
-                      if (c.includes("anchor-lang")) return "anchor";
-                      if (c.includes("pinocchio")) return "pinocchio";
-                      if (c.includes("quasar-lang")) return "quasar";
-                    } catch { /* skip */ }
-                  }
-                }
-              }
-            } else if (existsSync(memberCargo)) {
-              try {
-                const c = readFileSync(memberCargo, "utf-8");
-                if (c.includes("anchor-lang")) return "anchor";
-                if (c.includes("pinocchio")) return "pinocchio";
-                if (c.includes("quasar-lang")) return "quasar";
-              } catch { /* skip */ }
-            }
-          }
-        }
-      } catch { /* skip */ }
-    }
-  } catch { /* ignore */ }
-  return "unknown";
-}
-
-function getCompileCommand(projectType: ProjectType): { cmd: string; args: string[] } {
-  switch (projectType) {
-    case "anchor":
-      return { cmd: "anchor", args: ["build"] };
-    case "pinocchio":
-      return { cmd: "cargo", args: ["build-sbf"] };
-    case "quasar":
-      return { cmd: "cargo", args: ["build-sbf"] };
-    default:
-      return { cmd: "cargo", args: ["build-sbf"] };
-  }
-}
-
-function getTestCommand(projectType: ProjectType): { cmd: string; args: string[] } {
-  switch (projectType) {
-    case "anchor":
-      return { cmd: "anchor", args: ["test"] };
-    case "pinocchio":
-      return { cmd: "cargo", args: ["test"] };
-    case "quasar":
-      return { cmd: "cargo", args: ["test"] };
-    default:
-      return { cmd: "cargo", args: ["test"] };
-  }
-}
-
 // Sync program IDs from keypairs to declare_id! in source files.
 // This prevents DeclaredProgramIdMismatch errors on deploy.
-async function syncKeys(projectPath: string, projectType: ProjectType): Promise<string> {
-  if (projectType === "anchor") {
+async function syncKeys(projectPath: string, adapter: FrameworkAdapter): Promise<string> {
+  if (adapter.keySync === "none") {
+    return "[keys] No key sync configured for unknown framework\n";
+  }
+
+  if (adapter.keySync === "anchor") {
     // Anchor has a built-in keys sync command
     const out = await runCommand("anchor", ["keys", "sync"], projectPath);
     if (out.exitCode === 0) {
@@ -816,7 +738,7 @@ function readPackageName(dir: string): string {
 }
 
 // Find the compiled .so file for deployment
-function findSoFile(projectPath: string, projectType: ProjectType): string | null {
+function findSoFile(projectPath: string): string | null {
   const searchDirs = [
     join(projectPath, "target", "deploy"),
     join(projectPath, "target", "sbf-solana-solana", "release"),
@@ -856,7 +778,7 @@ function bs58Encode(bytes: number[]): string {
 
 async function deployProgram(
   projectPath: string,
-  projectType: ProjectType,
+  adapter: FrameworkAdapter,
   network: string,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const validNetworks = ["localnet", "devnet", "testnet", "mainnet"];
@@ -864,13 +786,13 @@ async function deployProgram(
   const clusterArg = safeNetwork === "localnet" ? "localnet" : safeNetwork;
   const urlArg = safeNetwork === "localnet" ? "localhost" : safeNetwork;
 
-  if (projectType === "anchor") {
+  if (adapter.deploy === "anchor") {
     // Anchor deploy handles everything — just run it
     return runCommand("anchor", ["deploy", "--provider.cluster", clusterArg], projectPath);
   }
 
   // Pinocchio/Quasar: find the .so file and deploy manually
-  const soFile = findSoFile(projectPath, projectType);
+  const soFile = findSoFile(projectPath);
   if (!soFile) {
     return {
       stdout: "",
@@ -916,16 +838,27 @@ function runCommand(cmd: string, args: string[], cwd: string): Promise<{ stdout:
   });
 }
 
-const SKIP_DIRS = new Set(["target", "node_modules", "tests", "benches", "examples", "migration", ".git"]);
+function isBenignSurfpoolStartFailure(output: string): boolean {
+  return /address already in use|already running|port .*in use|os error 48|os error 98/i.test(output);
+}
 
-function findProjectRustFiles(dir: string): string[] {
+const ALWAYS_SKIP_SOURCE_DIRS = new Set(["target", "node_modules", ".git"]);
+const OPTIONAL_SOURCE_DIRS: Record<string, keyof SourceCoverageOptions> = {
+  tests: "includeTests",
+  benches: "includeBenches",
+  examples: "includeExamples",
+  migration: "includeMigrations",
+  migrations: "includeMigrations",
+};
+
+function findProjectRustFiles(dir: string, coverage?: SourceCoverageOptions): string[] {
   const files: string[] = [];
   function walk(current: string, depth: number): void {
     if (depth > 10) return;
     let entries;
     try { entries = readdirSync(current, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
+      if (shouldSkipSourceEntry(entry.name, coverage)) continue;
       const fullPath = join(current, entry.name);
       if (entry.isDirectory()) walk(fullPath, depth + 1);
       else if (entry.name.endsWith(".rs")) {
@@ -935,4 +868,26 @@ function findProjectRustFiles(dir: string): string[] {
   }
   walk(dir, 0);
   return files.sort();
+}
+
+function shouldSkipSourceEntry(name: string, coverage?: SourceCoverageOptions): boolean {
+  if (ALWAYS_SKIP_SOURCE_DIRS.has(name)) return true;
+  if (name.startsWith(".") && !coverage?.includeHidden) return true;
+  const option = OPTIONAL_SOURCE_DIRS[name];
+  return Boolean(option && !coverage?.[option]);
+}
+
+function sourceCoverageFromQuery(query: Record<string, unknown>): SourceCoverageOptions {
+  return {
+    includeTests: queryFlag(query.includeTests),
+    includeExamples: queryFlag(query.includeExamples),
+    includeBenches: queryFlag(query.includeBenches),
+    includeMigrations: queryFlag(query.includeMigrations),
+    includeHidden: queryFlag(query.includeHidden),
+  };
+}
+
+function queryFlag(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(queryFlag);
+  return value === true || value === "true" || value === "1";
 }

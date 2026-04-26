@@ -1,14 +1,23 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { workflowLifecycleRateLimit } from "@/lib/rate-limit";
 import { router, protectedProcedure } from "../trpc";
 import { getTriggerManager } from "../../trigger-manager";
 import { startCronWorker } from "../../trigger-manager/cron-worker";
+import {
+  workflowPublicSelect,
+  workflowVersionPublicSelect,
+} from "../public-selects";
 
 export const workflowRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.prisma.workflow.findMany({
       where: { userId: ctx.session.user.id },
       orderBy: { updatedAt: "desc" },
-      include: { _count: { select: { executions: true } } },
+      select: {
+        ...workflowPublicSelect,
+        _count: { select: { executions: true } },
+      },
     });
   }),
 
@@ -17,9 +26,13 @@ export const workflowRouter = router({
     .query(async ({ ctx, input }) => {
       return ctx.prisma.workflow.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
-        include: {
-          wallet: true,
-          versions: { orderBy: { version: "desc" }, take: 10 },
+        select: {
+          ...workflowPublicSelect,
+          versions: {
+            orderBy: { version: "desc" },
+            take: 10,
+            select: workflowVersionPublicSelect,
+          },
         },
       });
     }),
@@ -44,6 +57,7 @@ export const workflowRouter = router({
             onError: "stop",
           } as any,
         },
+        select: workflowPublicSelect,
       });
     }),
 
@@ -63,17 +77,31 @@ export const workflowRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
-      return ctx.prisma.workflow.update({
+      const existing = await ctx.prisma.workflow.findFirst({
         where: { id, userId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!existing) throw new Error("Workflow not found");
+
+      return ctx.prisma.workflow.update({
+        where: { id },
         data,
+        select: workflowPublicSelect,
       });
     }),
 
   delete: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.prisma.workflow.delete({
+      const existing = await ctx.prisma.workflow.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!existing) throw new Error("Workflow not found");
+
+      return ctx.prisma.workflow.delete({
+        where: { id: input.id },
+        select: workflowPublicSelect,
       });
     }),
 
@@ -95,12 +123,20 @@ export const workflowRouter = router({
       };
       if (original.walletId) data.walletId = original.walletId;
 
-      return ctx.prisma.workflow.create({ data });
+      return ctx.prisma.workflow.create({ data, select: workflowPublicSelect });
     }),
 
   activate: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const rl = workflowLifecycleRateLimit(ctx.session.user.id ?? "anonymous");
+      if (!rl.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Workflow activation rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+        });
+      }
+
       const workflow = await ctx.prisma.workflow.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
       });
@@ -121,6 +157,14 @@ export const workflowRouter = router({
   deactivate: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
+      const rl = workflowLifecycleRateLimit(ctx.session.user.id ?? "anonymous");
+      if (!rl.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Workflow deactivation rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+        });
+      }
+
       const workflow = await ctx.prisma.workflow.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
       });

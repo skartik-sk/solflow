@@ -11,6 +11,24 @@ export interface ProjectData {
   name: string;
   framework: string;
   version: string;
+  report?: ParseReport;
+}
+
+export interface ParseReportFile {
+  path: string;
+  status: "parsed" | "skipped";
+  reason?: string;
+}
+
+export interface ParseReport {
+  framework: "anchor" | "pinocchio" | "quasar" | "unknown";
+  filesParsed: number;
+  filesSkipped: number;
+  parsedFiles: ParseReportFile[];
+  skippedFiles: ParseReportFile[];
+  unsupportedConstructs: string[];
+  confidence: "high" | "medium" | "low";
+  confidenceReasons: string[];
 }
 
 export async function loadProject(): Promise<ProjectData> {
@@ -72,7 +90,7 @@ export async function fetchSourceFiles(): Promise<{ files: SourceFile[] }> {
 export async function saveSourceFile(
   path: string,
   content: string,
-): Promise<{ ok: boolean; nodes: Node[]; edges: Edge[]; warnings: string[] }> {
+): Promise<{ ok: boolean; nodes: Node[]; edges: Edge[]; warnings: string[]; report?: ParseReport }> {
   const res = await fetch(`${API_BASE}/api/source`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -82,7 +100,7 @@ export async function saveSourceFile(
   return res.json();
 }
 
-export async function reparseProject(): Promise<{ nodes: Node[]; edges: Edge[]; warnings: string[] }> {
+export async function reparseProject(): Promise<{ nodes: Node[]; edges: Edge[]; warnings: string[]; report?: ParseReport }> {
   const res = await fetch(`${API_BASE}/api/parse`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

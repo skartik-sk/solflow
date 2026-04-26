@@ -710,24 +710,62 @@ function collectEvents(nodes: Node[]): IrEvent[] {
 
 // ─── Integration Collector ─────────────────────────────────────────
 
-function collectIntegrations(nodes: Node[], _edges: Edge[]): Integration[] {
+function parsePluginType(type: string | undefined): {
+  pluginId: string;
+  integrationId: string;
+} | null {
+  if (!type || !type.includes(":")) return null;
+  const [pluginId, integrationId] = type.split(":", 2);
+  if (!pluginId || !integrationId) return null;
+  return { pluginId, integrationId };
+}
+
+function findAttachedInstructionId(
+  integrationNode: Node,
+  nodes: Node[],
+  edges: Edge[],
+): string {
+  const incoming = edges.find((edge) => {
+    if (edge.target !== integrationNode.id) return false;
+    return nodes.find((node) => node.id === edge.source)?.type === "instruction";
+  });
+  if (incoming) return incoming.source;
+
+  const outgoing = edges.find((edge) => {
+    if (edge.source !== integrationNode.id) return false;
+    return nodes.find((node) => node.id === edge.target)?.type === "instruction";
+  });
+  return outgoing?.target ?? "";
+}
+
+function collectIntegrations(nodes: Node[], edges: Edge[]): Integration[] {
   return nodes
-    .filter((n) => n.type === "integration")
+    .filter((n) => n.type === "integration" || parsePluginType(n.type))
     .map((n) => {
       const data = n.data as Record<string, unknown>;
+      const parsedType = parsePluginType(n.type);
+      const pluginId = (data.pluginId as string | undefined) ?? parsedType?.pluginId ?? "";
+      const integrationId =
+        (data.integrationId as string | undefined) ??
+        parsedType?.integrationId ??
+        "";
+      const attachedTo = (data.attachedTo as Record<string, unknown>) ?? {};
+      const attachedInstructionId =
+        (attachedTo.instructionId as string | undefined) ??
+        findAttachedInstructionId(n, nodes, edges);
+      const config = {
+        ...((data.config as Record<string, unknown> | undefined) ?? {}),
+      };
+
       return {
         id: toUuid(n.id),
-        pluginId: (data.pluginId as string) ?? "",
-        integrationId: (data.integrationId as string) ?? "",
-        config: (data.config as Record<string, unknown>) ?? {},
+        pluginId,
+        integrationId,
+        config,
         attachedTo: {
-          instructionId: toUuid(
-            ((data.attachedTo as Record<string, unknown>)
-              ?.instructionId as string) ?? "",
-          ),
+          instructionId: toUuid(attachedInstructionId),
           position:
-            ((data.attachedTo as Record<string, unknown>)
-              ?.position as Integration["attachedTo"]["position"]) ??
+            (attachedTo.position as Integration["attachedTo"]["position"]) ??
             "before-body",
         },
       };

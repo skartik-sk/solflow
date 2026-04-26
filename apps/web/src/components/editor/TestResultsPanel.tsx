@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { useCodeStore } from "@/store/code-store";
 import { useProjectStore } from "@/store/project-store";
 import type { Instruction, Account, InstructionArg } from "@solflow/ir";
+import type { GeneratedTestRuntime } from "@/store/build-store";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,7 @@ export function TestResultsPanel() {
   const [view, setView] = useState<"form" | "results">(
     testResults.length > 0 ? "results" : "form",
   );
+  const [runtime, setRuntime] = useState<GeneratedTestRuntime>("cargo-smoke");
 
   // Card state per instruction
   const [cards, setCards] = useState<Record<string, TestCardState>>(() => {
@@ -148,11 +150,8 @@ export function TestResultsPanel() {
     async (ix: Instruction) => {
       if (!projectId) return;
       const card = cards[ix.name] ?? makeDefaultCard(ix);
-      const { getVanillaClient } = await import("@/lib/trpc/client");
-      const client = getVanillaClient();
-      await client.test.run.mutate({
-        projectId,
-        testCases: [
+      setView("results");
+      await startTest(projectId, [
           {
             name: `${ix.name} - manual`,
             instruction: ix.name,
@@ -163,20 +162,17 @@ export function TestResultsPanel() {
                 ? "success"
                 : { error: card.errorCode || "GenericError" },
           },
-        ],
-      });
-      setView("results");
-      startTest(projectId);
+        ], runtime);
     },
-    [cards, projectId, startTest],
+    [cards, projectId, runtime, startTest],
   );
 
   // ─── run all ────────────────────────────────────────────────────
   const runAll = useCallback(async () => {
     if (!projectId) return;
     setView("results");
-    await startTest(projectId);
-  }, [projectId, startTest]);
+    await startTest(projectId, undefined, runtime);
+  }, [projectId, runtime, startTest]);
 
   // ─── summary counts ─────────────────────────────────────────────
   const passed =
@@ -244,10 +240,26 @@ export function TestResultsPanel() {
 
         {instructions.length > 0 && (
           <>
+            <div className="ml-auto flex overflow-hidden rounded border border-border bg-muted/30 p-0.5">
+              {(["cargo-smoke", "surfpool-simnet"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setRuntime(mode)}
+                  disabled={testStatus === "running"}
+                  className={`px-2 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-50 ${
+                    runtime === mode
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {mode === "cargo-smoke" ? "Smoke" : "Simnet"}
+                </button>
+              ))}
+            </div>
             <button
               onClick={runAll}
               disabled={testStatus === "running"}
-              className="ml-auto rounded bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="rounded bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {testStatus === "running" ? "Running…" : "Run All"}
             </button>

@@ -6,6 +6,7 @@ import React from "react";
 import { X, Settings, Trash2, Copy } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
+import { trpc } from "@/lib/trpc/client";
 import type { CloudFlowNodeData, NodeProperty } from "@solflow/cloud-nodes";
 import { getIconByName, CATEGORY_LABELS } from "@solflow/cloud-nodes";
 
@@ -30,6 +31,36 @@ const selectClass =
 
 // ─── Dynamic Property Form ────────────────────────────────────────────────────
 
+function CredentialSelect({
+  property,
+  value,
+  onChange,
+}: {
+  property: NodeProperty;
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const types = property.credentialTypes ?? (property.credentialType ? [property.credentialType] : undefined);
+  const { data: credentials, isLoading } = trpc.credential.list.useQuery(
+    types?.length ? { types: types as any } : undefined,
+  );
+
+  return (
+    <select
+      className={selectClass}
+      value={value !== undefined && value !== null ? String(value) : ""}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      <option value="">{isLoading ? "Loading..." : "No credential"}</option>
+      {credentials?.map((credential) => (
+        <option key={credential.id} value={credential.id}>
+          {credential.label} ({credential.type})
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function PropertyField({
   property,
   value,
@@ -42,6 +73,15 @@ function PropertyField({
   const strValue = value !== undefined && value !== null ? String(value) : "";
 
   switch (property.type) {
+    case "credential":
+      return (
+        <CredentialSelect
+          property={property}
+          value={value}
+          onChange={onChange}
+        />
+      );
+
     case "text":
     case "pubkey":
     case "address":

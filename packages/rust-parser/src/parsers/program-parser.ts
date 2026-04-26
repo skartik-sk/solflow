@@ -311,7 +311,7 @@ function parsePinocchioAccountStruct(src: string, structName: string): ParsedFie
       const fieldRe = /pub\s+(\w+)\s*:\s*(?:&'a\s+)?AccountInfo/g;
       let fm;
       while ((fm = fieldRe.exec(block.content)) !== null) {
-        fields.push({ name: fm[1], type: "AccountInfo" });
+        fields.push({ name: fm[1], type: { defined: "AccountInfo" } });
       }
     }
   }

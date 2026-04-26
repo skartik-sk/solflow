@@ -23,6 +23,7 @@ export type AuditCategory =
 
 export interface AuditFinding {
   ruleId: string;
+  standardIds?: string[];
   severity: AuditSeverity;
   title: string;
   description: string;
@@ -48,6 +49,7 @@ export interface NodePatch {
 
 export interface AuditRule {
   id: string;
+  standardIds?: string[];
   name: string;
   description: string;
   severity: AuditSeverity;

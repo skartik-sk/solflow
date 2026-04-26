@@ -1,6 +1,6 @@
-# Getting Started with Solana Contract Flow
+# Getting Started with SolStudio
 
-Solana Contract Flow is a visual editor for building Solana programs. You design your program by dragging and connecting nodes on a canvas, then generate production-ready Rust code for Anchor, Pinocchio, or Quasar with one click.
+SolStudio has three surfaces: the [Visual Builder](/docs/visual-editor) for designing Solana programs, the [CLI](/docs/cli) for inspecting local Rust and IDL projects, and [Cloud](/docs/cloud) for running Solana automations. This guide focuses on the visual builder path.
 
 ---
 
@@ -91,18 +91,18 @@ Logic nodes define what happens inside an instruction's body.
 
 ## Node Types Overview
 
-| Node Type | Purpose | Connects From | Connects To |
-|-----------|---------|---------------|-------------|
-| **Program** | Root node defining the program | -- | Instructions |
-| **Instruction** | A program instruction handler | Program | Accounts, Logic, Errors, Events, Custom Code |
-| **Account** | An account passed to an instruction | Instruction | Constraints, State |
-| **State** | On-chain data struct definition | -- | Accounts |
-| **Constraint** | Validation rule for an account | Account | -- |
-| **Logic** | Operation in instruction body | Instruction or Logic | Logic (for if-else bodies) |
-| **Error** | Custom error variant | Instruction | -- |
-| **Event** | Event that can be emitted | Instruction | -- |
-| **Custom Code** | Raw Rust code injection | Instruction or Logic | -- |
-| **Integration** | Plugin integration point | Instruction | Accounts |
+| Node Type       | Purpose                             | Connects From        | Connects To                                  |
+| --------------- | ----------------------------------- | -------------------- | -------------------------------------------- |
+| **Program**     | Root node defining the program      | --                   | Instructions                                 |
+| **Instruction** | A program instruction handler       | Program              | Accounts, Logic, Errors, Events, Custom Code |
+| **Account**     | An account passed to an instruction | Instruction          | Constraints, State                           |
+| **State**       | On-chain data struct definition     | --                   | Accounts                                     |
+| **Constraint**  | Validation rule for an account      | Account              | --                                           |
+| **Logic**       | Operation in instruction body       | Instruction or Logic | Logic (for if-else bodies)                   |
+| **Error**       | Custom error variant                | Instruction          | --                                           |
+| **Event**       | Event that can be emitted           | Instruction          | --                                           |
+| **Custom Code** | Raw Rust code injection             | Instruction or Logic | --                                           |
+| **Integration** | Plugin integration point            | Instruction          | Accounts                                     |
 
 ---
 
@@ -133,13 +133,13 @@ Select any node to see its properties in the **Properties Panel** on the right s
 
 Account nodes have toggle flags that control behavior:
 
-| Flag | Meaning |
-|------|---------|
-| `isMut` | The instruction will write to this account |
-| `isSigner` | This account must sign the transaction |
-| `isInit` | Create this account during the instruction |
+| Flag             | Meaning                                       |
+| ---------------- | --------------------------------------------- |
+| `isMut`          | The instruction will write to this account    |
+| `isSigner`       | This account must sign the transaction        |
+| `isInit`         | Create this account during the instruction    |
 | `isInitIfNeeded` | Create this account only if it does not exist |
-| `isClose` | Close this account and reclaim its rent |
+| `isClose`        | Close this account and reclaim its rent       |
 
 Additional fields appear contextually:
 
@@ -158,20 +158,20 @@ Instead of using flags, you can attach explicit Constraint nodes to an Account f
 
 Logic nodes have type-specific parameters:
 
-| Logic Type | Key Parameters |
-|------------|---------------|
-| `set-field` | account, field, value |
-| `transfer-sol` | from, to, amount |
-| `transfer-token` | from, to, authority, amount |
-| `mint-to` | mint, to, authority, amount |
-| `burn` | mint, from, authority, amount |
-| `require` | condition, errorCode |
-| `if-else` | condition (then/else bodies via child connections) |
-| `emit-event` | event name, field values |
-| `return-error` | errorCode |
-| `math` | operation (add/sub/mul/div/mod), left, right, result, checked |
-| `cpi` | targetProgram, instruction, accounts, data |
-| `custom-code` | code (raw Rust), inputs, outputs |
+| Logic Type       | Key Parameters                                                |
+| ---------------- | ------------------------------------------------------------- |
+| `set-field`      | account, field, value                                         |
+| `transfer-sol`   | from, to, amount                                              |
+| `transfer-token` | from, to, authority, amount                                   |
+| `mint-to`        | mint, to, authority, amount                                   |
+| `burn`           | mint, from, authority, amount                                 |
+| `require`        | condition, errorCode                                          |
+| `if-else`        | condition (then/else bodies via child connections)            |
+| `emit-event`     | event name, field values                                      |
+| `return-error`   | errorCode                                                     |
+| `math`           | operation (add/sub/mul/div/mod), left, right, result, checked |
+| `cpi`            | targetProgram, instruction, accounts, data                    |
+| `custom-code`    | code (raw Rust), inputs, outputs                              |
 
 ---
 

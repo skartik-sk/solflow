@@ -97,6 +97,34 @@ export interface CargoDependency {
   framework: "anchor" | "pinocchio" | "quasar" | "both";
 }
 
+// ─── Marketplace trust metadata ─────────────────────────────────────────────
+
+export type PluginTrustLevel = "first-party" | "verified" | "community" | "untrusted";
+
+export interface PluginSecurityMetadata {
+  trustLevel: PluginTrustLevel;
+  publisher: string;
+  verified?: boolean;
+  audited?: boolean;
+  signature?: string;
+  provenance?: string;
+  publishedAt?: string;
+}
+
+export interface PluginTrustPolicy {
+  allowedTrustLevels?: PluginTrustLevel[];
+  requireSignature?: boolean;
+  requireAuditRules?: boolean;
+  firstPartyAuthors?: string[];
+}
+
+export interface PluginTrustReport {
+  accepted: boolean;
+  trustLevel: PluginTrustLevel;
+  errors: string[];
+  warnings: string[];
+}
+
 // ─── Audit rule ──────────────────────────────────────────────────────────────
 // Must be compatible with @solflow/audit AuditRule.
 
@@ -155,6 +183,7 @@ export interface SolFlowPlugin {
   /** Icon URL or emoji */
   icon: string;
   website?: string;
+  security?: PluginSecurityMetadata;
   nodes: PluginNodeDefinition[];
   cargoDependencies: CargoDependency[];
   imports: RustImport[];

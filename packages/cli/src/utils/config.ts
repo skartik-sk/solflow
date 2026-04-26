@@ -5,7 +5,7 @@ import { join } from "path";
 
 export interface SolStudioConfig {
   name: string;
-  framework: "anchor" | "pinocchio" | "quasar";
+  framework: "anchor" | "pinocchio" | "quasar" | "unknown";
   mode: "rust" | "editor";
   port: number;
 }
@@ -38,7 +38,7 @@ export function getProjectPath(projectPath: string): string {
   return join(getConfigDir(projectPath), "project.json");
 }
 
-const VALID_FRAMEWORKS = ["anchor", "pinocchio", "quasar"] as const;
+const VALID_FRAMEWORKS = ["anchor", "pinocchio", "quasar", "unknown"] as const;
 const VALID_MODES = ["rust", "editor"] as const;
 
 /**

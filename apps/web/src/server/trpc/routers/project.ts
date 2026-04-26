@@ -9,7 +9,7 @@ import { generateCode } from "@solflow/codegen";
 import type { Node, Edge } from "@xyflow/react";
 import { createHash } from "crypto";
 import { Keypair } from "@solana/web3.js";
-import bs58 from "bs58";
+import { encodeSecretKey } from "@/server/secret-key-crypto";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -234,7 +234,17 @@ export const projectRouter = router({
         },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-      return project;
+      const {
+        programKeypair: _programKeypair,
+        deployments,
+        ...safeProject
+      } = project;
+      return {
+        ...safeProject,
+        deployments: deployments.map(
+          ({ programKeypair: _deploymentKeypair, ...deployment }) => deployment,
+        ),
+      };
     }),
 
   // ── Create new project (optionally fork from marketplace template) ───────
@@ -250,7 +260,7 @@ export const projectRouter = router({
     .mutation(async ({ ctx, input }) => {
       const programKp = Keypair.generate();
       const programPublicKey = programKp.publicKey.toBase58();
-      const programSecretKey = bs58.encode(programKp.secretKey);
+      const programSecretKey = encodeSecretKey(programKp.secretKey);
 
       let initialFlowData: Record<string, unknown> =
         createDefaultFlow(programPublicKey);
@@ -285,7 +295,8 @@ export const projectRouter = router({
         },
       });
 
-      return project;
+      const { programKeypair: _programKeypair, ...safeProject } = project;
+      return safeProject;
     }),
 
   // ── Save flow state + optional snapshot ─────────────────────────────────
@@ -373,7 +384,9 @@ export const projectRouter = router({
         select: { id: true },
       });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
-      return ctx.prisma.project.update({ where: { id }, data });
+      const project = await ctx.prisma.project.update({ where: { id }, data });
+      const { programKeypair: _programKeypair, ...safeProject } = project;
+      return safeProject;
     }),
 
   // ── Delete project ───────────────────────────────────────────────────────

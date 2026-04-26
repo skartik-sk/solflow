@@ -45,7 +45,7 @@ export const initCommand = new Command("init")
     const detected = (options.framework && VALID_FRAMEWORKS.includes(options.framework as typeof VALID_FRAMEWORKS[number])
       ? options.framework as typeof VALID_FRAMEWORKS[number]
       : undefined) || detectProjectType(resolvedPath);
-    const framework = detected === "unknown" ? "anchor" : detected;
+    const framework = detected === "unknown" && options.scaffold ? "anchor" : detected;
 
     if (isInitialized(resolvedPath)) {
       const existing = readConfig(resolvedPath);
@@ -69,7 +69,7 @@ export const initCommand = new Command("init")
 
     writeConfig(resolvedPath, {
       name: projectName,
-      framework: framework as "anchor" | "pinocchio" | "quasar",
+      framework,
       mode: detected === "unknown" ? "editor" : "rust",
       port: 6139,
     });

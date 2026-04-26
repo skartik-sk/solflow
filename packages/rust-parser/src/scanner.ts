@@ -5,15 +5,31 @@
 // For other projects: falls back to finding all .rs files.
 
 import { readFileSync, readdirSync, existsSync, statSync } from "fs";
-import { join, extname, basename, dirname } from "path";
+import { join, extname, basename, dirname, relative } from "path";
+import type { ParseFramework, ParseReportFile, SourceCoverageOptions } from "./types";
 
-const SKIP_DIRS = new Set(["target", "node_modules", "tests", "benches", "examples", "migration"]);
+const ALWAYS_SKIP_DIRS = new Set(["target", "node_modules", ".git"]);
+const OPTIONAL_SKIP_DIRS: Record<string, keyof SourceCoverageOptions> = {
+  tests: "includeTests",
+  benches: "includeBenches",
+  examples: "includeExamples",
+  migration: "includeMigrations",
+  migrations: "includeMigrations",
+};
+export const DEFAULT_SKIP_DIRS = new Set([...ALWAYS_SKIP_DIRS, ...Object.keys(OPTIONAL_SKIP_DIRS)]);
+
+export interface RustProjectScan {
+  rustFiles: string[];
+  parsedFiles: ParseReportFile[];
+  skippedFiles: ParseReportFile[];
+  framework: ParseFramework;
+}
 
 /**
  * Resolve the full module tree for a Rust project directory.
  * Returns the concatenated content of all reachable .rs files.
  */
-export function readRustProject(dir: string): string {
+export function readRustProject(dir: string, coverage?: SourceCoverageOptions): string {
   if (!existsSync(dir)) {
     throw new Error(`Project directory not found: ${dir}`);
   }
@@ -22,7 +38,7 @@ export function readRustProject(dir: string): string {
   const srcDirs = findAllSourceDirs(dir, projectType);
 
   if (srcDirs.length === 0) {
-    return fallbackReadAll(dir);
+    return fallbackReadAll(dir, coverage);
   }
 
   const visited = new Set<string>();
@@ -36,9 +52,10 @@ export function readRustProject(dir: string): string {
   }
 
   if (contents.length === 0) {
-    return fallbackReadAll(dir);
+    return fallbackReadAll(dir, coverage);
   }
 
+  appendCoverageExtras(dir, visited, contents, coverage);
   return contents.join("\n\n");
 }
 
@@ -183,8 +200,8 @@ function resolveModule(baseDir: string, modName: string): string | null {
 function findAllSourceDirs(dir: string, projectType: string): string[] {
   const results: string[] = [];
 
-  if (projectType === "anchor") {
-    // Anchor workspace: programs/<name>/src/ — collect ALL programs
+  if (projectType === "anchor" || projectType === "quasar") {
+    // Anchor/Quasar workspace: programs/<name>/src/ — collect ALL programs
     const programsDir = join(dir, "programs");
     if (existsSync(programsDir)) {
       try {
@@ -222,8 +239,8 @@ function findEntryPoint(srcDir: string): string | null {
   return null;
 }
 
-function fallbackReadAll(dir: string): string {
-  const files = findRustFiles(dir);
+function fallbackReadAll(dir: string, coverage?: SourceCoverageOptions): string {
+  const files = findRustFiles(dir, 10, coverage);
   const contents: string[] = [];
   for (const file of files) {
     try { contents.push(readFileSync(file, "utf-8")); } catch { /* skip */ }
@@ -231,17 +248,77 @@ function fallbackReadAll(dir: string): string {
   return contents.join("\n\n");
 }
 
+function appendCoverageExtras(dir: string, visited: Set<string>, contents: string[], coverage?: SourceCoverageOptions): void {
+  if (!coverage) return;
+  const files = findRustFiles(dir, 10, coverage);
+  for (const file of files) {
+    if (visited.has(file)) continue;
+    try {
+      contents.push(readFileSync(file, "utf-8"));
+      visited.add(file);
+    } catch { /* skip */ }
+  }
+}
+
 /**
  * Walk a directory and collect all .rs files.
  */
-export function findRustFiles(dir: string, maxDepth = 10): string[] {
+export function scanRustProject(dir: string, maxDepth = 10, coverage?: SourceCoverageOptions): RustProjectScan {
+  const rustFiles: string[] = [];
+  const skippedFiles: ParseReportFile[] = [];
+  const root = dir;
+
+  function walk(current: string, depth: number): void {
+    if (depth > maxDepth) return;
+    let entries;
+    try { entries = readdirSync(current, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const fullPath = join(current, entry.name);
+      const reportPath = relative(root, fullPath) || entry.name;
+
+      if (entry.name.startsWith(".") && !coverage?.includeHidden) {
+        skippedFiles.push({ path: reportPath, status: "skipped", reason: "Hidden path" });
+        continue;
+      }
+
+      const skipReason = getSkipReason(entry.name, coverage);
+      if (skipReason) {
+        skippedFiles.push({ path: reportPath, status: "skipped", reason: skipReason });
+        continue;
+      }
+
+      if (entry.isDirectory()) walk(fullPath, depth + 1);
+      else if (extname(entry.name) === ".rs") rustFiles.push(fullPath);
+    }
+  }
+
+  walk(dir, 0);
+  return {
+    rustFiles,
+    parsedFiles: rustFiles.map((file) => ({
+      path: relative(root, file) || file,
+      status: "parsed" as const,
+    })),
+    skippedFiles,
+    framework: detectProjectType(dir),
+  };
+}
+
+/**
+ * Walk a directory and collect all .rs files.
+ */
+export function findRustFiles(dir: string, maxDepth = 10, coverage?: SourceCoverageOptions): string[] {
+  return collectRustFiles(dir, maxDepth, coverage);
+}
+
+function collectRustFiles(dir: string, maxDepth = 10, coverage?: SourceCoverageOptions): string[] {
   const files: string[] = [];
   function walk(current: string, depth: number): void {
     if (depth > maxDepth) return;
     let entries;
     try { entries = readdirSync(current, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") || SKIP_DIRS.has(entry.name)) continue;
+      if ((entry.name.startsWith(".") && !coverage?.includeHidden) || getSkipReason(entry.name, coverage)) continue;
       const fullPath = join(current, entry.name);
       if (entry.isDirectory()) walk(fullPath, depth + 1);
       else if (extname(entry.name) === ".rs") files.push(fullPath);
@@ -249,6 +326,13 @@ export function findRustFiles(dir: string, maxDepth = 10): string[] {
   }
   walk(dir, 0);
   return files;
+}
+
+function getSkipReason(name: string, coverage?: SourceCoverageOptions): string | null {
+  if (ALWAYS_SKIP_DIRS.has(name)) return `Skipped directory: ${name}`;
+  const option = OPTIONAL_SKIP_DIRS[name];
+  if (option && !coverage?.[option]) return `Skipped directory: ${name}; pass source coverage option ${option} to include`;
+  return null;
 }
 
 /**
@@ -276,9 +360,9 @@ export function parseCargoVersion(dir: string): string | null {
 }
 
 /**
- * Detect if a directory is an Anchor project.
+ * Detect if a directory is an Anchor, Pinocchio, or Quasar project.
  */
-export function detectProjectType(dir: string): "anchor" | "pinocchio" | "unknown" {
+export function detectProjectType(dir: string): ParseFramework {
   try {
     const entries = readdirSync(dir);
     if (entries.includes("Anchor.toml")) return "anchor";
@@ -286,6 +370,7 @@ export function detectProjectType(dir: string): "anchor" | "pinocchio" | "unknow
       const cargo = readFileSync(join(dir, "Cargo.toml"), "utf-8");
       if (cargo.includes("anchor-lang")) return "anchor";
       if (cargo.includes("pinocchio")) return "pinocchio";
+      if (cargo.includes("quasar-lang")) return "quasar";
     }
     const programsDir = join(dir, "programs");
     if (existsSync(programsDir)) {
@@ -295,6 +380,7 @@ export function detectProjectType(dir: string): "anchor" | "pinocchio" | "unknow
             const cargo = readFileSync(join(programsDir, pe.name, "Cargo.toml"), "utf-8");
             if (cargo.includes("anchor-lang")) return "anchor";
             if (cargo.includes("pinocchio")) return "pinocchio";
+            if (cargo.includes("quasar-lang")) return "quasar";
           } catch { /* skip */ }
         }
       }
@@ -304,6 +390,7 @@ export function detectProjectType(dir: string): "anchor" | "pinocchio" | "unknow
       if (basename(file) === "lib.rs") {
         const content = readFileSync(file, "utf-8");
         if (content.includes("#[program]")) return "anchor";
+        if (content.includes("quasar_lang::prelude")) return "quasar";
       }
     }
   } catch { /* ignore */ }

@@ -6,6 +6,193 @@ import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
 
+type AiProvider = "openai" | "anthropic";
+type AiResponseFormat = "text" | "json";
+
+interface AiCallOptions {
+  provider: AiProvider;
+  model: string;
+  systemPrompt: string;
+  prompt: string;
+  temperature: number;
+  maxTokens: number;
+  responseFormat: AiResponseFormat;
+  signal: AbortSignal;
+  apiKey?: string;
+}
+
+interface AiCallResult {
+  content: string;
+  parsedJson?: unknown;
+  usage?: unknown;
+  rawResponse: unknown;
+}
+
+function getEnv(name: string): string | undefined {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.[name];
+}
+
+function requireFetch(): typeof fetch {
+  if (typeof fetch !== "function") {
+    throw new Error("Global fetch is not available in this runtime");
+  }
+  return fetch;
+}
+
+function readJsonObject(value: string, provider: AiProvider): unknown {
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    throw new Error(
+      `${provider} returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function readErrorBody(response: Response): Promise<string> {
+  try {
+    return (await response.text()).slice(0, 500);
+  } catch {
+    return "";
+  }
+}
+
+function extractOpenAiText(payload: any): string {
+  if (typeof payload.output_text === "string") return payload.output_text;
+
+  const chunks: string[] = [];
+  for (const output of Array.isArray(payload.output) ? payload.output : []) {
+    for (const content of Array.isArray(output?.content) ? output.content : []) {
+      if (typeof content?.text === "string") chunks.push(content.text);
+    }
+  }
+
+  return chunks.join("");
+}
+
+function extractAnthropicText(payload: any): string {
+  return (Array.isArray(payload.content) ? payload.content : [])
+    .filter((block: any) => block?.type === "text" && typeof block.text === "string")
+    .map((block: any) => block.text)
+    .join("");
+}
+
+async function callOpenAi(options: AiCallOptions): Promise<AiCallResult> {
+  const apiKey = options.apiKey ?? getEnv("OPENAI_API_KEY");
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is required to execute the OpenAI AI Agent node");
+  }
+
+  const wantsJson = options.responseFormat === "json";
+  const instructions = [
+    options.systemPrompt.trim(),
+    wantsJson ? "Respond only with a valid JSON object." : "",
+  ].filter(Boolean).join("\n\n");
+
+  const response = await requireFetch()("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    signal: options.signal,
+    body: JSON.stringify({
+      model: options.model,
+      input: options.prompt,
+      ...(instructions ? { instructions } : {}),
+      temperature: options.temperature,
+      max_output_tokens: options.maxTokens,
+      ...(wantsJson ? { text: { format: { type: "json_object" } } } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `OpenAI API error ${response.status} ${response.statusText}: ${await readErrorBody(response)}`,
+    );
+  }
+
+  const payload = await response.json();
+  const content = extractOpenAiText(payload);
+  return {
+    content,
+    parsedJson: wantsJson ? readJsonObject(content, "openai") : undefined,
+    usage: payload.usage,
+    rawResponse: payload,
+  };
+}
+
+async function callAnthropic(options: AiCallOptions): Promise<AiCallResult> {
+  const apiKey = options.apiKey ?? getEnv("ANTHROPIC_API_KEY");
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is required to execute the Anthropic AI Agent node");
+  }
+
+  const wantsJson = options.responseFormat === "json";
+  const response = await requireFetch()("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "Content-Type": "application/json",
+    },
+    signal: options.signal,
+    body: JSON.stringify({
+      model: options.model,
+      max_tokens: options.maxTokens,
+      temperature: options.temperature,
+      ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
+      messages: [{
+        role: "user",
+        content: wantsJson
+          ? `${options.prompt}\n\nRespond only with a valid JSON object.`
+          : options.prompt,
+      }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(
+      `Anthropic API error ${response.status} ${response.statusText}: ${await readErrorBody(response)}`,
+    );
+  }
+
+  const payload = await response.json();
+  const content = extractAnthropicText(payload);
+  return {
+    content,
+    parsedJson: wantsJson ? readJsonObject(content, "anthropic") : undefined,
+    usage: payload.usage,
+    rawResponse: payload,
+  };
+}
+
+async function callAiProvider(options: AiCallOptions): Promise<AiCallResult> {
+  if (options.provider === "openai") return callOpenAi(options);
+  if (options.provider === "anthropic") return callAnthropic(options);
+  throw new Error(`Unsupported AI provider "${options.provider}"`);
+}
+
+async function resolveAiApiKey(ctx: {
+  params: Record<string, unknown>;
+  credentials?: { get(id: string, allowedTypes?: string[]): Promise<{ type: string; data: Record<string, unknown> }> };
+}, provider: AiProvider): Promise<string | undefined> {
+  const credentialId = ctx.params.credentialId as string | undefined;
+  if (!credentialId) return undefined;
+
+  const credential = await ctx.credentials?.get(credentialId, [provider]);
+  if (!credential) {
+    throw new Error("Credential runtime is not available for this AI Agent node");
+  }
+
+  const apiKey = credential.data.apiKey;
+  if (typeof apiKey !== "string" || !apiKey) {
+    throw new Error(`${provider} credential is missing apiKey`);
+  }
+  return apiKey;
+}
+
 // ─── Visual Component ──────────────────────────────────────────────────────
 
 export const AiAgentNode = memo(function AiAgentNode({
@@ -52,6 +239,14 @@ export const aiAgentDef: CloudNodeDefinition = {
         { label: "OpenAI", value: "openai" },
         { label: "Anthropic", value: "anthropic" },
       ],
+    },
+    {
+      key: "credentialId",
+      label: "Credential",
+      type: "credential",
+      required: false,
+      credentialTypes: ["openai", "anthropic"],
+      description: "Optional provider API key credential. Falls back to provider env vars.",
     },
     {
       key: "model",
@@ -115,6 +310,7 @@ export const aiAgentDef: CloudNodeDefinition = {
   outputs: [{ type: "main", label: "output" }],
   defaultData: {
     provider: "openai",
+    credentialId: "",
     model: "gpt-4o-mini",
     systemPrompt: "",
     prompt: "",
@@ -124,47 +320,54 @@ export const aiAgentDef: CloudNodeDefinition = {
   },
   component: AiAgentNode,
   async execute(ctx) {
-    const provider = (ctx.params.provider as string) || "openai";
+    const provider = ((ctx.params.provider as string) || "openai") as AiProvider;
     const model = (ctx.params.model as string) || "gpt-4o-mini";
     const systemPrompt = (ctx.params.systemPrompt as string) || "";
     const prompt = ctx.params.prompt as string;
     const temperature = Number(ctx.params.temperature) || 0.7;
     const maxTokens = Number(ctx.params.maxTokens) || 1024;
-    const responseFormat = (ctx.params.responseFormat as string) || "text";
+    const responseFormat = ((ctx.params.responseFormat as string) || "text") as AiResponseFormat;
 
     if (!prompt) {
       throw new Error("Prompt is required");
     }
 
-    // TODO: Wire to actual LLM API via credential-stored API keys
-    // For now return a mock response for development
-    const inputItems = ctx.inputs?.[0] ?? [];
-    const mockResponse = {
-      content: `[Mock AI Response] Processed with ${provider}/${model}`,
-      usage: { promptTokens: 50, completionTokens: 100, totalTokens: 150 },
-      model,
+    if (!["openai", "anthropic"].includes(provider)) {
+      throw new Error(`Unsupported AI provider "${provider}"`);
+    }
+
+    if (!["text", "json"].includes(responseFormat)) {
+      throw new Error(`Unsupported AI response format "${responseFormat}"`);
+    }
+
+    const result = await callAiProvider({
       provider,
+      model,
+      systemPrompt,
+      prompt,
+      temperature,
+      maxTokens,
+      responseFormat,
+      signal: ctx.signal,
+      apiKey: await resolveAiApiKey(ctx, provider),
+    });
+
+    const ai = {
+      provider,
+      model,
+      content: result.content,
+      ...(responseFormat === "json" ? { json: result.parsedJson } : {}),
+      usage: result.usage,
       timestamp: new Date().toISOString(),
     };
 
-    // Try to parse as JSON if response format is json
-    if (responseFormat === "json") {
-      try {
-        mockResponse.content = JSON.stringify({
-          analysis: "mock analysis",
-          recommendation: "hold",
-          confidence: 0.85,
-        });
-      } catch {
-        // Keep text response
-      }
-    }
-
-    return inputItems.length > 0
-      ? inputItems.map((item) => ({
-          ...item,
-          json: { ...item.json, ai: mockResponse },
-        }))
-      : [{ json: { ai: mockResponse } }];
+    const inputItems = ctx.inputs[0] ?? [{ json: {} }];
+    return inputItems.map((item) => ({
+      ...item,
+      json: {
+        ...item.json,
+        ai,
+      },
+    }));
   },
 };

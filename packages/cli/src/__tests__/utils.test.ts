@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { join } from "path";
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { detectProjectType } from "../utils/detect";
 import { readConfig, writeConfig, isInitialized, getConfigDir, getConfigPath } from "../utils/config";
@@ -23,6 +23,37 @@ describe("detectProjectType", () => {
   it("returns unknown for non-existent directory", () => {
     const result = detectProjectType("/nonexistent/path/xyz");
     expect(result).toBe("unknown");
+  });
+
+  it("detects Quasar project by root dependency", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "solstudio-quasar-root-"));
+    try {
+      writeFileSync(
+        join(tempDir, "Cargo.toml"),
+        '[package]\nname = "q"\nversion = "0.1.0"\n[dependencies]\nquasar-lang = "0.1"\n',
+      );
+      expect(detectProjectType(tempDir)).toBe("quasar");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("detects Quasar project from workspace members", () => {
+    const tempDir = mkdtempSync(join(tmpdir(), "solstudio-quasar-workspace-"));
+    try {
+      mkdirSync(join(tempDir, "programs", "q"), { recursive: true });
+      writeFileSync(
+        join(tempDir, "Cargo.toml"),
+        '[workspace]\nmembers = ["programs/*"]\n',
+      );
+      writeFileSync(
+        join(tempDir, "programs", "q", "Cargo.toml"),
+        '[package]\nname = "q"\nversion = "0.1.0"\n[dependencies]\nquasar-lang = "0.1"\n',
+      );
+      expect(detectProjectType(tempDir)).toBe("quasar");
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 

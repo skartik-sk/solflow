@@ -9,6 +9,9 @@ import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { usePluginStore } from "@/store/plugin-store";
 import { registerAuditRules } from "@solflow/audit";
 import type { SolFlowPlugin } from "@solflow/plugin-sdk";
+import { registerBuiltInPlugins } from "@/lib/plugins/built-ins";
+
+registerBuiltInPlugins();
 
 // ─── Plugin validation ──────────────────────────────────────────────────────
 

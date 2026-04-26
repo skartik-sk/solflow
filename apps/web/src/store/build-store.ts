@@ -27,6 +27,7 @@ export type CompileStatus =
   | "success"
   | "error";
 export type TestStatus = "idle" | "running" | "passed" | "failed";
+export type GeneratedTestRuntime = "cargo-smoke" | "surfpool-simnet";
 export type DeployStatus =
   | "idle"
   | "deploying"
@@ -65,7 +66,17 @@ interface BuildState {
 
   // ─── Actions ──────────────────────────────────────────────────
   startCompile: (projectId: string) => Promise<void>;
-  startTest: (projectId: string) => Promise<void>;
+  startTest: (
+    projectId: string,
+    testCases?: Array<{
+      name: string;
+      instruction: string;
+      accounts: Record<string, string>;
+      args: Record<string, string>;
+      expectedResult: "success" | { error: string };
+    }>,
+    runtime?: GeneratedTestRuntime,
+  ) => Promise<void>;
   startDeploy: (
     projectId: string,
     network: "DEVNET" | "MAINNET" | "LOCALNET",
@@ -193,7 +204,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   },
 
   // ─── Test ───────────────────────────────────────────────────────────────
-  startTest: async (projectId: string) => {
+  startTest: async (projectId, testCases, runtime = "cargo-smoke") => {
     set({
       testStatus: "running",
       testResults: [],
@@ -204,7 +215,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
     try {
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
-      const resp = await client.test.run.mutate({ projectId });
+      const resp = await client.test.run.mutate({ projectId, testCases, runtime });
 
       if (resp.runId === "stub") {
         set({ testStatus: "passed" });
@@ -212,6 +223,41 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       }
 
       set({ testRunId: resp.runId });
+
+      if ("resultItems" in resp && Array.isArray(resp.resultItems)) {
+        set({
+          testResults: resp.resultItems,
+          testSummary: resp.results,
+          testStatus: resp.results.failed === 0 ? "passed" : "failed",
+          testLogs: [
+            ...(Array.isArray(resp.logs)
+              ? resp.logs.map((line: string) => ({
+                  line,
+                  level: (/^error/i.test(line) ? "error" : /^warning/i.test(line) ? "warn" : "info") as
+                    | "info"
+                    | "warn"
+                    | "error",
+                  timestamp: Date.now(),
+                }))
+              : []),
+            ...(Array.isArray(resp.errors)
+              ? resp.errors.map((line: string) => ({
+                  line,
+                  level: "error" as const,
+                  timestamp: Date.now(),
+                }))
+              : []),
+            ...(Array.isArray(resp.warnings)
+              ? resp.warnings.map((line: string) => ({
+                  line,
+                  level: "warn" as const,
+                  timestamp: Date.now(),
+                }))
+              : []),
+          ],
+        });
+        return;
+      }
 
       const { connectWS, onJobMessage, isTestResult, isTestComplete, subscribeToJob } =
         await import("@/lib/ws");

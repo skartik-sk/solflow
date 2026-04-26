@@ -31,7 +31,7 @@ import { useFlowStore } from "@/web/store/flow-store";
 import { useUIStore } from "@/web/store/ui-store";
 import { toast } from "sonner";
 import { loadProject, saveProject, fetchSourceFiles, saveSourceFile, reparseProject } from "../lib/standalone-api";
-import type { SourceFile } from "../lib/standalone-api";
+import type { ParseReport, SourceFile } from "../lib/standalone-api";
 import "../lib/tailwind-safelist";
 
 // React Flow can't be SSR'd
@@ -97,6 +97,7 @@ export default function StandalonePage() {
   const [isSaving, setIsSaving] = useState(false);
   const [network, setNetwork] = useState<string>("localnet");
   const [detectedFramework, setDetectedFramework] = useState<string>("unknown");
+  const [parseReport, setParseReport] = useState<ParseReport | null>(null);
 
   // Build state
   const [compileStatus, setCompileStatus] = useState<BuildStatus>("idle");
@@ -135,6 +136,7 @@ export default function StandalonePage() {
           setNameInput(data.name);
         }
         if (data.framework) setFramework(data.framework as typeof framework);
+        if (data.report) setParseReport(data.report);
         if (statusData.projectType) setDetectedFramework(statusData.projectType);
         if (data.nodes?.length) {
           isRemoteUpdate.current = true;
@@ -146,6 +148,7 @@ export default function StandalonePage() {
             if (parsed.nodes?.length) {
               isRemoteUpdate.current = true;
               setFlow(parsed.nodes, parsed.edges ?? []);
+              setParseReport(parsed.report ?? null);
             }
           } catch { /* parse failed, show empty canvas */ }
         }
@@ -192,6 +195,7 @@ export default function StandalonePage() {
                 .then((data) => {
                   isRemoteUpdate.current = true;
                   setFlow(data.nodes ?? [], data.edges ?? []);
+                  setParseReport(data.report ?? null);
                   setStatus(`Updated: ${msg.nodes || 0} nodes`);
                 })
                 .catch(() => setStatus("Reload failed"));
@@ -668,6 +672,8 @@ export default function StandalonePage() {
               <SourceCodePanel
                 nodes={nodes}
                 edges={edges}
+                parseReport={parseReport}
+                onParseReportUpdate={setParseReport}
                 onFlowUpdate={(newNodes, newEdges) => {
                   isRemoteUpdate.current = true;
                   setFlow(newNodes, newEdges);
@@ -864,10 +870,14 @@ const SEVERITY_COLORS: Record<string, { dot: string; badge: string; label: strin
 function SourceCodePanel({
   nodes,
   edges,
+  parseReport,
+  onParseReportUpdate,
   onFlowUpdate,
 }: {
   nodes: Node[];
   edges: Edge[];
+  parseReport: ParseReport | null;
+  onParseReportUpdate: (report: ParseReport | null) => void;
   onFlowUpdate: (nodes: Node[], edges: Edge[]) => void;
 }) {
   const [files, setFiles] = useState<SourceFile[]>([]);
@@ -921,6 +931,7 @@ function SourceCodePanel({
         // Update the files array with saved content
         setFiles((prev) => prev.map(f => f.path === currentFile.path ? { ...f, content: latestContent } : f));
         toast.success("Saved & re-parsed");
+        onParseReportUpdate(result.report ?? null);
         // Update visual flow with new parsed data
         onFlowUpdate(result.nodes ?? [], result.edges ?? []);
       } else {
@@ -931,7 +942,7 @@ function SourceCodePanel({
     } finally {
       setSaving(false);
     }
-  }, [currentFile, saving, onFlowUpdate]);
+  }, [currentFile, saving, onFlowUpdate, onParseReportUpdate]);
 
   // Ctrl+S shortcut for saving
   useEffect(() => {
@@ -1017,6 +1028,8 @@ function SourceCodePanel({
         </div>
       )}
 
+      {parseReport && <ParseReportStrip report={parseReport} />}
+
       {/* Monaco editor */}
       <div className="min-h-0 flex-1">
         {currentFile ? (
@@ -1067,6 +1080,32 @@ function FileIcon({ path }: { path: string }) {
   if (path.endsWith(".rs")) return <span className="text-orange-400">🦀</span>;
   if (path.endsWith(".toml")) return <span className="text-blue-400">⚙</span>;
   return null;
+}
+
+function ParseReportStrip({ report }: { report: ParseReport }) {
+  const confidenceClass = report.confidence === "high"
+    ? "text-green-400"
+    : report.confidence === "medium"
+      ? "text-yellow-400"
+      : "text-red-400";
+  const skippedPreview = report.skippedFiles.slice(0, 2).map((file) => file.path).join(", ");
+
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border bg-background px-3 py-1.5 text-[11px] text-muted-foreground">
+      <span className="font-medium text-foreground">{report.framework}</span>
+      <span className={confidenceClass}>{report.confidence} confidence</span>
+      <span>{report.filesParsed} parsed</span>
+      <span>{report.filesSkipped} skipped</span>
+      {report.unsupportedConstructs.length > 0 && (
+        <span className="text-amber-400">{report.unsupportedConstructs.length} manual review</span>
+      )}
+      {skippedPreview && (
+        <span className="max-w-[48ch] truncate font-mono text-muted-foreground/70" title={skippedPreview}>
+          skipped: {skippedPreview}
+        </span>
+      )}
+    </div>
+  );
 }
 
 // ─── Placeholders ──────────────────────────────────────────────────────

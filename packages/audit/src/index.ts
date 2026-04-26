@@ -4,6 +4,7 @@
 
 import type { ProgramIR } from "@solflow/ir";
 import { RULES } from "./rules";
+import { getStandardIdsForAuditRule } from "./security-standard";
 import type { AuditFinding, AuditReport, AuditRule, AuditSeverity } from "./types";
 
 export type {
@@ -14,6 +15,10 @@ export type {
   AuditSeverity,
   NodePatch,
 } from "./types";
+export {
+  SOLANA_SECURITY_STANDARD_RULES,
+  getStandardIdsForAuditRule,
+} from "./security-standard";
 
 // ─── Severity weights for scoring ────────────────────────────────────────────
 
@@ -58,7 +63,16 @@ export function runInstantAudit(ir: ProgramIR): AuditReport {
   for (const rule of allRules) {
     try {
       const ruleFindings = rule.check(ir);
-      findings.push(...ruleFindings);
+      const standardIds = [
+        ...(rule.standardIds ?? []),
+        ...getStandardIdsForAuditRule(rule.id),
+      ];
+      findings.push(
+        ...ruleFindings.map((finding) => ({
+          ...finding,
+          standardIds: finding.standardIds ?? standardIds,
+        })),
+      );
     } catch (err) {
       console.error(`Audit rule ${rule.id} (${rule.name}) failed: ${err instanceof Error ? err.message : String(err)}`);
     }

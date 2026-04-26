@@ -2,9 +2,34 @@
 
 import React, { memo } from "react";
 import { Send } from "lucide-react";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
+import {
+  createAssociatedTokenAccountIdempotentInstruction,
+  createTransferInstruction,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
 import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
+
+const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
+
+function isNativeSol(token: string): boolean {
+  return !token || token.toUpperCase() === "SOL" || token === NATIVE_SOL_MINT;
+}
+
+function parseAmount(value: unknown): bigint {
+  const raw = typeof value === "number" ? String(Math.trunc(value)) : String(value ?? "");
+  if (!/^\d+$/.test(raw)) {
+    throw new Error("amount must be a positive integer in smallest units");
+  }
+
+  const amount = BigInt(raw);
+  if (amount <= BigInt(0)) {
+    throw new Error("amount must be a positive integer in smallest units");
+  }
+  return amount;
+}
 
 // ─── Visual Component ──────────────────────────────────────────────────────
 
@@ -94,30 +119,88 @@ export const tokenTransferDef: CloudNodeDefinition = {
   component: TokenTransferNode,
   async execute(ctx) {
     const to = ctx.params.to as string;
-    const amount = Number(ctx.params.amount);
+    const amount = parseAmount(ctx.params.amount);
     const token = (ctx.params.token as string) || "So11111111111111111111111111111111111111112";
+    const walletId = ctx.params.walletId as string;
 
-    if (!to || !amount) {
-      throw new Error("to and amount are required");
+    if (!to || !walletId) {
+      throw new Error("to, amount, and walletId are required");
     }
 
-    // TODO: Wire to WalletSigner via cloud-wallet
-    // For now return a mock transfer result
-    const inputItems = ctx.inputs?.[0] ?? [];
-    const transferResult = {
-      to,
-      amount,
-      token,
-      isSol: token === "So11111111111111111111111111111111111111112",
-      signature: "mock_" + crypto.randomUUID().slice(0, 16),
+    const sourcePublicKey = new PublicKey(await ctx.wallet.getPublicKey(walletId));
+    const destinationPublicKey = new PublicKey(to);
+    const transaction = new Transaction();
+
+    let transferType: "sol" | "spl";
+    let tokenMint: string | undefined;
+
+    if (isNativeSol(token)) {
+      transferType = "sol";
+      transaction.add(SystemProgram.transfer({
+        fromPubkey: sourcePublicKey,
+        toPubkey: destinationPublicKey,
+        lamports: Number(amount),
+      }));
+    } else {
+      transferType = "spl";
+      const mintPublicKey = new PublicKey(token);
+      const sourceTokenAccount = getAssociatedTokenAddressSync(
+        mintPublicKey,
+        sourcePublicKey,
+        true,
+      );
+      const destinationTokenAccount = getAssociatedTokenAddressSync(
+        mintPublicKey,
+        destinationPublicKey,
+        true,
+      );
+
+      transaction.add(
+        createAssociatedTokenAccountIdempotentInstruction(
+          sourcePublicKey,
+          destinationTokenAccount,
+          destinationPublicKey,
+          mintPublicKey,
+        ),
+        createTransferInstruction(
+          sourceTokenAccount,
+          destinationTokenAccount,
+          sourcePublicKey,
+          amount,
+        ),
+      );
+      tokenMint = token;
+    }
+
+    transaction.feePayer = sourcePublicKey;
+
+    const simulation = ctx.wallet.simulate
+      ? await ctx.wallet.simulate(transaction, walletId)
+      : undefined;
+
+    if (simulation?.err) {
+      throw new Error(`Token transfer simulation failed: ${JSON.stringify(simulation.err)}`);
+    }
+
+    const signature = await ctx.wallet.signAndSend(transaction, walletId);
+    const transfer = {
+      type: transferType,
+      signature,
+      from: sourcePublicKey.toBase58(),
+      to: destinationPublicKey.toBase58(),
+      amount: amount.toString(),
+      token: tokenMint ?? "SOL",
+      simulation,
       timestamp: new Date().toISOString(),
     };
 
-    return inputItems.length > 0
-      ? inputItems.map((item) => ({
-          ...item,
-          json: { ...item.json, transfer: transferResult },
-        }))
-      : [{ json: { transfer: transferResult } }];
+    const inputItems = ctx.inputs[0] ?? [{ json: {} }];
+    return inputItems.map((item) => ({
+      ...item,
+      json: {
+        ...item.json,
+        transfer,
+      },
+    }));
   },
 };

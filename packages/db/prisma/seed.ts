@@ -7,6 +7,8 @@
 // and immediately generate working code.
 
 import { PrismaClient } from "@prisma/client";
+import tokenVaultTemplate from "../../codegen/src/templates/vault/template.json";
+import tokenEscrowTemplate from "../../codegen/src/templates/escrow/template.json";
 
 const prisma = new PrismaClient();
 
@@ -14,6 +16,267 @@ const SYSTEM_USER_ID = "system-solflow-templates";
 
 function makeFlow(nodes: object[], edges: object[]) {
   return { nodes, edges, viewport: { x: 0, y: 0, zoom: 0.7 } };
+}
+
+type ProgramTemplateIR = {
+  program: Record<string, unknown>;
+  instructions: Array<{
+    name: string;
+    description?: string;
+    accessControl?: string;
+    args?: Array<Record<string, unknown>>;
+    accounts?: Array<{
+      name: string;
+      accountType?: string;
+      stateType?: string;
+      description?: string;
+      constraints?: Array<Record<string, unknown>>;
+    }>;
+    body?: Array<Record<string, unknown>>;
+  }>;
+  states?: Array<Record<string, unknown>>;
+  errors?: Array<Record<string, unknown>>;
+  events?: Array<Record<string, unknown>>;
+  constants?: Array<Record<string, unknown>>;
+};
+
+function constraintData(constraint: Record<string, unknown>) {
+  const type = constraint.type as string;
+  return {
+    constraintType: type,
+    ...constraint,
+    ...(type === "has-one"
+      ? {
+          hasOneField: constraint.field,
+          hasOneTarget: constraint.target,
+          hasOneErrorCode: constraint.errorCode,
+        }
+      : {}),
+    ...(type === "token-authority" ? { tokenAuthority: constraint.authority } : {}),
+    ...(type === "token-mint" ? { tokenMint: constraint.mint } : {}),
+    ...(type === "mint-authority" ? { mintAuthority: constraint.authority } : {}),
+    ...(type === "mint-decimals" ? { mintDecimals: constraint.decimals } : {}),
+    ...(type === "associated-token-authority" ? { associatedAuthority: constraint.authority } : {}),
+    ...(type === "associated-token-mint" ? { associatedMint: constraint.mint } : {}),
+  };
+}
+
+function logicData(operation: Record<string, unknown>, order: number) {
+  const type = operation.type as string;
+  return {
+    logicType: type,
+    operation,
+    order,
+    ...(type === "set-field"
+      ? {
+          setAccount: operation.account,
+          setField: operation.field,
+          setValue: operation.value,
+        }
+      : {}),
+    ...(type === "require"
+      ? {
+          requireCondition: operation.condition,
+          requireErrorCode: operation.errorCode,
+        }
+      : {}),
+    ...(type === "math"
+      ? {
+          mathOperation: operation.operation,
+          mathLeft: operation.left,
+          mathRight: operation.right,
+          mathResult: operation.result,
+          mathChecked: operation.checked,
+        }
+      : {}),
+    ...(type === "transfer-token"
+      ? {
+          transferFrom: operation.from,
+          transferTo: operation.to,
+          transferAuthority: operation.authority,
+          transferAmount: operation.amount,
+          signerSeeds: operation.signerSeeds,
+        }
+      : {}),
+    ...(type === "transfer-sol"
+      ? {
+          transferFrom: operation.from,
+          transferTo: operation.to,
+          transferAmount: operation.amount,
+        }
+      : {}),
+    ...(type === "mint-to"
+      ? {
+          mintTo: operation.mint,
+          transferTo: operation.to,
+          mintAuthority: operation.authority,
+          transferAmount: operation.amount,
+          signerSeeds: operation.signerSeeds,
+        }
+      : {}),
+    ...(type === "burn"
+      ? {
+          burnMint: operation.mint,
+          transferFrom: operation.from,
+          burnAuthority: operation.authority,
+          transferAmount: operation.amount,
+          signerSeeds: operation.signerSeeds,
+        }
+      : {}),
+    ...(type === "emit-event"
+      ? {
+          emitEvent: operation.event,
+          emitFields: operation.fields,
+        }
+      : {}),
+    ...(type === "return-error" ? { returnErrorCode: operation.errorCode } : {}),
+    ...(type === "if-else" ? { ifCondition: operation.condition } : {}),
+    ...(type === "cpi"
+      ? {
+          cpiProgram: operation.targetProgram,
+          cpiInstruction: operation.instruction,
+          cpiAccounts: operation.accounts,
+          cpiData: operation.data,
+          signerSeeds: operation.signerSeeds,
+        }
+      : {}),
+    ...(type === "custom-code"
+      ? {
+          customCode: operation.code,
+          customInputs: operation.inputs,
+          customOutputs: operation.outputs,
+        }
+      : {}),
+  };
+}
+
+function flowFromIR(ir: ProgramTemplateIR, prefix: string) {
+  const nodes: object[] = [
+    {
+      id: `${prefix}-program`,
+      type: "program",
+      position: { x: 40, y: 280 },
+      data: {
+        name: ir.program.name,
+        description: ir.program.description,
+        version: ir.program.version,
+        programId: ir.program.programId,
+        constants: ir.constants ?? [],
+      },
+    },
+  ];
+  const edges: object[] = [];
+
+  for (const [ixIndex, ix] of ir.instructions.entries()) {
+    const ixId = `${prefix}-ix-${ix.name}`;
+    const rowY = 60 + ixIndex * 240;
+    nodes.push({
+      id: ixId,
+      type: "instruction",
+      position: { x: 280, y: rowY },
+      data: {
+        name: ix.name,
+        description: ix.description,
+        accessControl: ix.accessControl ?? "none",
+        instructionData: ix.args ?? [],
+      },
+    });
+    edges.push({ id: `${prefix}-edge-program-${ix.name}`, source: `${prefix}-program`, target: ixId });
+
+    for (const [accountIndex, account] of (ix.accounts ?? []).entries()) {
+      const accountId = `${prefix}-acc-${ix.name}-${account.name}`;
+      nodes.push({
+        id: accountId,
+        type: "account",
+        position: { x: 560 + (accountIndex % 3) * 220, y: rowY + Math.floor(accountIndex / 3) * 76 },
+        data: {
+          name: account.name,
+          accountType: account.accountType ?? "system-account",
+          stateType: account.stateType,
+          description: account.description,
+        },
+      });
+      edges.push({ id: `${prefix}-edge-${ix.name}-${account.name}`, source: ixId, target: accountId });
+
+      for (const [constraintIndex, constraint] of (account.constraints ?? []).entries()) {
+        const constraintId = `${prefix}-constraint-${ix.name}-${account.name}-${constraintIndex}`;
+        nodes.push({
+          id: constraintId,
+          type: "constraint",
+          position: { x: 1220 + constraintIndex * 180, y: rowY + accountIndex * 42 },
+          data: constraintData(constraint),
+        });
+        edges.push({ id: `${prefix}-edge-${constraintId}-${account.name}`, source: constraintId, target: accountId });
+      }
+    }
+
+    let previousLogicId: string | undefined;
+    for (const [logicIndex, operation] of (ix.body ?? []).entries()) {
+      const logicId = `${prefix}-logic-${ix.name}-${logicIndex}`;
+      nodes.push({
+        id: logicId,
+        type: "logic",
+        position: { x: 560 + logicIndex * 220, y: rowY + 112 },
+        data: logicData(operation, logicIndex),
+      });
+      edges.push({
+        id: `${prefix}-edge-logic-${ix.name}-${logicIndex}`,
+        source: previousLogicId ?? ixId,
+        target: logicId,
+      });
+      previousLogicId = logicId;
+
+      if (operation.type === "require" && operation.errorCode) {
+        edges.push({
+          id: `${prefix}-edge-error-${ix.name}-${logicIndex}`,
+          source: ixId,
+          target: `${prefix}-error-${operation.errorCode}`,
+        });
+      }
+      if (operation.type === "emit-event" && operation.event) {
+        edges.push({
+          id: `${prefix}-edge-event-${ix.name}-${logicIndex}`,
+          source: ixId,
+          target: `${prefix}-event-${operation.event}`,
+        });
+      }
+    }
+  }
+
+  for (const [stateIndex, state] of (ir.states ?? []).entries()) {
+    const stateId = `${prefix}-state-${state.name}`;
+    nodes.push({
+      id: stateId,
+      type: "state",
+      position: { x: 40, y: 720 + stateIndex * 96 },
+      data: state,
+    });
+    for (const node of nodes as Array<{ id?: string; type?: string; data?: Record<string, unknown> }>) {
+      if (node.type === "account" && node.data?.stateType === state.name) {
+        edges.push({ id: `${prefix}-edge-${stateId}-${node.id}`, source: stateId, target: node.id });
+      }
+    }
+  }
+
+  for (const [errorIndex, error] of (ir.errors ?? []).entries()) {
+    nodes.push({
+      id: `${prefix}-error-${error.name}`,
+      type: "error",
+      position: { x: 40, y: 980 + errorIndex * 76 },
+      data: error,
+    });
+  }
+
+  for (const [eventIndex, event] of (ir.events ?? []).entries()) {
+    nodes.push({
+      id: `${prefix}-event-${event.name}`,
+      type: "event",
+      position: { x: 280, y: 980 + eventIndex * 76 },
+      data: event,
+    });
+  }
+
+  return makeFlow(nodes, edges);
 }
 
 const META = {
@@ -222,6 +485,22 @@ export const TEMPLATES = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════
+  // TOKEN VAULT — SPL token vault backed by PDA signing
+  // ═══════════════════════════════════════════════════════════════════════
+  {
+    title: "Token Vault",
+    description:
+      "SPL token vault with PDA-owned token account, deposits, withdrawals, close checks, and events.",
+    longDescription:
+      "A production token vault template. Users initialize a vault PDA and associated token account for a mint, deposit SPL tokens, withdraw with PDA signer seeds, and close only after the token balance is zero. Exercises token-account constraints, associated-token init, checked math, PDA seeds, token transfers, has_one validation, and event emission across Anchor, Pinocchio, and Quasar.",
+    category: "DEFI",
+    tags: ["token-vault", "spl-token", "pda", "deposit", "withdraw", "associated-token"],
+    pricingModel: "FREE" as const,
+    templateFlowData: flowFromIR(tokenVaultTemplate as ProgramTemplateIR, "token-vault"),
+    templateIR: tokenVaultTemplate,
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
   // 2. TOKEN MINT
   // ═══════════════════════════════════════════════════════════════════════
   {
@@ -347,6 +626,22 @@ export const TEMPLATES = [
       constants: [],
       metadata: META,
     },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // TOKEN ESCROW — SPL token swap escrow with refund path
+  // ═══════════════════════════════════════════════════════════════════════
+  {
+    title: "Token Escrow",
+    description:
+      "SPL token escrow where a maker deposits token A, a taker pays token B, and refund is supported.",
+    longDescription:
+      "A production token escrow template. The maker initializes an escrow PDA, deposits token A into a PDA-owned vault, and defines the token B receive amount. The taker fulfills the trade with token transfers in both directions, or the maker can refund. Exercises associated-token creation, token mint and authority validation, PDA signer seeds, close constraints, has_one validation, and event emission across Anchor, Pinocchio, and Quasar.",
+    category: "DEFI",
+    tags: ["token-escrow", "swap", "spl-token", "pda", "refund", "defi"],
+    pricingModel: "FREE" as const,
+    templateFlowData: flowFromIR(tokenEscrowTemplate as ProgramTemplateIR, "token-escrow"),
+    templateIR: tokenEscrowTemplate,
   },
 
   // ═══════════════════════════════════════════════════════════════════════
@@ -1146,7 +1441,7 @@ async function main() {
     console.log(`  Seeded: ${template.title}`);
   }
 
-  console.log("Done — 7 starter templates seeded.");
+  console.log(`Done — ${TEMPLATES.length} starter templates seeded.`);
 }
 
 // Only run main() when executed directly (not when imported by tests)

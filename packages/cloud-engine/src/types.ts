@@ -53,6 +53,7 @@ export interface NodeExecutionResult {
   outputSnapshot: unknown;
   duration: number;
   error?: string;
+  attempts?: number;
   logs: { timestamp: number; level: string; message: string; data?: unknown }[];
 }
 

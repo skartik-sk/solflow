@@ -7,7 +7,7 @@
 // 5. Create Event nodes → connected to instructions that emit them
 
 import type { Node, Edge } from "@xyflow/react";
-import type { ParsedProgram, ParsedInstruction, ParsedAccount, ParseStats } from "../types";
+import type { ParsedProgram, ParsedInstruction, ParsedAccount, ParseStats, ParsedLogicOperation } from "../types";
 
 let _idCounter = 0;
 function uid(prefix: string): string {
@@ -143,8 +143,9 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
 
     // Create Logic nodes for this instruction
     if (ix.logicOps.length > 0) {
-      createLogicNodes(ix.logicOps, ixNodeId, nodes, edges);
-      totalLogicOps += ix.logicOps.length;
+      const flatLogicOps = flattenLogicOps(ix.logicOps);
+      createLogicNodes(flatLogicOps, ixNodeId, nodes, edges);
+      totalLogicOps += flatLogicOps.length;
     }
   }
 
@@ -184,9 +185,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
     // Find which instruction emits this event by checking logicOps
     let emitterIxId = firstIxNodeId;
     for (const ix of parsed.instructions) {
-      const hasEmit = ix.logicOps.some(
-        (op) => op.type === "emit-event" && (op as { type: string; event: string }).event === event.name
-      );
+      const hasEmit = logicOpsContainEvent(ix.logicOps, event.name);
       if (hasEmit) {
         emitterIxId = ixNodeIdMap.get(ix.name) || firstIxNodeId;
         break;
@@ -216,7 +215,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
 // ─── Logic node creation ─────────────────────────────────────────────
 
 function createLogicNodes(
-  ops: import("@solflow/ir").LogicOperation[],
+  ops: ParsedLogicOperation[],
   parentIxId: string,
   nodes: Node[],
   edges: Edge[],
@@ -224,7 +223,6 @@ function createLogicNodes(
   const ids: string[] = [];
   let prevId = parentIxId;
 
-  // Flatten delegation wrappers (if-else with fn/call condition and thenBody)
   const flatOps = flattenLogicOps(ops);
 
   for (const op of flatOps) {
@@ -247,31 +245,19 @@ function createLogicNodes(
 }
 
 /**
- * Flatten delegation wrappers: if-else nodes used as grouping for impl/handler delegation
- * should be unwrapped so inner ops become individual nodes.
- * Real if-else nodes (with actual conditions) are kept as-is.
+ * Flatten parser-only groups while preserving real branch operations.
  */
-function flattenLogicOps(ops: import("@solflow/ir").LogicOperation[]): import("@solflow/ir").LogicOperation[] {
-  const result: import("@solflow/ir").LogicOperation[] = [];
+function flattenLogicOps(ops: ParsedLogicOperation[]): ParsedLogicOperation[] {
+  const result: ParsedLogicOperation[] = [];
   for (const op of ops) {
-    if (op.type === "if-else") {
-      const cond = op.condition || "";
-      // Check if this is a delegation wrapper (call xxx() or fn xxx())
-      const isDelegation = /^(call |fn |impl )/.test(cond) || cond.includes("::");
-      // Also treat set_inner() wrappers as flattenable
-      const isSetInner = cond.endsWith(".set_inner()");
-
-      if ((isDelegation || isSetInner) && op.thenBody && !op.elseBody) {
-        // Flatten: unwrap the thenBody
-        result.push(...flattenLogicOps(op.thenBody));
-      } else {
-        // Real if-else — keep it but flatten inner bodies
-        result.push({
-          ...op,
-          thenBody: op.thenBody ? flattenLogicOps(op.thenBody) : undefined,
-          elseBody: op.elseBody ? flattenLogicOps(op.elseBody) : undefined,
-        });
-      }
+    if (op.type === "parser-group") {
+      result.push(...flattenLogicOps(op.body));
+    } else if (op.type === "if-else") {
+      result.push({
+        ...op,
+        thenBody: flattenLogicOps(op.thenBody ?? []),
+        elseBody: op.elseBody ? flattenLogicOps(op.elseBody) : undefined,
+      });
     } else {
       result.push(op);
     }
@@ -279,7 +265,19 @@ function flattenLogicOps(ops: import("@solflow/ir").LogicOperation[]): import("@
   return result;
 }
 
-function logicOpToNodeData(op: import("@solflow/ir").LogicOperation): Record<string, unknown> {
+function logicOpsContainEvent(ops: ParsedLogicOperation[], eventName: string): boolean {
+  for (const op of ops) {
+    if (op.type === "emit-event" && op.event === eventName) return true;
+    if (op.type === "parser-group" && logicOpsContainEvent(op.body, eventName)) return true;
+    if (op.type === "if-else") {
+      if (logicOpsContainEvent(op.thenBody, eventName)) return true;
+      if (op.elseBody && logicOpsContainEvent(op.elseBody, eventName)) return true;
+    }
+  }
+  return false;
+}
+
+function logicOpToNodeData(op: ParsedLogicOperation): Record<string, unknown> {
   switch (op.type) {
     case "set-field":
       return { logicType: "set-field", setAccount: op.account, setField: op.field, setValue: op.value };

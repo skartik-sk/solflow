@@ -6,6 +6,9 @@ import type { MetadataRoute } from "next";
 import { prisma } from "@solflow/db";
 
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://solstudio.skartik.xyz";
+const isProductionBuild = process.env.NEXT_PHASE === "phase-production-build";
+
+export const dynamic = "force-dynamic";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // ── Static pages ─────────────────────────────────────────────────────────
@@ -31,6 +34,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   // ── Dynamic marketplace listings ────────────────────────────────────────
+  if (isProductionBuild) {
+    return staticPages;
+  }
+
   let listingPages: MetadataRoute.Sitemap = [];
   try {
     const listings = await prisma.marketplaceListing.findMany({

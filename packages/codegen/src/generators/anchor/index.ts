@@ -7,6 +7,7 @@ import type {
   Instruction,
   Account,
   Field,
+  Integration,
   LogicOperation,
   Seed,
 } from "@solflow/ir";
@@ -45,7 +46,7 @@ export function generateAnchor(ir: ProgramIR): {
         a.accountType === "token-program" ||
         a.accountType === "associated-token-program",
     ),
-  );
+  ) || ir.integrations.some((integration) => integration.pluginId === "spl-token");
 
   // Sort everything deterministically
   const instructions = [...ir.instructions].sort((a, b) =>
@@ -58,7 +59,7 @@ export function generateAnchor(ir: ProgramIR): {
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl),
+    content: generateCargoToml(programName, version, usesSpl, ir.integrations),
     language: "toml",
   });
 
@@ -149,9 +150,12 @@ function generateCargoToml(
   name: string,
   version: string,
   usesSpl: boolean,
+  integrations: Integration[],
 ): string {
   const kebab = toKebabCase(name);
   const spl = usesSpl ? '\nanchor-spl = "0.32.1"' : "";
+  const hasPyth = integrations.some((integration) => integration.pluginId === "pyth");
+  const pyth = hasPyth ? '\npyth-solana-receiver-sdk = "0.3"' : "";
   return `[package]
 name = "${kebab}"
 version = "${version}"
@@ -171,7 +175,7 @@ default = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}${pyth}
 
 [profile.release]
 opt-level = "z"
@@ -270,6 +274,10 @@ function generateInstructionRs(
   }
 
   const errorEnum = toPascalCase(programName) + "Error";
+  const pluginIntegrations = integrationsForInstruction(ir, ix);
+  const pluginBlocks = pluginIntegrations.map((integration) =>
+    renderAnchorIntegration(integration),
+  );
 
   // Build imports
   const importLines: string[] = ["use anchor_lang::prelude::*;"];
@@ -279,9 +287,22 @@ function generateInstructionRs(
     importLines.push(`use crate::errors::${errorEnum};`);
   for (const e of [...usedEvents].sort())
     importLines.push(`use crate::events::${e};`);
+  for (const block of pluginBlocks) {
+    importLines.push(...block.imports);
+  }
 
   // Build instruction body
-  const bodyLines = generateInstructionBody(ix, programName);
+  const beforeBody = pluginBlocks
+    .filter((block) => block.position === "before-body")
+    .flatMap((block) => block.bodyLines);
+  const afterBody = pluginBlocks
+    .filter((block) => block.position === "after-body")
+    .flatMap((block) => block.bodyLines);
+  const bodyLines = [
+    ...beforeBody,
+    ...generateInstructionBody(ix, programName),
+    ...afterBody,
+  ];
 
   // Build args signature
   const argSig = ix.args
@@ -295,8 +316,16 @@ function generateInstructionRs(
     : "";
 
   // Build accounts struct
+  const pluginAccountFields = pluginBlocks
+    .flatMap((block) => block.accountFields)
+    .filter((field) => !ix.accounts.some((account) => account.name === field.name))
+    .map((field) => field.code)
+    .join("\n\n");
   const accountFields = ix.accounts
     .map((a) => buildAccountField(a, ix, ir))
+    .join("\n\n");
+  const allAccountFields = [accountFields, pluginAccountFields]
+    .filter(Boolean)
     .join("\n\n");
 
   // Auto-add token_program for mint init when not already present
@@ -308,10 +337,10 @@ function generateInstructionRs(
     ? "\n    pub token_program: Program<'info, anchor_spl::token::Token>,"
     : "";
 
-  // When there are no accounts, omit the 'info lifetime to avoid E0392
-  const lifetime = ix.accounts.length > 0 ? "<'info>" : "";
+  // When there are no account fields, omit the 'info lifetime to avoid E0392.
+  const lifetime = allAccountFields.trim().length > 0 ? "<'info>" : "";
 
-  const content = `${importLines.join("\n")}
+  const content = `${unique(importLines).join("\n")}
 
 pub fn handler(ctx: Context<${ctx}>${extraArgs}) -> Result<()> {
 ${bodyLines.map((l) => `    ${l}`).join("\n")}
@@ -321,11 +350,244 @@ ${bodyLines.map((l) => `    ${l}`).join("\n")}
 
 #[derive(Accounts)]
 ${argAttr}pub struct ${ctx}${lifetime} {
-${accountFields}${extraAnchorField}
+${allAccountFields}${extraAnchorField}
 }
 `;
 
+  for (const block of pluginBlocks) {
+    for (const warning of block.warnings) {
+      warns.push({ message: warning, nodeId: ix.id });
+    }
+  }
+
   return { content, warns, errs };
+}
+
+interface AnchorPluginBlock {
+  position: Integration["attachedTo"]["position"];
+  imports: string[];
+  bodyLines: string[];
+  accountFields: Array<{ name: string; code: string }>;
+  warnings: string[];
+}
+
+function integrationsForInstruction(
+  ir: ProgramIR,
+  ix: Instruction,
+): Integration[] {
+  return ir.integrations.filter(
+    (integration) => integration.attachedTo.instructionId === ix.id,
+  );
+}
+
+function renderAnchorIntegration(integration: Integration): AnchorPluginBlock {
+  const position = integration.attachedTo.position;
+  const config = integration.config;
+  const empty: AnchorPluginBlock = {
+    position,
+    imports: [],
+    bodyLines: [],
+    accountFields: [],
+    warnings: [],
+  };
+
+  if (integration.pluginId === "spl-token") {
+    return renderAnchorSplTokenIntegration(integration, config);
+  }
+
+  if (integration.pluginId === "pyth") {
+    return renderAnchorPythIntegration(integration, config);
+  }
+
+  return {
+    ...empty,
+    warnings: [
+      `Plugin integration "${integration.pluginId}:${integration.integrationId}" does not have Anchor codegen yet`,
+    ],
+  };
+}
+
+function renderAnchorSplTokenIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): AnchorPluginBlock {
+  const position = integration.attachedTo.position;
+  const amount = numberLiteral(config.amount, "0");
+
+  if (integration.integrationId === "create-mint") {
+    const decimals = numberLiteral(config.decimals, "9");
+    return {
+      position,
+      imports: ["use anchor_spl::token::{Mint, Token};"],
+      bodyLines: [
+        "// SPL Token mint is initialized by the Anchor account constraint.",
+      ],
+      accountFields: [
+        {
+          name: "mint",
+          code: `    #[account(init, payer = payer, mint::decimals = ${decimals}, mint::authority = mint_authority)]\n    pub mint: Account<'info, Mint>,`,
+        },
+        {
+          name: "payer",
+          code: "    #[account(mut)]\n    pub payer: Signer<'info>,",
+        },
+        {
+          name: "mint_authority",
+          code: "    pub mint_authority: Signer<'info>,",
+        },
+        {
+          name: "token_program",
+          code: "    pub token_program: Program<'info, Token>,",
+        },
+        {
+          name: "system_program",
+          code: "    pub system_program: Program<'info, System>,",
+        },
+        {
+          name: "rent",
+          code: "    pub rent: Sysvar<'info, Rent>,",
+        },
+      ],
+      warnings: [],
+    };
+  }
+
+  if (integration.integrationId === "mint-tokens") {
+    return {
+      position,
+      imports: [
+        "use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount};",
+      ],
+      bodyLines: [
+        "token::mint_to(",
+        "    CpiContext::new(",
+        "        ctx.accounts.token_program.to_account_info(),",
+        "        MintTo {",
+        "            mint: ctx.accounts.mint.to_account_info(),",
+        "            to: ctx.accounts.destination.to_account_info(),",
+        "            authority: ctx.accounts.authority.to_account_info(),",
+        "        },",
+        "    ),",
+        `    ${amount},`,
+        ")?;",
+      ],
+      accountFields: [
+        {
+          name: "mint",
+          code: "    #[account(mut)]\n    pub mint: Account<'info, Mint>,",
+        },
+        {
+          name: "destination",
+          code: "    #[account(mut)]\n    pub destination: Account<'info, TokenAccount>,",
+        },
+        {
+          name: "authority",
+          code: "    pub authority: Signer<'info>,",
+        },
+        {
+          name: "token_program",
+          code: "    pub token_program: Program<'info, Token>,",
+        },
+      ],
+      warnings: [],
+    };
+  }
+
+  if (integration.integrationId === "transfer") {
+    return {
+      position,
+      imports: [
+        "use anchor_spl::token::{self, Token, TokenAccount, Transfer};",
+      ],
+      bodyLines: [
+        "token::transfer(",
+        "    CpiContext::new(",
+        "        ctx.accounts.token_program.to_account_info(),",
+        "        Transfer {",
+        "            from: ctx.accounts.source.to_account_info(),",
+        "            to: ctx.accounts.destination.to_account_info(),",
+        "            authority: ctx.accounts.authority.to_account_info(),",
+        "        },",
+        "    ),",
+        `    ${amount},`,
+        ")?;",
+      ],
+      accountFields: [
+        {
+          name: "source",
+          code: "    #[account(mut)]\n    pub source: Account<'info, TokenAccount>,",
+        },
+        {
+          name: "destination",
+          code: "    #[account(mut)]\n    pub destination: Account<'info, TokenAccount>,",
+        },
+        {
+          name: "authority",
+          code: "    pub authority: Signer<'info>,",
+        },
+        {
+          name: "token_program",
+          code: "    pub token_program: Program<'info, Token>,",
+        },
+      ],
+      warnings: [],
+    };
+  }
+
+  return {
+    position,
+    imports: [],
+    bodyLines: [],
+    accountFields: [],
+    warnings: [
+      `SPL Token integration "${integration.integrationId}" does not have Anchor codegen yet`,
+    ],
+  };
+}
+
+function renderAnchorPythIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): AnchorPluginBlock {
+  const outputVar = safeRustIdentifier(config.outputVar, "price");
+  const maxAge = numberLiteral(config.maxAge, "30");
+
+  return {
+    position: integration.attachedTo.position,
+    imports: ["use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;"],
+    bodyLines: [
+      "let price_feed = &ctx.accounts.price_feed;",
+      "let current_price = price_feed.get_price_no_older_than(",
+      "    &Clock::get()?,",
+      `    ${maxAge},`,
+      ").ok_or(ProgramError::InvalidAccountData)?;",
+      `let ${outputVar} = current_price.price;`,
+      `let ${outputVar}_conf = current_price.conf;`,
+      `let ${outputVar}_expo = current_price.expo;`,
+    ],
+    accountFields: [
+      {
+        name: "price_feed",
+        code: "    pub price_feed: Account<'info, PriceUpdateV2>,",
+      },
+    ],
+    warnings: [],
+  };
+}
+
+function numberLiteral(value: unknown, fallback: string): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : fallback;
+}
+
+function safeRustIdentifier(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  return /^[a-z_][a-z0-9_]*$/.test(value) ? value : fallback;
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
 }
 
 // ─── Instruction body builder ────────────────────────────────────────────────

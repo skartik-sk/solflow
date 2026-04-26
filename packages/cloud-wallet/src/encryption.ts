@@ -40,6 +40,10 @@ export function encryptPrivateKey(
   };
 }
 
+export function encryptString(value: string, masterKey: string): EncryptedKey {
+  return encryptPrivateKey(new TextEncoder().encode(value), masterKey);
+}
+
 export function decryptPrivateKey(
   encryptedData: EncryptedKey,
   masterKey: string,
@@ -59,4 +63,11 @@ export function decryptPrivateKey(
   ]);
 
   return new Uint8Array(decrypted);
+}
+
+export function decryptString(
+  encryptedData: EncryptedKey,
+  masterKey: string,
+): string {
+  return new TextDecoder().decode(decryptPrivateKey(encryptedData, masterKey));
 }

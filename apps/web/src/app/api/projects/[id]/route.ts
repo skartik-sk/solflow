@@ -15,6 +15,19 @@ export async function GET(
 
   const project = await prisma.project.findFirst({
     where: { id, userId: session.user.id },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      framework: true,
+      status: true,
+      flowData: true,
+      irData: true,
+      generatedCode: true,
+      forkedFrom: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
   if (!project) {

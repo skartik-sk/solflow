@@ -2,8 +2,12 @@
 // Plugin registry — registers plugins and exposes node types for the editor.
 
 import type { ComponentType } from "react";
-import type { SolFlowPlugin } from "./types";
+import type { PluginTrustPolicy, SolFlowPlugin } from "./types";
 import { validatePluginManifest } from "./validate";
+
+export interface PluginRegistrationOptions {
+  trustPolicy?: PluginTrustPolicy;
+}
 
 export class PluginRegistry {
   private plugins: Map<string, SolFlowPlugin> = new Map();
@@ -12,11 +16,11 @@ export class PluginRegistry {
    * Register a plugin. Throws if the id is already registered or the
    * manifest is invalid.
    */
-  register(plugin: SolFlowPlugin): void {
+  register(plugin: SolFlowPlugin, options: PluginRegistrationOptions = {}): void {
     if (this.plugins.has(plugin.id)) {
       throw new Error(`Plugin "${plugin.id}" is already registered`);
     }
-    validatePluginManifest(plugin);
+    validatePluginManifest(plugin, { trustPolicy: options.trustPolicy });
     this.plugins.set(plugin.id, plugin);
   }
 

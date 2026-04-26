@@ -138,7 +138,9 @@ describe("POST /api/parse", () => {
     expect(data).toHaveProperty("nodes");
     expect(data).toHaveProperty("edges");
     expect(data).toHaveProperty("stats");
+    expect(data).toHaveProperty("report");
     expect(data.stats.instructions).toBeGreaterThanOrEqual(1);
+    expect(data.report.filesParsed).toBeGreaterThanOrEqual(1);
   });
 
   it("saves parsed result to project.json", async () => {

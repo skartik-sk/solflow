@@ -56,7 +56,7 @@ model User {
   name          String?
   image         String?
   walletAddress String?   @unique
-  deployerKeypair String?  // Persistent deploy wallet (like Sol PG's playground wallet)
+  deployerKeypair String?  // Encrypted persistent deploy wallet payload (legacy rows may contain bs58 until migrated on read)
   authProvider  AuthProvider @default(GOOGLE)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -114,7 +114,7 @@ model Project {
   flowData        Json
   irData          Json?
   generatedCode   Json?
-  programKeypair  String?
+  programKeypair  String? // Encrypted program identity payload (legacy rows may contain bs58 until migrated on deploy)
 
   snapshots    ProjectSnapshot[]
   deployments  Deployment[]
@@ -211,7 +211,7 @@ model Deployment {
 
   network        Network
   programId      String
-  programKeypair String?
+  programKeypair String? // Encrypted deployment program identity payload
   txSignature    String
   slot           BigInt?
 
@@ -429,10 +429,14 @@ model CloudCredential {
   encryptedData String   @db.Text
   dataIv        String
   dataTag       String
+  dataSalt      String
+  lastUsedAt    DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  @@unique([userId, label])
   @@index([userId])
+  @@index([type])
 }
 
 model Workflow {
@@ -441,7 +445,7 @@ model Workflow {
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   name           String
   description    String?
-  status         String    @default("DRAFT")
+  status         CloudWorkflowStatus @default(DRAFT)
   definition     Json
   settings       Json      @default("{}")
   cronExpression String?
@@ -463,6 +467,14 @@ model Workflow {
   @@index([nextRunAt])
 }
 
+enum CloudWorkflowStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  PAUSED
+  ARCHIVED
+}
+
 model WorkflowVersion {
   id          String   @id @default(cuid())
   workflowId  String
@@ -481,7 +493,7 @@ model WorkflowExecution {
   id                 String            @id @default(cuid())
   workflowId         String
   workflow           Workflow          @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  status             String            @default("QUEUED")
+  status             CloudExecutionStatus @default(QUEUED)
   triggerType        String
   triggerData        Json?
   startedAt          DateTime?
@@ -504,13 +516,22 @@ model WorkflowExecution {
   @@index([workflowId, createdAt])
 }
 
+enum CloudExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  TIMED_OUT
+}
+
 model NodeExecution {
   id             String            @id @default(cuid())
   executionId    String
   execution      WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
   nodeId         String
   nodeType       String
-  status         String            @default("QUEUED")
+  status         CloudNodeExecutionStatus @default(QUEUED)
   inputSnapshot  Json?
   outputSnapshot Json?
   duration       Int?
@@ -521,6 +542,15 @@ model NodeExecution {
 
   @@index([executionId])
   @@index([executionId, nodeId])
+}
+
+enum CloudNodeExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+  WAITING
 }
 
 model WorkflowTemplate {

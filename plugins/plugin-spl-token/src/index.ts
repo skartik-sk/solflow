@@ -79,6 +79,12 @@ export const splTokenPlugin: SolFlowPlugin = {
   author: "SolFlow",
   icon: "/plugins/spl-token-logo.svg",
   website: "https://spl.solana.com/token",
+  security: {
+    trustLevel: "first-party",
+    publisher: "SolFlow",
+    verified: true,
+    audited: true,
+  },
 
   nodes: [
     {

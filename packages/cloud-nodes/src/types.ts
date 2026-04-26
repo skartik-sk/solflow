@@ -72,6 +72,7 @@ export interface NodeProperty {
   options?: { label: string; value: string }[];
   placeholder?: string;
   credentialType?: string;
+  credentialTypes?: string[];
   supportsExpressions?: boolean;
 }
 
@@ -87,8 +88,20 @@ export interface NodePort {
 
 export interface WalletOperations {
   signAndSend(tx: unknown, walletId: string): Promise<string>;
+  simulate?(tx: unknown, walletId: string): Promise<{ err: unknown; logs?: string[] | null }>;
   getPublicKey(walletId: string): Promise<string>;
   getBalance(walletId: string): Promise<number>;
+}
+
+export interface CredentialRecord {
+  id: string;
+  label: string;
+  type: string;
+  data: Record<string, unknown>;
+}
+
+export interface CredentialOperations {
+  get(id: string, allowedTypes?: string[]): Promise<CredentialRecord>;
 }
 
 // ─── Node Logger ─────────────────────────────────────────────────────────────
@@ -107,6 +120,7 @@ export interface NodeExecutionContext {
   executionId: string;
   nodeId: string;
   wallet: WalletOperations;
+  credentials?: CredentialOperations;
   logger: NodeLogger;
   signal: AbortSignal;
 }
@@ -148,7 +162,7 @@ export interface CloudNodeDefinition {
   outputs: NodePort[];
   defaultData: Record<string, unknown>;
   component: ComponentType<any>;
-  execute?: (ctx: NodeExecutionContext) => Promise<WorkflowItem[]>;
+  execute?: (ctx: NodeExecutionContext) => Promise<WorkflowItem[] | WorkflowItem[][]>;
   trigger?: (ctx: NodeTriggerContext) => Promise<NodeTriggerHandle>;
   webhook?: (ctx: NodeWebhookContext) => Promise<WorkflowItem[]>;
 }

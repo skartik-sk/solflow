@@ -15,29 +15,54 @@ import { decryptPrivateKey, type EncryptedKey } from "./encryption";
 export interface WalletSignerConfig {
   rpcUrl: string;
   masterKey: string;
+  keypairCacheTtlMs?: number;
+  keypairCacheMaxEntries?: number;
+}
+
+interface CachedKeypair {
+  keypair: Keypair;
+  expiresAt: number;
+  lastUsedAt: number;
 }
 
 export class WalletSigner {
   private connection: Connection;
   private masterKey: string;
-  private keypairCache: Map<string, Keypair> = new Map();
+  private keypairCache: Map<string, CachedKeypair> = new Map();
+  private keypairCacheTtlMs: number;
+  private keypairCacheMaxEntries: number;
 
   constructor(config: WalletSignerConfig) {
     this.connection = new Connection(config.rpcUrl, "confirmed");
     this.masterKey = config.masterKey;
+    this.keypairCacheTtlMs = config.keypairCacheTtlMs ?? 60_000;
+    this.keypairCacheMaxEntries = config.keypairCacheMaxEntries ?? 50;
   }
 
-  /** Decrypt a stored private key and cache the Keypair */
+  /** Decrypt a stored private key and cache it briefly to avoid retaining secrets indefinitely. */
   getKeypair(
     walletId: string,
     encryptedKey: EncryptedKey,
   ): Keypair {
-    let kp = this.keypairCache.get(walletId);
-    if (kp) return kp;
+    const now = Date.now();
+    this.pruneExpiredKeypairs(now);
+
+    const cached = this.keypairCache.get(walletId);
+    if (cached && cached.expiresAt > now) {
+      cached.lastUsedAt = now;
+      return cached.keypair;
+    }
 
     const secretKey = decryptPrivateKey(encryptedKey, this.masterKey);
-    kp = Keypair.fromSecretKey(secretKey);
-    this.keypairCache.set(walletId, kp);
+    const kp = Keypair.fromSecretKey(secretKey);
+    secretKey.fill(0);
+
+    this.keypairCache.set(walletId, {
+      keypair: kp,
+      expiresAt: now + this.keypairCacheTtlMs,
+      lastUsedAt: now,
+    });
+    this.enforceKeypairCacheLimit();
     return kp;
   }
 
@@ -62,6 +87,25 @@ export class WalletSigner {
       [keypair],
     );
     return signature;
+  }
+
+  /** Sign and simulate a transaction without broadcasting it */
+  async simulate(
+    tx: Transaction | VersionedTransaction,
+    walletId: string,
+    encryptedKey: EncryptedKey,
+  ): Promise<{ err: unknown; logs?: string[] | null }> {
+    const keypair = this.getKeypair(walletId, encryptedKey);
+
+    if (tx instanceof VersionedTransaction) {
+      tx.sign([keypair]);
+      const result = await this.connection.simulateTransaction(tx);
+      return { err: result.value.err, logs: result.value.logs };
+    }
+
+    tx.sign(keypair);
+    const result = await this.connection.simulateTransaction(tx);
+    return { err: result.value.err, logs: result.value.logs };
   }
 
   /** Get the public key for a wallet */
@@ -108,7 +152,36 @@ export class WalletSigner {
     this.keypairCache.clear();
   }
 
+  getCacheSize(): number {
+    return this.keypairCache.size;
+  }
+
   getConnection(): Connection {
     return this.connection;
+  }
+
+  private pruneExpiredKeypairs(now = Date.now()): void {
+    for (const [walletId, cached] of this.keypairCache) {
+      if (cached.expiresAt <= now) {
+        this.keypairCache.delete(walletId);
+      }
+    }
+  }
+
+  private enforceKeypairCacheLimit(): void {
+    while (this.keypairCache.size > this.keypairCacheMaxEntries) {
+      let oldestWalletId: string | undefined;
+      let oldestLastUsedAt = Number.POSITIVE_INFINITY;
+
+      for (const [walletId, cached] of this.keypairCache) {
+        if (cached.lastUsedAt < oldestLastUsedAt) {
+          oldestWalletId = walletId;
+          oldestLastUsedAt = cached.lastUsedAt;
+        }
+      }
+
+      if (!oldestWalletId) return;
+      this.keypairCache.delete(oldestWalletId);
+    }
   }
 }

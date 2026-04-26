@@ -5,19 +5,20 @@
 //          let bindings, transfer(), method calls on accounts.
 
 import type { LogicOperation } from "@solflow/ir";
+import type { ParsedLogicOperation } from "../types";
 import { extractBalancedBlock } from "../utils/regex-helpers";
 
 /**
  * Parse a function body string into an array of LogicOperations.
  * Also accepts full source to resolve method calls into impl blocks.
  */
-export function parseLogic(body: string, fullSource?: string, visitedMethods?: Set<string>): LogicOperation[] {
-  const ops: LogicOperation[] = [];
+export function parseLogic(body: string, fullSource?: string, visitedMethods?: Set<string>): ParsedLogicOperation[] {
+  const ops: ParsedLogicOperation[] = [];
   parseLines(body.split("\n"), ops, fullSource, visitedMethods);
   return ops;
 }
 
-function parseLines(lines: string[], ops: LogicOperation[], fullSource?: string, visitedMethods?: Set<string>): void {
+function parseLines(lines: string[], ops: ParsedLogicOperation[], fullSource?: string, visitedMethods?: Set<string>): void {
   const trimmedLines = lines.map(l => l.trim());
   let i = 0;
 
@@ -47,8 +48,8 @@ export function parseLogicWithContext(
   fullSource: string,
   accountsStructName: string,
   visitedMethods?: Set<string>,
-): LogicOperation[] {
-  const ops: LogicOperation[] = [];
+): ParsedLogicOperation[] {
+  const ops: ParsedLogicOperation[] = [];
   const lines = body.split("\n");
   const trimmedLines = lines.map(l => l.trim());
   let i = 0;
@@ -73,8 +74,12 @@ export function parseLogicWithContext(
 }
 
 interface LineParseResult {
-  op: LogicOperation;
+  op: ParsedLogicOperation;
   nextLine: number;
+}
+
+function parserGroup(label: string, body: ParsedLogicOperation[]): ParsedLogicOperation {
+  return { type: "parser-group", label, body };
 }
 
 function tryParseLine(line: string, lines: string[], currentLine: number, fullSource?: string, visitedMethods?: Set<string>, accountsStructName?: string): LineParseResult | null {
@@ -151,11 +156,10 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
         ? extractImplMethodForStruct(fullSource, methodName, accountsStructName)
         : extractImplMethod(fullSource, methodName);
       if (implBody) {
-        const innerOps: LogicOperation[] = [];
+        const innerOps: ParsedLogicOperation[] = [];
         parseLines(implBody.split("\n"), innerOps, fullSource, visitedMethods);
         if (innerOps.length > 0) {
-          // Return a group node that the flow converter will expand into individual nodes
-          return { op: { type: "if-else", condition: `call ${methodName}()`, thenBody: innerOps }, nextLine: currentLine + 1 };
+          return { op: parserGroup(`call ${methodName}()`, innerOps), nextLine: currentLine + 1 };
         }
       }
     }
@@ -172,11 +176,11 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
       visitedMethods.add(funcName);
       const implBody = extractImplMethod(fullSource, funcName);
       if (implBody) {
-        const innerOps: LogicOperation[] = [];
+        const innerOps: ParsedLogicOperation[] = [];
         parseLines(implBody.split("\n"), innerOps, fullSource, visitedMethods);
         if (innerOps.length > 0) {
           if (innerOps.length === 1) return { op: innerOps[0], nextLine: currentLine + 1 };
-          return { op: { type: "if-else", condition: `fn ${funcPath}()`, thenBody: innerOps }, nextLine: currentLine + 1 };
+          return { op: parserGroup(`fn ${funcPath}()`, innerOps), nextLine: currentLine + 1 };
         }
       }
     }
@@ -296,9 +300,9 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
   m = line.match(/^match\s+(.+?)\s*\{?$/);
   if (m) {
     const { body: matchBody, endLine: matchEnd } = collectBlockLines(lines, currentLine);
-    const matchOps: LogicOperation[] = [];
+    const matchOps: ParsedLogicOperation[] = [];
     parseLines(matchBody, matchOps, fullSource, visitedMethods);
-    return { op: { type: "if-else", condition: `match ${m[1]}`, thenBody: matchOps }, nextLine: matchEnd };
+    return { op: parserGroup(`match ${m[1]}`, matchOps), nextLine: matchEnd };
   }
 
   // 8. if / if let statement
@@ -306,16 +310,16 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
   if (m) {
     const condition = m[1];
     const { body: thenBody, endLine: thenEnd } = collectBlockLines(lines, currentLine);
-    const thenOps: LogicOperation[] = [];
+    const thenOps: ParsedLogicOperation[] = [];
     parseLines(thenBody, thenOps, fullSource, visitedMethods);
 
     const afterThen = lines[thenEnd]?.trim() || "";
-    let elseOps: LogicOperation[] | undefined;
+    let elseOps: ParsedLogicOperation[] | undefined;
     let finalLine = thenEnd;
 
     if (afterThen.startsWith("} else")) {
       if (afterThen.includes(" if ")) {
-        const elseIfOps: LogicOperation[] = [];
+        const elseIfOps: ParsedLogicOperation[] = [];
         const elseIfResult = tryParseLine(afterThen.replace(/^}\s*/, ""), lines, thenEnd, fullSource, visitedMethods);
         if (elseIfResult) { elseIfOps.push(elseIfResult.op); finalLine = elseIfResult.nextLine; }
         else { finalLine = thenEnd + 1; }
@@ -367,29 +371,13 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
         visitedMethods.add(methodName);
         const implBody = extractImplMethod(fullSource, methodName);
         if (implBody) {
-          const innerOps: LogicOperation[] = [];
+          const innerOps: ParsedLogicOperation[] = [];
           parseLines(implBody.split("\n"), innerOps, fullSource, visitedMethods);
           if (innerOps.length > 0) {
-            // Return all ops from impl body — inject remaining ops after this one
-            // We return the first op and inject the rest via the parseLines callback
-            for (let io = 1; io < innerOps.length; io++) {
-              // We can't inject multiple ops from tryParseLine — so return first as a transfer
-              // and the caller needs to handle the rest
-              // Simplest: just concatenate them as a single complex block
-            }
-            // Return ALL ops by wrapping in an if-else that contains them
             if (innerOps.length === 1) {
               return { op: innerOps[0], nextLine: currentLine + 1 };
             }
-            // Multiple ops — wrap as sequential operations in a thenBody
-            return {
-              op: {
-                type: "if-else",
-                condition: `call ${methodName}()`,
-                thenBody: innerOps,
-              },
-              nextLine: currentLine + 1,
-            };
+            return { op: parserGroup(`call ${methodName}()`, innerOps), nextLine: currentLine + 1 };
           }
         }
       }
@@ -427,7 +415,7 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
           return name ? [name, name] : null;
         }
         return parts;
-      }).filter(Boolean);
+      }).filter((field): field is string[] => field !== null);
       const setOps: LogicOperation[] = fields.map(([f, v]) => ({
         type: "set-field" as const,
         account: accountName,
@@ -436,7 +424,7 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
       })).filter(op => op.field);
       if (setOps.length > 0) {
         if (setOps.length === 1) return { op: setOps[0], nextLine: endLine };
-        return { op: { type: "if-else", condition: `${accountName}.set_inner()`, thenBody: setOps }, nextLine: endLine };
+        return { op: parserGroup(`${accountName}.set_inner()`, setOps), nextLine: endLine };
       }
     }
     return { op: { type: "custom-code", code: line, inputs: [], outputs: [] }, nextLine: currentLine + 1 };
@@ -666,7 +654,7 @@ function tryParseQuasarCpiChain(
               return name ? [name, name] : null;
             }
             return parts;
-          }).filter(Boolean);
+          }).filter((field): field is string[] => field !== null);
           const setOps: LogicOperation[] = fields.map(([f, v]) => ({
             type: "set-field" as const,
             account: accountName,
@@ -675,10 +663,7 @@ function tryParseQuasarCpiChain(
           })).filter(op => op.field);
           if (setOps.length > 0) {
             if (setOps.length === 1) return { op: setOps[0], nextLine: endLine + 1 };
-            return {
-              op: { type: "if-else" as const, condition: `${accountName}.set_inner()`, thenBody: setOps },
-              nextLine: endLine + 1,
-            };
+            return { op: parserGroup(`${accountName}.set_inner()`, setOps), nextLine: endLine + 1 };
           }
         }
       }

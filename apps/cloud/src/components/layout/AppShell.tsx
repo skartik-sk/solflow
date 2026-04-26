@@ -10,8 +10,12 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/workflows", label: "Workflows" },
   { href: "/wallets", label: "Wallets" },
+  { href: "/credentials", label: "Credentials" },
   { href: "/executions", label: "Executions" },
 ];
+
+const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL ?? "https://solstudio.fun";
+const CODE_URL = process.env.NEXT_PUBLIC_CODE_URL ?? "https://code.solstudio.fun";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -42,6 +46,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               ))}
             </div>
+          </div>
+          <div className="hidden items-center gap-3 text-xs text-muted-foreground md:flex">
+            <a href={CODE_URL} className="hover:text-foreground transition-colors">
+              Builder
+            </a>
+            <a href={`${STUDIO_URL}/docs`} className="hover:text-foreground transition-colors">
+              Docs
+            </a>
           </div>
         </div>
       </nav>

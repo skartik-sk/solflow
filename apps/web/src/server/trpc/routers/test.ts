@@ -5,7 +5,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
+import { flowToIR } from "@solflow/ir";
+import { generateCode } from "@solflow/codegen";
 import type { ProgramIR, Account } from "@solflow/ir";
+import type { Node, Edge } from "@xyflow/react";
+import { broadcastToJob } from "@/lib/ws-broadcaster";
+import { runGeneratedProjectTests } from "@/server/test-runner/local-test-runner";
+import type { GeneratedTestRuntime } from "@/server/test-runner/local-test-runner";
 
 // Local alias for Prisma JSON field values (Prisma client is ungenerated/stubbed)
 type PrismaJsonValue =
@@ -126,21 +132,47 @@ export const testRouter = router({
             }),
           )
           .optional(),
+        runtime: z.enum(["cargo-smoke", "surfpool-simnet"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, userId: ctx.session.user.id },
-        select: { id: true, irData: true },
+        select: { id: true, irData: true, flowData: true, framework: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      let irData = project.irData as ProgramIR | null;
+      if (!irData && project.flowData) {
+        try {
+          const fd = project.flowData as unknown as { nodes: Node[]; edges: Edge[] };
+          irData = flowToIR(fd.nodes, fd.edges);
+          await ctx.prisma.project.update({
+            where: { id: project.id },
+            data: { irData: irData as unknown as any },
+          });
+        } catch (err) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `IR generation failed: ${err instanceof Error ? err.message : String(err)}`,
+          });
+        }
+      }
+
+      if (!irData) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Project has no IR or flow data. Add a Program node with at least one connected Instruction.",
+        });
+      }
 
       // Generate test cases from IR if not supplied
       let testCases: TestCase[];
       if (input.testCases) {
         testCases = input.testCases;
-      } else if (project.irData) {
-        testCases = generateDefaultTests(project.irData as ProgramIR);
+      } else if (irData) {
+        testCases = generateDefaultTests(irData);
       } else {
         testCases = [];
       }
@@ -149,73 +181,119 @@ export const testRouter = router({
       const testRun = await ctx.prisma.testRun.create({
         data: {
           projectId: input.projectId,
-          status: "QUEUED",
+          status: "RUNNING",
           testCases: testCases as unknown as any,
         },
       });
 
-      // TODO (Phase 3 full): enqueue Docker test runner via BullMQ.
-      // For now, generate test scaffolding results synchronously.
-      // Each test case is validated against the IR structure (not real execution).
-      const results = testCases.map((tc) => {
-        const ix = (project.irData as ProgramIR)?.instructions.find(
-          (i) => i.name === tc.instruction,
-        );
-        if (!ix) {
-          return {
-            name: tc.name,
-            status: "skipped" as const,
-            duration: 0,
-            error: `Instruction "${tc.instruction}" not found in IR`,
-          };
-        }
-        // Structural validation: check that required signer accounts are provided
-        const missingAccounts = ix.accounts
-          .filter((a) =>
-            a.constraints.some((c) => c.type === "signer"),
-          )
-          .filter((a) => !tc.accounts[a.name] || tc.accounts[a.name] === "");
-        if (tc.expectedResult !== "success" && missingAccounts.length > 0) {
-          return {
-            name: tc.name,
-            status: "passed" as const,
-            duration: 0,
-            error: undefined,
-          };
-        }
-        if (missingAccounts.length > 0) {
-          return {
-            name: tc.name,
+      const framework = project.framework as "ANCHOR" | "PINOCCHIO" | "QUASAR";
+      const codegenFramework = framework.toLowerCase() as
+        | "anchor"
+        | "pinocchio"
+        | "quasar";
+      const generated = generateCode(irData, codegenFramework);
+
+      if (generated.errors.length > 0) {
+        const results = [
+          {
+            name: `${codegenFramework} code generation`,
             status: "failed" as const,
             duration: 0,
-            error: `Missing accounts: ${missingAccounts.map((a) => a.name).join(", ")}`,
-          };
-        }
+            error: generated.errors.map((error) => error.message).join("; "),
+          },
+        ];
+        await ctx.prisma.testRun.update({
+          where: { id: testRun.id },
+          data: {
+            status: "ERROR" as any,
+            results: results as unknown as any,
+            summary: { passed: 0, failed: 1, total: 1 } as unknown as any,
+            logs: results[0].error,
+            completedAt: new Date(),
+            duration: 0,
+          },
+        });
         return {
-          name: tc.name,
-          status: "passed" as const,
-          duration: 0,
-          error: undefined,
+          runId: testRun.id,
+          status: "error",
+          testCases,
+          results: { passed: 0, failed: 1, total: 1 },
+          resultItems: results,
+          logs: [results[0].error],
         };
+      }
+
+      const runResult = await runGeneratedProjectTests({
+        framework,
+        programName: irData.program.name,
+        files: generated.files,
+        runtime: input.runtime ?? getDefaultGeneratedTestRuntime(),
       });
+
+      const results = [
+        {
+          name: `${codegenFramework} ${runResult.runtime === "surfpool-simnet" ? "Surfpool Simnet test" : "cargo smoke test"}`,
+          status: runResult.success ? ("passed" as const) : ("failed" as const),
+          duration: runResult.duration,
+          error: runResult.errors[0],
+        },
+      ];
 
       const passed = results.filter((r) => r.status === "passed").length;
       const failed = results.filter((r) => r.status === "failed").length;
+      const summary = { passed, failed, total: results.length };
 
       await ctx.prisma.testRun.update({
         where: { id: testRun.id },
         data: {
-          status: "COMPLETED" as any,
+          status: runResult.status as any,
           results: results as unknown as any,
+          summary: summary as unknown as any,
+          logs: [
+            `Runtime: ${runResult.runtime}`,
+            runResult.setupCommand ? `Setup: ${runResult.setupCommand}` : null,
+            `Command: ${runResult.command}`,
+            ...runResult.logs,
+            ...runResult.errors.map((error) => `error: ${error}`),
+            ...runResult.warnings.map((warning) => `warning: ${warning}`),
+          ].filter(Boolean).join("\n"),
+          duration: runResult.duration,
           completedAt: new Date(),
         },
       });
 
+      try {
+        for (const result of results) {
+          broadcastToJob(testRun.id, {
+            type: "test-result",
+            jobId: testRun.id,
+            data: {
+              test: result.name,
+              passed: result.status === "passed",
+              time: result.duration,
+              error: result.error,
+            },
+          });
+        }
+        broadcastToJob(testRun.id, {
+          type: "test-complete",
+          jobId: testRun.id,
+          data: { ...summary, duration: runResult.duration },
+        });
+      } catch {
+        // WebSocket server is optional in tests and serverless previews.
+      }
+
       return {
         runId: testRun.id,
-        status: "completed",
+        status: runResult.success ? "passed" : "failed",
         testCases,
-        results: { passed, failed, total: results.length },
+        results: summary,
+        resultItems: results,
+        logs: runResult.logs,
+        runtime: runResult.runtime,
+        errors: runResult.errors,
+        warnings: runResult.warnings,
       };
     }),
 
@@ -252,3 +330,9 @@ export const testRouter = router({
       });
     }),
 });
+
+function getDefaultGeneratedTestRuntime(): GeneratedTestRuntime {
+  return process.env.SOLFLOW_TEST_RUNTIME === "surfpool-simnet"
+    ? "surfpool-simnet"
+    : "cargo-smoke";
+}

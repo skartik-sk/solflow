@@ -134,6 +134,13 @@ export function generateQuasar(ir: ProgramIR): {
   const programId = ir.program.programId;
   const version = ir.program.version;
 
+  for (const integration of ir.integrations) {
+    warnings.push({
+      message: `Plugin integration "${integration.pluginId}:${integration.integrationId}" is not generated for Quasar yet`,
+      nodeId: integration.id,
+    });
+  }
+
   // Determine if any instruction uses SPL tokens
   const usesSpl = ir.instructions.some((ix) =>
     ix.accounts.some(

@@ -5,8 +5,17 @@ import type { SolanaType, Constraint, LogicOperation } from "@solflow/ir";
 // ─── Parse Options ───────────────────────────────────────────────────
 
 export interface ParseOptions {
-  framework?: "anchor" | "pinocchio";
+  framework?: "anchor" | "pinocchio" | "quasar";
   includeLogic?: boolean; // default true
+  sourceCoverage?: SourceCoverageOptions;
+}
+
+export interface SourceCoverageOptions {
+  includeTests?: boolean;
+  includeExamples?: boolean;
+  includeBenches?: boolean;
+  includeMigrations?: boolean;
+  includeHidden?: boolean;
 }
 
 // ─── Parsed Field ────────────────────────────────────────────────────
@@ -53,9 +62,27 @@ export interface ParsedInstruction {
   args: ParsedField[];
   accountsStructName: string;
   description?: string;
-  logicOps: LogicOperation[];
+  logicOps: ParsedLogicOperation[];
   accessControl: "none" | "admin_only" | "custom";
 }
+
+export interface ParserGroupOperation {
+  type: "parser-group";
+  label: string;
+  body: ParsedLogicOperation[];
+}
+
+export interface ParsedIfElseOperation {
+  type: "if-else";
+  condition: string;
+  thenBody: ParsedLogicOperation[];
+  elseBody?: ParsedLogicOperation[];
+}
+
+export type ParsedLogicOperation =
+  | Exclude<LogicOperation, { type: "if-else" }>
+  | ParsedIfElseOperation
+  | ParserGroupOperation;
 
 // ─── Parsed Error ────────────────────────────────────────────────────
 
@@ -106,11 +133,32 @@ export interface ParseStats {
   logicOps: number;
 }
 
+export type ParseFramework = "anchor" | "pinocchio" | "quasar" | "unknown";
+export type ParseConfidence = "high" | "medium" | "low";
+
+export interface ParseReportFile {
+  path: string;
+  status: "parsed" | "skipped";
+  reason?: string;
+}
+
+export interface ParseReport {
+  framework: ParseFramework;
+  filesParsed: number;
+  filesSkipped: number;
+  parsedFiles: ParseReportFile[];
+  skippedFiles: ParseReportFile[];
+  unsupportedConstructs: string[];
+  confidence: ParseConfidence;
+  confidenceReasons: string[];
+}
+
 export interface ParseResult {
   nodes: import("@xyflow/react").Node[];
   edges: import("@xyflow/react").Edge[];
   stats: ParseStats;
   warnings: string[];
+  report: ParseReport;
 }
 
 // ─── Raw structures from a single file ───────────────────────────────

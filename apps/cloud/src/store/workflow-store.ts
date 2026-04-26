@@ -42,7 +42,7 @@ interface WorkflowState {
   setSelectedNode: (nodeId: string | null) => void;
   setSelectedNodeIds: (ids: string[]) => void;
 
-  setWorkflow: (id: string, name: string, nodes: Node[], edges: Edge[]) => void;
+  setWorkflow: (id: string, name: string, nodes: Node[], edges: Edge[], status?: string) => void;
   clearWorkflow: () => void;
   setWorkflowStatus: (status: string) => void;
   markDirty: () => void;
@@ -227,10 +227,11 @@ export const useWorkflowStore = create<WorkflowState>()(
       setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId }),
       setSelectedNodeIds: (ids) => set({ selectedNodeIds: ids }),
 
-      setWorkflow: (id, name, nodes, edges) => {
+      setWorkflow: (id, name, nodes, edges, status) => {
         set({
           workflowId: id,
           workflowName: name,
+          workflowStatus: status ?? "DRAFT",
           nodes,
           edges,
           selectedNodeId: null,

@@ -13,9 +13,13 @@ import {
   TransactionInstruction,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
-import bs58 from "bs58";
 import { readFile } from "fs/promises";
 import { createHash } from "crypto";
+import {
+  encodeSecretKey,
+  isEncryptedSecretKey,
+  keypairFromStoredSecret,
+} from "@/server/secret-key-crypto";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -237,7 +241,7 @@ const _blockhashCache = new Map<string, CachedBlockhash>();
 
 // Periodic cleanup: remove stale blockhash cache entries every 2 minutes
 if (typeof setInterval !== "undefined") {
-  setInterval(() => {
+  const blockhashCleanupInterval = setInterval(() => {
     const now = Date.now();
     for (const [key, entry] of _blockhashCache) {
       if (now - entry.timestamp > BLOCKHASH_CACHE_TTL_MS * 2) {
@@ -245,6 +249,7 @@ if (typeof setInterval !== "undefined") {
       }
     }
   }, 120_000);
+  blockhashCleanupInterval.unref?.();
 }
 
 async function getLatestBlockhash(
@@ -322,11 +327,18 @@ async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
     select: { id: true, deployerKeypair: true },
   });
   if (user?.deployerKeypair) {
-    return Keypair.fromSecretKey(bs58.decode(user.deployerKeypair));
+    const deployerKp = keypairFromStoredSecret(user.deployerKeypair);
+    if (!isEncryptedSecretKey(user.deployerKeypair)) {
+      await ctx.prisma.user.update({
+        where: { id: userId },
+        data: { deployerKeypair: encodeSecretKey(deployerKp.secretKey) },
+      });
+    }
+    return deployerKp;
   }
 
   const deployerKp = Keypair.generate();
-  const encoded = bs58.encode(deployerKp.secretKey);
+  const encoded = encodeSecretKey(deployerKp.secretKey);
 
   // Use update with a where condition that only matches if deployerKeypair is still null
   // This prevents overwriting if another request created it in the meantime
@@ -342,7 +354,7 @@ async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
       select: { deployerKeypair: true },
     });
     if (refreshed?.deployerKeypair) {
-      return Keypair.fromSecretKey(bs58.decode(refreshed.deployerKeypair));
+      return keypairFromStoredSecret(refreshed.deployerKeypair);
     }
   }
 
@@ -363,7 +375,7 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
 
   if (!programSecretKey) {
     const programKp = Keypair.generate();
-    programSecretKey = bs58.encode(programKp.secretKey);
+    programSecretKey = encodeSecretKey(programKp.secretKey);
 
     await ctx.prisma.project.update({
       where: { id: project.id },
@@ -431,7 +443,14 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
   }
 
   const binaryBuffer = await readFile(compilation.binaryUrl);
-  const programKp = Keypair.fromSecretKey(bs58.decode(programSecretKey!));
+  const programKp = keypairFromStoredSecret(programSecretKey!);
+  if (!isEncryptedSecretKey(programSecretKey!)) {
+    programSecretKey = encodeSecretKey(programKp.secretKey);
+    await ctx.prisma.project.update({
+      where: { id: project.id },
+      data: { programKeypair: programSecretKey },
+    });
+  }
 
   return {
     programKp,
@@ -534,7 +553,7 @@ export const deployRouter = router({
       if (deployerPk.equals(programId)) {
         log("WARNING: deployer and program keypairs are the same! Regenerating program keypair…");
         const newProgramKp = Keypair.generate();
-        const newProgramSecretKey = bs58.encode(newProgramKp.secretKey);
+        const newProgramSecretKey = encodeSecretKey(newProgramKp.secretKey);
 
         await ctx.prisma.project.update({
           where: { id: input.projectId },
@@ -1131,7 +1150,8 @@ export const deployRouter = router({
         },
       });
       if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
-      return deployment;
+      const { programKeypair: _programKeypair, ...safeDeployment } = deployment;
+      return safeDeployment;
     }),
 
   history: protectedProcedure
@@ -1143,11 +1163,14 @@ export const deployRouter = router({
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-      return ctx.prisma.deployment.findMany({
+      const deployments = await ctx.prisma.deployment.findMany({
         where: { projectId: input.projectId },
         orderBy: { deployedAt: "desc" },
         take: 20,
       });
+      return deployments.map(
+        ({ programKeypair: _programKeypair, ...deployment }) => deployment,
+      );
     }),
 
   /**
@@ -1166,7 +1189,7 @@ export const deployRouter = router({
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
       const newKp = Keypair.generate();
-      const newSecretKey = bs58.encode(newKp.secretKey);
+      const newSecretKey = encodeSecretKey(newKp.secretKey);
       const newProgramId = newKp.publicKey.toBase58();
 
       await ctx.prisma.project.update({
