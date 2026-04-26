@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
+import { queueExecution, startExecutionWorker } from "../../execution-worker/queue";
 
 export const executionRouter = router({
   list: protectedProcedure
@@ -72,19 +73,9 @@ export const executionRouter = router({
         },
       });
 
-      // TODO: Enqueue BullMQ job for actual execution (Task 10)
-      // For now, mark as running then complete with mock data
-      await ctx.prisma.workflowExecution.update({
-        where: { id: execution.id },
-        data: {
-          status: "SUCCESS",
-          startedAt: new Date(),
-          completedAt: new Date(),
-          duration: 150,
-          nodesExecuted: 1,
-          nodesSucceeded: 1,
-        },
-      });
+      // Start the worker if not already running, then enqueue
+      startExecutionWorker();
+      await queueExecution(execution.id, workflow.id);
 
       return execution;
     }),
