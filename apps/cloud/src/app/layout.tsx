@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono, Bricolage_Grotesque } from "next/font/google";
 import { Toaster } from "sonner";
+import { TRPCProvider } from "@/components/providers/TRPCProvider";
 import "./globals.css";
 
 const inter = Inter({
@@ -36,7 +37,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} ${bricolageGrotesque.variable} font-sans antialiased`}
       >
-        {children}
+        <TRPCProvider>
+          {children}
+        </TRPCProvider>
         <Toaster theme="dark" position="bottom-right" />
       </body>
     </html>
