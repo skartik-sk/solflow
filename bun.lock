@@ -328,6 +328,7 @@
       "name": "@solflow/cloud-wallet",
       "version": "0.0.1",
       "dependencies": {
+        "@solana/web3.js": "^1.98.4",
         "@solflow/cloud-nodes": "workspace:*",
       },
       "devDependencies": {

@@ -9,7 +9,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@solflow/cloud-nodes": "workspace:*"
+    "@solflow/cloud-nodes": "workspace:*",
+    "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
     "@solflow/tsconfig": "workspace:*",
