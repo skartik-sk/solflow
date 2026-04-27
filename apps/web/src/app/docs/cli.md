@@ -2,6 +2,14 @@
 
 The SolStudio CLI is the local-project surface. Use it when the source of truth is on your machine: an Anchor, Pinocchio, Quasar, or unknown Solana project, a single Rust file, or an IDL JSON file.
 
+### Install
+
+```bash
+npm install -g @solstudio/cli
+```
+
+> **Requires** Node.js 18+ or Bun. After install the `solstudio` binary is available globally.
+
 Want practice instead of reference reading? Open the [CLI Learning Path](/docs/learn/cli) and learn the commands with short exercises.
 
 ---

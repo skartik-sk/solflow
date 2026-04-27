@@ -6,11 +6,13 @@ import { useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bot,
+  Check,
   CheckCircle2,
   ChevronRight,
   Clock,
   Cloud,
   Code2,
+  Copy,
   Database,
   Filter,
   GitBranch,
@@ -234,6 +236,36 @@ const visualExercises: Exercise[] = [
     ],
   },
 ];
+
+function CopyableCommand({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    navigator.clipboard.writeText(command).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <div className="mt-2 relative rounded-md border border-border bg-card overflow-hidden">
+      <div className="flex items-center">
+        <code className="flex-1 overflow-x-auto px-3 py-2 font-mono text-xs text-foreground">
+          {command}
+        </code>
+        <button
+          onClick={handleCopy}
+          className="shrink-0 px-2.5 py-2 border-l border-border text-muted-foreground/60 hover:text-foreground transition-colors"
+          aria-label="Copy command"
+        >
+          {copied ? (
+            <Check className="h-3 w-3 text-emerald-400" />
+          ) : (
+            <Copy className="h-3 w-3" />
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 type LessonProperty = {
   label: string;
@@ -2916,6 +2948,12 @@ export function CliLearnClient() {
       description="A focused path for using SolStudio from a terminal. The CLI path is short on purpose: learn the command, when to use it, then practice choosing it."
     >
       <div className="space-y-5">
+        <div className="rounded-lg border border-border/50 bg-background/40 p-4">
+          <p className="text-sm font-semibold text-foreground mb-2">Install the CLI</p>
+          <CopyableCommand command="npm install -g @solstudio/cli" />
+          <p className="mt-2 text-xs text-muted-foreground">Requires Node.js 18+ or Bun. After install the <code className="text-foreground bg-card px-1 py-0.5 rounded text-[11px]">solstudio</code> binary is available globally.</p>
+        </div>
+
         <LessonSection
           number="1"
           title="Understand the local workflow"
@@ -2930,9 +2968,7 @@ export function CliLearnClient() {
                 <p className="text-sm font-semibold text-foreground">
                   {lesson.step}
                 </p>
-                <code className="mt-2 block overflow-x-auto rounded-md border border-border bg-card px-3 py-2 font-mono text-xs text-foreground">
-                  {lesson.command}
-                </code>
+                <CopyableCommand command={lesson.command} />
                 <div className="mt-3 grid gap-2 text-xs leading-relaxed text-muted-foreground md:grid-cols-2">
                   <p>{lesson.why}</p>
                   <p>

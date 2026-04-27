@@ -3,6 +3,7 @@ import path from "path";
 import Link from "next/link";
 import { ArrowLeft, ChevronRight, Play } from "lucide-react";
 import { notFound } from "next/navigation";
+import { CopyBlock } from "../copy-block";
 
 const DOCS_DIR = fs.existsSync(path.join(process.cwd(), "src/app/docs"))
   ? path.join(process.cwd(), "src/app/docs")
@@ -88,21 +89,7 @@ function MarkdownContent({ content }: { content: string }) {
     if (line.startsWith("```")) {
       if (inCodeBlock) {
         elements.push(
-          <div
-            key={key++}
-            className="relative group my-6 overflow-hidden rounded-lg border border-border/60 bg-card"
-          >
-            {codeLang && (
-              <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-                <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-                  {codeLang}
-                </span>
-              </div>
-            )}
-            <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed text-foreground/90 font-mono">
-              <code>{codeBlock.join("\n")}</code>
-            </pre>
-          </div>,
+          <CopyBlock key={key++} code={codeBlock.join("\n")} lang={codeLang || undefined} />,
         );
         codeBlock = [];
         inCodeBlock = false;

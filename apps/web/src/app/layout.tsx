@@ -7,6 +7,7 @@ import { MonitoringProvider } from "@/components/providers/MonitoringProvider";
 import { FloatingBrowser } from "@/components/FloatingBrowser";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://solstudio.fun"),
   title: {
     default: "SolStudio — Visual Solana Contract Builder",
     template: "%s | SolStudio",
@@ -24,6 +25,10 @@ export const metadata: Metadata = {
     "blockchain",
   ],
   authors: [{ name: "SolStudio" }],
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/favicon.svg",
+  },
   openGraph: {
     type: "website",
     locale: "en_US",
@@ -31,12 +36,14 @@ export const metadata: Metadata = {
     description:
       "Build production-ready Solana smart contracts visually. No Rust required.",
     siteName: "SolStudio",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "SolStudio" }],
   },
   twitter: {
     card: "summary_large_image",
     title: "SolStudio — Visual Solana Contract Builder",
     description:
       "Build production-ready Solana smart contracts visually. No Rust required.",
+    images: ["/og.png"],
   },
 };
 

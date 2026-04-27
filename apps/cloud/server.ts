@@ -13,11 +13,22 @@ const port = parseInt(process.env.PORT ?? "3001", 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
+async function startCloudRuntime(): Promise<void> {
+  if (!process.env.DATABASE_URL) {
+    console.warn(
+      "[cloud-startup] Skipping workers/triggers because DATABASE_URL is not configured.",
+    );
+    return;
+  }
+
+  startExecutionWorker();
+  startCronWorker();
+  await getTriggerManager().restoreActiveTriggers();
+}
+
 app.prepare().then(async () => {
   try {
-    startExecutionWorker();
-    startCronWorker();
-    await getTriggerManager().restoreActiveTriggers();
+    await startCloudRuntime();
   } catch (err) {
     console.error("[cloud-startup] Failed to restore workers/triggers:", err);
   }

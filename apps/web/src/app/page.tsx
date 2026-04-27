@@ -197,7 +197,6 @@ export default function HomePage() {
             <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.12 }}
               className="mb-7 max-w-md text-sm text-muted-foreground leading-relaxed">
               Connect nodes, define state, and wire up instructions visually.
-              SolStudio generates production-ready Anchor, Pinocchio, or Quasar code in real-time.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.18 }}
               className="flex flex-col items-center gap-2.5 sm:flex-row">
