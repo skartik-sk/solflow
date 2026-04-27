@@ -1,7 +1,28 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [".env"],
-  "globalEnv": ["NODE_ENV", "DATABASE_URL", "NEXT_PUBLIC_*"],
+  "globalEnv": [
+    "NODE_ENV",
+    "DATABASE_URL",
+    "REDIS_URL",
+    "AUTH_SECRET",
+    "AUTH_URL",
+    "AUTH_TRUST_HOST",
+    "AUTH_GOOGLE_ID",
+    "AUTH_GOOGLE_SECRET",
+    "AUTH_GITHUB_ID",
+    "AUTH_GITHUB_SECRET",
+    "ENCRYPTION_MASTER_KEY",
+    "CLOUD_RUNTIME_MODE",
+    "DEVNET_RPC_URL",
+    "MAINNET_RPC_URL",
+    "LOCALNET_RPC_URL",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "BIRDEYE_API_KEY",
+    "JUPITER_API_KEY",
+    "NEXT_PUBLIC_*"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
