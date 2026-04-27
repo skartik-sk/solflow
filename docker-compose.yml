@@ -57,7 +57,7 @@ services:
       - PORT=3001
       - HOST=0.0.0.0
       - CLOUD_RUNTIME_MODE=api
-      - AUTH_URL=https://cloud.solstudio.fun
+      - AUTH_URL=https://solstudio.fun
       - AUTH_TRUST_HOST=true
       - AUTH_COOKIE_DOMAIN=.solstudio.fun
       - NEXT_PUBLIC_APP_URL=https://solstudio.fun
@@ -87,7 +87,7 @@ services:
     environment:
       - NODE_ENV=production
       - CLOUD_RUNTIME_MODE=worker
-      - AUTH_URL=https://cloud.solstudio.fun
+      - AUTH_URL=https://solstudio.fun
       - AUTH_TRUST_HOST=true
       - AUTH_COOKIE_DOMAIN=.solstudio.fun
       - NEXT_PUBLIC_APP_URL=https://solstudio.fun

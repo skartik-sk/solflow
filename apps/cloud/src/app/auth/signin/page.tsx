@@ -22,6 +22,14 @@ function CloudSignInContent() {
 }
 
 function SignInShell({ callbackUrl }: { callbackUrl: string }) {
+  const getProviderCallbackUrl = () => {
+    if (callbackUrl.startsWith("/")) {
+      return `${window.location.origin}${callbackUrl}`;
+    }
+
+    return callbackUrl;
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm">
@@ -42,7 +50,9 @@ function SignInShell({ callbackUrl }: { callbackUrl: string }) {
         <div className="rounded-lg border border-border bg-card p-6 shadow-lg">
           <div className="flex flex-col gap-3">
             <button
-              onClick={() => signIn("github", { callbackUrl })}
+              onClick={() =>
+                signIn("github", { callbackUrl: getProviderCallbackUrl() })
+              }
               className="flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               <Github className="h-4 w-4" />
@@ -50,7 +60,9 @@ function SignInShell({ callbackUrl }: { callbackUrl: string }) {
             </button>
 
             <button
-              onClick={() => signIn("google", { callbackUrl })}
+              onClick={() =>
+                signIn("google", { callbackUrl: getProviderCallbackUrl() })
+              }
               className="flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               <GoogleIcon />
