@@ -1,15 +1,10 @@
 import Link from "next/link";
 import {
   ArrowLeft,
-  BookOpen,
   ChevronRight,
   Cloud,
-  Code2,
-  GitBranch,
-  Shield,
   Terminal,
   Workflow,
-  Zap,
 } from "lucide-react";
 
 export const metadata = {
@@ -39,34 +34,22 @@ const platformSections = [
 
 const referenceSections = [
   {
-    title: "Getting Started",
-    slug: "getting-started",
-    icon: <Zap size={20} />,
-    desc: "Learn the basics of the visual editor and understand where the three SolStudio platforms fit.",
+    title: "Visual Builder Reference",
+    slug: "visual-editor",
+    icon: <Workflow size={20} />,
+    desc: "Main reference for the editor surface, graph structure, node palette, connections, constraints, and code generation.",
   },
   {
-    title: "Node Reference",
-    slug: "node-reference",
-    icon: <GitBranch size={20} />,
-    desc: "Complete reference for Program, Instruction, Account, State, Constraint, Logic, Error, Event, and Custom Code nodes.",
+    title: "CLI Reference",
+    slug: "cli",
+    icon: <Terminal size={20} />,
+    desc: "Command reference for init, view, parse, IDL import, output formats, local server behavior, and troubleshooting.",
   },
   {
-    title: "Connection Rules",
-    slug: "connection-rules",
-    icon: <BookOpen size={20} />,
-    desc: "What connects to what. Valid handles, invalid edges, and common graph patterns.",
-  },
-  {
-    title: "Code Generation Guide",
-    slug: "codegen-guide",
-    icon: <Code2 size={20} />,
-    desc: "How the graph turns into IR and framework-specific Anchor, Pinocchio, or Quasar Rust code.",
-  },
-  {
-    title: "Flags & Constraints",
-    slug: "flags-and-constraints",
-    icon: <Shield size={20} />,
-    desc: "What mut, signer, init, close, token constraints, and PDA seeds mean.",
+    title: "Cloud Platform Reference",
+    slug: "cloud",
+    icon: <Cloud size={20} />,
+    desc: "Reference for Cloud workflow nodes, trigger-action graph rules, item data, expressions, wallets, credentials, and activation.",
   },
 ];
 

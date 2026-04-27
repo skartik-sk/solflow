@@ -6,6 +6,20 @@ Want the full step-by-step path instead of only reading? Open the [Visual Builde
 
 ---
 
+## Reference Map
+
+The Visual Builder reference owns the deeper Solana-program docs. These are not separate products; they are the detailed parts of building programs visually.
+
+| Section                  | Use it for                                                                                                  | Detailed page                                      |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| First editor walkthrough | Opening the editor, adding first nodes, and generating early                                                | [Getting Started](/docs/getting-started)           |
+| Node behavior            | What each Program, Instruction, Account, State, Constraint, Logic, Error, Event, and Custom Code node means | [Node Reference](/docs/node-reference)             |
+| Valid graph edges        | What connects to what and why the editor rejects invalid handles                                            | [Connection Rules](/docs/connection-rules)         |
+| Generated Rust           | How graph nodes become IR, Anchor, Pinocchio, and Quasar code                                               | [Code Generation Guide](/docs/codegen-guide)       |
+| Account validation       | `mut`, `signer`, `init`, `close`, token constraints, PDA seeds, and bump handling                           | [Flags & Constraints](/docs/flags-and-constraints) |
+
+If you are building a Solana program in SolStudio, start here and use those sections as the detailed reference chapters.
+
 ## What You Build
 
 A visual builder project is a graph:
@@ -20,6 +34,18 @@ A visual builder project is a graph:
 | Behavior       | Logic       | Instruction body operations such as transfers, math, require checks, and event emission |
 
 Start small: one Program, one Instruction, one Account, one State, and one Logic node.
+
+## Editor Surface
+
+| Area               | What it controls                      | Use it when                                                                                                    |
+| ------------------ | ------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Canvas             | Nodes and edges                       | You are modeling program structure                                                                             |
+| Palette            | Available node types                  | You need to add a program, instruction, account, state, constraint, event, error, logic, or custom code        |
+| Properties panel   | Selected node fields                  | You need to name nodes, set account flags, add state fields, configure constraints, or choose logic operations |
+| Output panel       | Generated code, warnings, and exports | You need to verify what the graph produces                                                                     |
+| Connection handles | Valid source and target edges         | You need to express ownership, runtime inputs, validation, or execution order                                  |
+
+The canvas is the source of truth. If a node is missing from the graph, the generator cannot infer it safely. Add the node explicitly, connect it, then inspect generated code.
 
 ## First Flow
 
@@ -49,6 +75,22 @@ Use the handles on each node. The editor rejects invalid edges, so a failed conn
 
 Read [Connection Rules](/docs/connection-rules) when a handle does not connect.
 
+## Node Palette At A Glance
+
+| Node        | Job                                        | Common connection                                                                                |
+| ----------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| Program     | Root metadata and generated module         | `Program -> Instruction`                                                                         |
+| Instruction | Callable entry point                       | `Instruction -> Account`, `Instruction -> Logic`, `Instruction -> Event`, `Instruction -> Error` |
+| Account     | Runtime account passed into an instruction | `Instruction -> Account`, `Account -> Constraint`                                                |
+| State       | Stored data struct                         | `State -> Account`                                                                               |
+| Constraint  | Validation on an account                   | `Account -> Constraint`                                                                          |
+| Logic       | Handler body operation                     | `Instruction -> Logic`, `Logic -> Logic`                                                         |
+| Event       | Structured emitted output                  | `Instruction -> Event`                                                                           |
+| Error       | Custom error enum variant                  | `Instruction -> Error`                                                                           |
+| Custom Code | Escape hatch for unsupported snippets      | Usually attached where generated logic needs a manual block                                      |
+
+Detailed property rules live in [Node Reference](/docs/node-reference). Use that page when you need exact field names, data types, defaults, and framework-specific behavior.
+
 ## Properties Panel
 
 Select a node to edit its properties.
@@ -59,6 +101,22 @@ Select a node to edit its properties.
 - State fields become serialized data in generated state structs.
 - Flags such as `isMut`, `isSigner`, `isInit`, and `isClose` become framework-specific validation code.
 
+## Account Flags And Constraints
+
+Account flags are for common account behavior. Constraint nodes are for explicit validation rules.
+
+| Need                                       | Use             | Example                        |
+| ------------------------------------------ | --------------- | ------------------------------ |
+| Account must be writable                   | Account flag    | `mut`                          |
+| Transaction must include signer            | Account flag    | `signer`                       |
+| Account is created by the instruction      | Account flag    | `init`                         |
+| Account closes after the instruction       | Account flag    | `close`                        |
+| Account must derive from seeds             | Constraint node | PDA seeds and bump             |
+| Account must match another account field   | Constraint node | `has_one = authority`          |
+| Token account must match mint or authority | Constraint node | token mint and token authority |
+
+Read [Flags & Constraints](/docs/flags-and-constraints) when you are modeling PDAs, token accounts, close behavior, or validation that should be visible in generated Rust.
+
 ## Code Generation
 
 The same graph can generate different Rust styles:
@@ -68,6 +126,27 @@ The same graph can generate different Rust styles:
 | Anchor    | You want the most common Solana framework, IDL support, and familiar account validation |
 | Pinocchio | You want low-level, compute-focused, dependency-light programs                          |
 | Quasar    | You want zero-copy performance with a more ergonomic framework surface                  |
+
+Generation flow:
+
+1. The editor reads React Flow nodes and edges.
+2. Nodes become SolStudio IR.
+3. The selected framework adapter turns IR into Rust files.
+4. Warnings are shown when the graph is incomplete or cannot safely map to the target framework.
+
+Read [Code Generation Guide](/docs/codegen-guide) when you need exact IR mapping, framework differences, generated file structure, or deterministic output behavior.
+
+## Visual Builder Reference Chapters
+
+Use these chapters while building:
+
+| Task                               | Open                                               |
+| ---------------------------------- | -------------------------------------------------- |
+| Learn the first editor workflow    | [Getting Started](/docs/getting-started)           |
+| Check what each node property does | [Node Reference](/docs/node-reference)             |
+| Debug why a connection is rejected | [Connection Rules](/docs/connection-rules)         |
+| Understand generated Rust          | [Code Generation Guide](/docs/codegen-guide)       |
+| Model account validation correctly | [Flags & Constraints](/docs/flags-and-constraints) |
 
 ## Visual Builder Checklist
 

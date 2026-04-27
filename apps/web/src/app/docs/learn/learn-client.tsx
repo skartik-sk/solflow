@@ -5,17 +5,24 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import {
   ArrowLeft,
-  BookOpen,
+  Bot,
   CheckCircle2,
   ChevronRight,
+  Clock,
   Cloud,
   Code2,
+  Database,
+  Filter,
   GitBranch,
   Play,
   RotateCcw,
+  Send,
+  Shield,
   Terminal,
+  TrendingUp,
+  Wallet,
   Workflow,
-  XCircle,
+  Zap,
 } from "lucide-react";
 
 type NodeId = string;
@@ -113,30 +120,30 @@ const visualExercises: Exercise[] = [
     title: "Build a vault program",
     goal: "Connect initialize and deposit around a shared vault account, stored Vault state, one authority constraint, and transfer_sol logic.",
     nodes: [
-      { id: "program", label: "Vault Program", type: "Program", x: 250, y: 10 },
+      { id: "program", label: "Vault Program", type: "Program", x: 360, y: 10 },
       {
         id: "initialize",
         label: "initialize",
         type: "Instruction",
-        x: 80,
-        y: 92,
+        x: 140,
+        y: 112,
       },
-      { id: "deposit", label: "deposit", type: "Instruction", x: 420, y: 92 },
-      { id: "vaultAccount", label: "vault", type: "Account", x: 170, y: 178 },
-      { id: "vaultState", label: "Vault", type: "State", x: 18, y: 178 },
+      { id: "deposit", label: "deposit", type: "Instruction", x: 580, y: 112 },
+      { id: "vaultAccount", label: "vault", type: "Account", x: 250, y: 250 },
+      { id: "vaultState", label: "Vault", type: "State", x: 20, y: 250 },
       {
         id: "requireAuthority",
         label: "has_one authority",
         type: "Constraint",
-        x: 315,
-        y: 178,
+        x: 480,
+        y: 250,
       },
       {
         id: "transferSol",
         label: "transfer_sol",
         type: "Logic",
-        x: 468,
-        y: 178,
+        x: 710,
+        y: 250,
       },
     ],
     requiredEdges: [
@@ -165,46 +172,46 @@ const visualExercises: Exercise[] = [
         id: "program",
         label: "Escrow Program",
         type: "Program",
-        x: 250,
+        x: 360,
         y: 10,
       },
       {
         id: "initEscrow",
         label: "initialize_escrow",
         type: "Instruction",
-        x: 70,
-        y: 92,
+        x: 110,
+        y: 112,
       },
       {
         id: "acceptTrade",
         label: "accept_trade",
         type: "Instruction",
-        x: 418,
-        y: 92,
+        x: 640,
+        y: 112,
       },
-      { id: "escrowState", label: "Escrow", type: "State", x: 18, y: 178 },
-      { id: "escrowAccount", label: "escrow", type: "Account", x: 170, y: 178 },
+      { id: "escrowState", label: "Escrow", type: "State", x: 20, y: 250 },
+      { id: "escrowAccount", label: "escrow", type: "Account", x: 250, y: 250 },
       {
         id: "initializerToken",
         label: "initializer_ata",
         type: "Account",
-        x: 320,
-        y: 178,
+        x: 480,
+        y: 250,
       },
-      { id: "vaultToken", label: "vault_ata", type: "Account", x: 470, y: 178 },
+      { id: "vaultToken", label: "vault_ata", type: "Account", x: 710, y: 250 },
       {
         id: "transferTokens",
         label: "transfer_token",
         type: "Logic",
-        x: 250,
-        y: 264,
+        x: 350,
+        y: 365,
       },
       {
         id: "closeEscrow",
         label: "close escrow",
         type: "Constraint",
-        x: 420,
-        y: 264,
+        x: 610,
+        y: 365,
       },
     ],
     requiredEdges: [
@@ -225,6 +232,396 @@ const visualExercises: Exercise[] = [
       "accept_trade executes the token transfer logic.",
       "Close behavior belongs to the escrow account being closed.",
     ],
+  },
+];
+
+type LessonProperty = {
+  label: string;
+  value: string;
+};
+
+type GuidedLessonStep = {
+  id: string;
+  title: string;
+  add: string;
+  configure: LessonProperty[];
+  connect: string;
+  focusNodeId: NodeId;
+  requiredEdges: Edge[];
+  generatedFile: string;
+  generatedCode: string;
+};
+
+const vaultLessonSteps: GuidedLessonStep[] = [
+  {
+    id: "program",
+    title: "Add the Program node",
+    add: "Drag Program from the palette. This becomes the root of the generated Rust crate.",
+    configure: [
+      { label: "name", value: "vault_program" },
+      { label: "version", value: "0.1.0" },
+      { label: "programId", value: "11111111111111111111111111111111" },
+    ],
+    connect:
+      "No connection yet. A Program node is the source for instructions.",
+    focusNodeId: "program",
+    requiredEdges: [],
+    generatedFile: "src/lib.rs",
+    generatedCode: `declare_id!("11111111111111111111111111111111");
+
+#[program]
+pub mod vault_program {
+    use super::*;
+}`,
+  },
+  {
+    id: "initialize",
+    title: "Add initialize and connect it to Program",
+    add: "Drag an Instruction node and name it initialize.",
+    configure: [
+      { label: "name", value: "initialize" },
+      { label: "args", value: "none" },
+      { label: "accessControl", value: "none" },
+    ],
+    connect: "Connect Vault Program -> initialize.",
+    focusNodeId: "initialize",
+    requiredEdges: [{ from: "program", to: "initialize" }],
+    generatedFile: "src/instructions/initialize.rs",
+    generatedCode: `pub fn handler(ctx: Context<Initialize>) -> Result<()> {
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct Initialize<'info> {
+    // accounts are added in the next steps
+}`,
+  },
+  {
+    id: "vault-account",
+    title: "Add the vault account to initialize",
+    add: "Drag an Account node. This is the on-chain account that initialize creates.",
+    configure: [
+      { label: "name", value: "vault" },
+      { label: "accountType", value: "account" },
+      { label: "flags", value: "mut, init" },
+      { label: "payer", value: "authority" },
+      { label: "space", value: "auto" },
+    ],
+    connect: "Connect initialize -> vault.",
+    focusNodeId: "vaultAccount",
+    requiredEdges: [
+      { from: "program", to: "initialize" },
+      { from: "initialize", to: "vaultAccount" },
+    ],
+    generatedFile: "src/instructions/initialize.rs",
+    generatedCode: `#[derive(Accounts)]
+pub struct Initialize<'info> {
+    #[account(init, payer = authority, space = Vault::SPACE)]
+    pub vault: Account<'info, Vault>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}`,
+  },
+  {
+    id: "vault-state",
+    title: "Define Vault state and bind it to the account",
+    add: "Drag a State node. This is the data layout stored inside the vault account.",
+    configure: [
+      { label: "name", value: "Vault" },
+      { label: "field", value: "authority: Pubkey" },
+      { label: "field", value: "total_deposits: u64" },
+    ],
+    connect: "Connect Vault -> vault.",
+    focusNodeId: "vaultState",
+    requiredEdges: [
+      { from: "program", to: "initialize" },
+      { from: "initialize", to: "vaultAccount" },
+      { from: "vaultState", to: "vaultAccount" },
+    ],
+    generatedFile: "src/state/vault.rs",
+    generatedCode: `#[account]
+pub struct Vault {
+    pub authority: Pubkey,
+    pub total_deposits: u64,
+}
+
+impl Vault {
+    pub const SPACE: usize = 8 + 32 + 8;
+}`,
+  },
+  {
+    id: "deposit",
+    title: "Add deposit and reuse the vault account",
+    add: "Drag another Instruction node. This handler receives an amount and writes to the same vault account.",
+    configure: [
+      { label: "name", value: "deposit" },
+      { label: "arg", value: "amount: u64" },
+      { label: "accessControl", value: "none" },
+    ],
+    connect: "Connect Vault Program -> deposit, then deposit -> vault.",
+    focusNodeId: "deposit",
+    requiredEdges: [
+      { from: "program", to: "initialize" },
+      { from: "initialize", to: "vaultAccount" },
+      { from: "vaultState", to: "vaultAccount" },
+      { from: "program", to: "deposit" },
+      { from: "deposit", to: "vaultAccount" },
+    ],
+    generatedFile: "src/instructions/deposit.rs",
+    generatedCode: `pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+    // transfer logic is added in the next step
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(mut)]
+    pub vault: Account<'info, Vault>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+}`,
+  },
+  {
+    id: "constraint",
+    title: "Attach the authority constraint",
+    add: "Drag a Constraint node. This protects the vault so only the recorded authority can deposit through this path.",
+    configure: [
+      { label: "constraintType", value: "has_one" },
+      { label: "field", value: "authority" },
+      { label: "target", value: "authority" },
+    ],
+    connect: "Connect vault -> has_one authority.",
+    focusNodeId: "requireAuthority",
+    requiredEdges: [
+      { from: "program", to: "initialize" },
+      { from: "initialize", to: "vaultAccount" },
+      { from: "vaultState", to: "vaultAccount" },
+      { from: "program", to: "deposit" },
+      { from: "deposit", to: "vaultAccount" },
+      { from: "vaultAccount", to: "requireAuthority" },
+    ],
+    generatedFile: "src/instructions/deposit.rs",
+    generatedCode: `#[derive(Accounts)]
+pub struct Deposit<'info> {
+    #[account(mut, has_one = authority)]
+    pub vault: Account<'info, Vault>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+}`,
+  },
+  {
+    id: "logic",
+    title: "Add transfer_sol logic and generate the handler body",
+    add: "Drag a Logic node and choose transfer-sol. This is the body operation inside deposit.",
+    configure: [
+      { label: "logicType", value: "transfer-sol" },
+      { label: "from", value: "authority" },
+      { label: "to", value: "vault" },
+      { label: "amount", value: "amount" },
+    ],
+    connect: "Connect deposit -> transfer_sol.",
+    focusNodeId: "transferSol",
+    requiredEdges: [
+      { from: "program", to: "initialize" },
+      { from: "initialize", to: "vaultAccount" },
+      { from: "vaultState", to: "vaultAccount" },
+      { from: "program", to: "deposit" },
+      { from: "deposit", to: "vaultAccount" },
+      { from: "vaultAccount", to: "requireAuthority" },
+      { from: "deposit", to: "transferSol" },
+    ],
+    generatedFile: "src/instructions/deposit.rs",
+    generatedCode: `pub fn handler(ctx: Context<Deposit>, amount: u64) -> Result<()> {
+    ctx.accounts.vault.total_deposits =
+        ctx.accounts.vault.total_deposits.checked_add(amount).unwrap();
+
+    // generated transfer_sol operation
+    system_program::transfer(
+        CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.authority.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+            },
+        ),
+        amount,
+    )?;
+
+    Ok(())
+}`,
+  },
+];
+
+const escrowLessonSteps: GuidedLessonStep[] = [
+  {
+    id: "program",
+    title: "Add the Escrow Program node",
+    add: "Drag Program from the palette. This is the root for both escrow instructions.",
+    configure: [
+      { label: "name", value: "escrow_program" },
+      { label: "version", value: "0.1.0" },
+      { label: "programId", value: "11111111111111111111111111111111" },
+    ],
+    connect: "No connection yet. Instructions connect out of this node.",
+    focusNodeId: "program",
+    requiredEdges: [],
+    generatedFile: "src/lib.rs",
+    generatedCode: `declare_id!("11111111111111111111111111111111");
+
+#[program]
+pub mod escrow_program {
+    use super::*;
+}`,
+  },
+  {
+    id: "instructions",
+    title: "Add initialize_escrow and accept_trade",
+    add: "Drag two Instruction nodes: initialize_escrow creates the trade, accept_trade completes it.",
+    configure: [
+      { label: "instruction", value: "initialize_escrow" },
+      { label: "arg", value: "amount_a: u64" },
+      { label: "instruction", value: "accept_trade" },
+      { label: "arg", value: "amount_b: u64" },
+    ],
+    connect:
+      "Connect Escrow Program -> initialize_escrow and Escrow Program -> accept_trade.",
+    focusNodeId: "initEscrow",
+    requiredEdges: [
+      { from: "program", to: "initEscrow" },
+      { from: "program", to: "acceptTrade" },
+    ],
+    generatedFile: "src/lib.rs",
+    generatedCode: `pub fn initialize_escrow(ctx: Context<InitializeEscrow>, amount_a: u64) -> Result<()> {
+    instructions::initialize_escrow::handler(ctx, amount_a)
+}
+
+pub fn accept_trade(ctx: Context<AcceptTrade>, amount_b: u64) -> Result<()> {
+    instructions::accept_trade::handler(ctx, amount_b)
+}`,
+  },
+  {
+    id: "state",
+    title: "Add Escrow state and bind it to the escrow account",
+    add: "Drag State and Account nodes. Escrow state stores the terms between initialize and accept.",
+    configure: [
+      { label: "state", value: "Escrow" },
+      { label: "fields", value: "initializer, mint_a, mint_b" },
+      { label: "fields", value: "amount_a, amount_b, bump" },
+      { label: "account", value: "escrow / init / space auto" },
+    ],
+    connect: "Connect Escrow -> escrow and initialize_escrow -> escrow.",
+    focusNodeId: "escrowState",
+    requiredEdges: [
+      { from: "program", to: "initEscrow" },
+      { from: "program", to: "acceptTrade" },
+      { from: "escrowState", to: "escrowAccount" },
+      { from: "initEscrow", to: "escrowAccount" },
+    ],
+    generatedFile: "src/state/escrow.rs",
+    generatedCode: `#[account]
+pub struct Escrow {
+    pub initializer: Pubkey,
+    pub mint_a: Pubkey,
+    pub mint_b: Pubkey,
+    pub amount_a: u64,
+    pub amount_b: u64,
+    pub bump: u8,
+}`,
+  },
+  {
+    id: "token-accounts",
+    title: "Add token accounts used during initialization",
+    add: "Drag Account nodes for initializer_ata and vault_ata. These represent token accounts, not stored state structs.",
+    configure: [
+      { label: "initializer_ata", value: "associated-token" },
+      { label: "vault_ata", value: "token-account / init" },
+      { label: "tokenMint", value: "mint_a" },
+      { label: "tokenAuthority", value: "escrow" },
+    ],
+    connect:
+      "Connect initialize_escrow -> initializer_ata and initialize_escrow -> vault_ata.",
+    focusNodeId: "initializerToken",
+    requiredEdges: [
+      { from: "program", to: "initEscrow" },
+      { from: "program", to: "acceptTrade" },
+      { from: "escrowState", to: "escrowAccount" },
+      { from: "initEscrow", to: "escrowAccount" },
+      { from: "initEscrow", to: "initializerToken" },
+      { from: "initEscrow", to: "vaultToken" },
+    ],
+    generatedFile: "src/instructions/initialize_escrow.rs",
+    generatedCode: `#[derive(Accounts)]
+pub struct InitializeEscrow<'info> {
+    #[account(mut)]
+    pub initializer_ata: Account<'info, TokenAccount>,
+    #[account(init, payer = initializer, token::mint = mint_a, token::authority = escrow)]
+    pub vault_ata: Account<'info, TokenAccount>,
+}`,
+  },
+  {
+    id: "accept-logic",
+    title: "Connect accept_trade to escrow and transfer logic",
+    add: "Drag Logic and choose transfer-token. accept_trade reads escrow and executes the token movement.",
+    configure: [
+      { label: "logicType", value: "transfer-token" },
+      { label: "from", value: "taker_ata" },
+      { label: "to", value: "initializer_receive_ata" },
+      { label: "authority", value: "taker" },
+    ],
+    connect:
+      "Connect accept_trade -> escrow and accept_trade -> transfer_token.",
+    focusNodeId: "transferTokens",
+    requiredEdges: [
+      { from: "program", to: "initEscrow" },
+      { from: "program", to: "acceptTrade" },
+      { from: "escrowState", to: "escrowAccount" },
+      { from: "initEscrow", to: "escrowAccount" },
+      { from: "initEscrow", to: "initializerToken" },
+      { from: "initEscrow", to: "vaultToken" },
+      { from: "acceptTrade", to: "escrowAccount" },
+      { from: "acceptTrade", to: "transferTokens" },
+    ],
+    generatedFile: "src/instructions/accept_trade.rs",
+    generatedCode: `pub fn handler(ctx: Context<AcceptTrade>, amount_b: u64) -> Result<()> {
+    require!(amount_b == ctx.accounts.escrow.amount_b, EscrowError::InvalidAmount);
+
+    token::transfer(ctx.accounts.transfer_to_initializer_ctx(), amount_b)?;
+    token::transfer(ctx.accounts.release_to_taker_ctx(), ctx.accounts.escrow.amount_a)?;
+
+    Ok(())
+}`,
+  },
+  {
+    id: "close",
+    title: "Close escrow when the trade finishes",
+    add: "Drag a Constraint node for close behavior. The escrow account should return rent after accept_trade.",
+    configure: [
+      { label: "constraintType", value: "close" },
+      { label: "account", value: "escrow" },
+      { label: "closeTarget", value: "initializer" },
+    ],
+    connect: "Connect escrow -> close escrow.",
+    focusNodeId: "closeEscrow",
+    requiredEdges: [
+      { from: "program", to: "initEscrow" },
+      { from: "program", to: "acceptTrade" },
+      { from: "escrowState", to: "escrowAccount" },
+      { from: "initEscrow", to: "escrowAccount" },
+      { from: "initEscrow", to: "initializerToken" },
+      { from: "initEscrow", to: "vaultToken" },
+      { from: "acceptTrade", to: "escrowAccount" },
+      { from: "acceptTrade", to: "transferTokens" },
+      { from: "escrowAccount", to: "closeEscrow" },
+    ],
+    generatedFile: "src/instructions/accept_trade.rs",
+    generatedCode: `#[derive(Accounts)]
+pub struct AcceptTrade<'info> {
+    #[account(mut, close = initializer)]
+    pub escrow: Account<'info, Escrow>,
+    #[account(mut)]
+    pub initializer: SystemAccount<'info>,
+}`,
   },
 ];
 
@@ -339,48 +736,704 @@ const cloudNodeLessons = [
   },
 ];
 
-const cloudTasks = [
+type CloudCategory =
+  | "trigger"
+  | "action"
+  | "transform"
+  | "logic"
+  | "ai"
+  | "output";
+
+type CloudPort = {
+  type: "main" | "ai" | "trigger";
+  label: string;
+};
+
+type CloudLessonNode = {
+  id: NodeId;
+  label: string;
+  type: string;
+  category: CloudCategory;
+  icon:
+    | "Clock"
+    | "TrendingUp"
+    | "Bot"
+    | "GitBranch"
+    | "Send"
+    | "Zap"
+    | "Filter"
+    | "Wallet"
+    | "Workflow";
+  x: number;
+  y: number;
+  inputs: CloudPort[];
+  outputs: CloudPort[];
+  rows: LessonProperty[];
+};
+
+type CloudLessonStep = {
+  id: string;
+  title: string;
+  add: string;
+  configure: LessonProperty[];
+  connect: string;
+  focusNodeId: NodeId;
+  requiredEdges: Edge[];
+  expectedInput: string;
+  expectedOutput: string;
+  executionLog: string[];
+};
+
+type CloudGuidedExercise = {
+  id: "price-monitor" | "swap-guard" | "payout";
+  title: string;
+  goal: string;
+  nodes: CloudLessonNode[];
+  steps: CloudLessonStep[];
+};
+
+const CLOUD_CATEGORY_COLORS: Record<CloudCategory, string> = {
+  trigger: "#22c55e",
+  action: "#3b82f6",
+  transform: "#f59e0b",
+  logic: "#a855f7",
+  ai: "#ec4899",
+  output: "#06b6d4",
+};
+
+const CLOUD_CONNECTION_COLORS: Record<CloudPort["type"], string> = {
+  main: "#3b82f6",
+  ai: "#a855f7",
+  trigger: "#22c55e",
+};
+
+const cloudGuidedExercises: CloudGuidedExercise[] = [
   {
+    id: "price-monitor",
     title: "AI price monitor",
-    goal: "Check price on a schedule, ask AI to classify the move, branch on that decision, then alert.",
-    required: [
-      "Cron Trigger",
-      "Price Fetch",
-      "AI Agent",
-      "If/Else",
-      "Webhook Output",
+    goal: "Cron checks a token price, AI explains the move, If/Else routes the result, and Webhook Output sends the alert.",
+    nodes: [
+      {
+        id: "cron",
+        label: "Cron Trigger",
+        type: "trigger:cron",
+        category: "trigger",
+        icon: "Clock",
+        x: 40,
+        y: 90,
+        inputs: [],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "cron", value: "*/15 * * * *" },
+          { label: "tz", value: "UTC" },
+        ],
+      },
+      {
+        id: "price",
+        label: "Fetch Price",
+        type: "action:price-fetch",
+        category: "action",
+        icon: "TrendingUp",
+        x: 300,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "token", value: "SOL" },
+          { label: "source", value: "birdeye" },
+        ],
+      },
+      {
+        id: "ai",
+        label: "AI Agent",
+        type: "action:ai-agent",
+        category: "ai",
+        icon: "Bot",
+        x: 560,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "model", value: "openai/gpt-4o-mini" },
+          { label: "format", value: "json" },
+        ],
+      },
+      {
+        id: "if",
+        label: "If / Else",
+        type: "logic:if-else",
+        category: "logic",
+        icon: "GitBranch",
+        x: 820,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [
+          { type: "main", label: "true" },
+          { type: "main", label: "false" },
+        ],
+        rows: [
+          { label: "field", value: "alert" },
+          { label: "operator", value: "truthy" },
+        ],
+      },
+      {
+        id: "webhook",
+        label: "Webhook Output",
+        type: "output:webhook",
+        category: "output",
+        icon: "Send",
+        x: 1080,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "response" }],
+        rows: [
+          { label: "method", value: "POST" },
+          { label: "body", value: "summary" },
+        ],
+      },
     ],
-    options: [
-      "Manual Trigger",
-      "Cron Trigger",
-      "Price Fetch",
-      "AI Agent",
-      "If/Else",
-      "Jupiter Swap",
-      "Webhook Output",
+    steps: [
+      {
+        id: "cron",
+        title: "Add Cron Trigger",
+        add: "Drag Cron Trigger from Triggers. It starts the workflow without manual clicks.",
+        configure: [
+          { label: "cronExpression", value: "*/15 * * * *" },
+          { label: "timezone", value: "UTC" },
+        ],
+        connect: "No input. This is the first source node.",
+        focusNodeId: "cron",
+        requiredEdges: [],
+        expectedInput: "None. Triggers create the first workflow item.",
+        expectedOutput: '{ triggered: true, triggerType: "cron", timestamp }',
+        executionLog: [
+          "Cron Trigger scheduled every 15 minutes.",
+          "Emitted one workflow item with trigger metadata.",
+        ],
+      },
+      {
+        id: "price",
+        title: "Fetch market data",
+        add: "Drag Fetch Price from Actions. This enriches the trigger item with price data.",
+        configure: [
+          { label: "token", value: "SOL" },
+          { label: "source", value: "birdeye" },
+          { label: "credentialId", value: "optional" },
+        ],
+        connect: "Connect Cron Trigger output -> Fetch Price input.",
+        focusNodeId: "price",
+        requiredEdges: [{ from: "cron", to: "price" }],
+        expectedInput: "{ triggered, timestamp }",
+        expectedOutput: "{ token, priceUsd, source, fetchedAt }",
+        executionLog: [
+          "Received trigger item.",
+          "Fetched SOL price from Birdeye.",
+          "Attached priceUsd and fetchedAt to item.json.",
+        ],
+      },
+      {
+        id: "ai",
+        title: "Ask AI to classify the move",
+        add: "Drag AI Agent from AI. It should turn price data into a structured decision.",
+        configure: [
+          { label: "model", value: "gpt-4o-mini" },
+          { label: "responseFormat", value: "json" },
+          { label: "prompt", value: "Return { alert, summary, risk }" },
+        ],
+        connect: "Connect Fetch Price output -> AI Agent input.",
+        focusNodeId: "ai",
+        requiredEdges: [
+          { from: "cron", to: "price" },
+          { from: "price", to: "ai" },
+        ],
+        expectedInput: "{ token, priceUsd, source, fetchedAt }",
+        expectedOutput: "{ alert: boolean, summary: string, risk: string }",
+        executionLog: [
+          "Resolved expression values from price item.",
+          "Called AI provider with JSON response format.",
+          "Merged AI decision into workflow item.",
+        ],
+      },
+      {
+        id: "if",
+        title: "Branch on AI output",
+        add: "Drag If / Else from Logic. It routes only alert-worthy items to the notification step.",
+        configure: [
+          { label: "field", value: "alert" },
+          { label: "operator", value: "truthy" },
+        ],
+        connect: "Connect AI Agent output -> If / Else input.",
+        focusNodeId: "if",
+        requiredEdges: [
+          { from: "cron", to: "price" },
+          { from: "price", to: "ai" },
+          { from: "ai", to: "if" },
+        ],
+        expectedInput: "{ alert, summary, risk }",
+        expectedOutput:
+          "true output receives alert items; false output receives quiet items",
+        executionLog: [
+          "Evaluated item.json.alert.",
+          "Routed alert item through true output.",
+        ],
+      },
+      {
+        id: "webhook",
+        title: "Send the alert",
+        add: "Drag Webhook Output from Output. This reports the AI summary to your app, Discord bridge, or backend.",
+        configure: [
+          { label: "url", value: "https://example.com/alerts" },
+          { label: "method", value: "POST" },
+          { label: "body", value: "{{ $json.summary }}" },
+        ],
+        connect: "Connect If / Else true -> Webhook Output input.",
+        focusNodeId: "webhook",
+        requiredEdges: [
+          { from: "cron", to: "price" },
+          { from: "price", to: "ai" },
+          { from: "ai", to: "if" },
+          { from: "if", to: "webhook" },
+        ],
+        expectedInput: "{ alert: true, summary, risk }",
+        expectedOutput: "{ status, response, sentAt }",
+        executionLog: [
+          "Built POST body from item.json.summary.",
+          "Sent webhook request.",
+          "Stored response status in output item.",
+        ],
+      },
     ],
   },
   {
+    id: "swap-guard",
     title: "AI-assisted swap guard",
-    goal: "Receive a webhook, fetch price, let AI review risk, then swap only after the branch passes.",
-    required: [
-      "Webhook Trigger",
-      "Price Fetch",
-      "AI Agent",
-      "If/Else",
-      "Jupiter Swap",
-      "Webhook Output",
+    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter Swap executes, then Webhook Output reports the signature.",
+    nodes: [
+      {
+        id: "webhookTrigger",
+        label: "Webhook Trigger",
+        type: "trigger:webhook",
+        category: "trigger",
+        icon: "Workflow",
+        x: 40,
+        y: 90,
+        inputs: [],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "path", value: "/trade-signal" },
+          { label: "method", value: "POST" },
+        ],
+      },
+      {
+        id: "price",
+        label: "Fetch Price",
+        type: "action:price-fetch",
+        category: "action",
+        icon: "TrendingUp",
+        x: 300,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "token", value: "{{ tokenIn }}" },
+          { label: "source", value: "dexscreener" },
+        ],
+      },
+      {
+        id: "ai",
+        label: "AI Agent",
+        type: "action:ai-agent",
+        category: "ai",
+        icon: "Bot",
+        x: 560,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "model", value: "gpt-4o-mini" },
+          { label: "format", value: "json" },
+        ],
+      },
+      {
+        id: "if",
+        label: "If / Else",
+        type: "logic:if-else",
+        category: "logic",
+        icon: "GitBranch",
+        x: 820,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [
+          { type: "main", label: "true" },
+          { type: "main", label: "false" },
+        ],
+        rows: [
+          { label: "field", value: "approved" },
+          { label: "operator", value: "truthy" },
+        ],
+      },
+      {
+        id: "swap",
+        label: "Jupiter Swap",
+        type: "action:jupiter-swap",
+        category: "action",
+        icon: "Zap",
+        x: 1080,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "wallet", value: "trading" },
+          { label: "slippage", value: "50 bps" },
+        ],
+      },
+      {
+        id: "webhook",
+        label: "Webhook Output",
+        type: "output:webhook",
+        category: "output",
+        icon: "Send",
+        x: 1340,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "response" }],
+        rows: [
+          { label: "method", value: "POST" },
+          { label: "body", value: "signature" },
+        ],
+      },
     ],
-    options: [
-      "Webhook Trigger",
-      "Manual Trigger",
-      "Price Fetch",
-      "AI Agent",
-      "If/Else",
-      "Jupiter Swap",
-      "Token Transfer",
-      "Webhook Output",
+    steps: [
+      {
+        id: "webhook",
+        title: "Receive a trade signal",
+        add: "Drag Webhook Trigger. It starts this workflow from your bot, backend, or alerting system.",
+        configure: [
+          { label: "path", value: "/trade-signal" },
+          { label: "method", value: "POST" },
+        ],
+        connect: "No input. This is the source node.",
+        focusNodeId: "webhookTrigger",
+        requiredEdges: [],
+        expectedInput: "HTTP POST body from your app",
+        expectedOutput: "{ tokenIn, tokenOut, amount, reason }",
+        executionLog: [
+          "Accepted POST /trade-signal.",
+          "Normalized body into one workflow item.",
+        ],
+      },
+      {
+        id: "price",
+        title: "Fetch price for the signal",
+        add: "Drag Fetch Price. Use expressions so the token comes from the webhook body.",
+        configure: [
+          { label: "token", value: "{{ $json.tokenIn }}" },
+          { label: "source", value: "dexscreener" },
+        ],
+        connect: "Connect Webhook Trigger output -> Fetch Price input.",
+        focusNodeId: "price",
+        requiredEdges: [{ from: "webhookTrigger", to: "price" }],
+        expectedInput: "{ tokenIn, tokenOut, amount }",
+        expectedOutput: "{ tokenIn, tokenOut, amount, priceUsd, liquidityUsd }",
+        executionLog: [
+          "Read tokenIn from webhook item.",
+          "Fetched price and liquidity data.",
+        ],
+      },
+      {
+        id: "ai",
+        title: "Ask AI to approve or reject",
+        add: "Drag AI Agent. It scores risk before the workflow can swap.",
+        configure: [
+          { label: "prompt", value: "Return { approved, reason }" },
+          { label: "responseFormat", value: "json" },
+          { label: "temperature", value: "0.2" },
+        ],
+        connect: "Connect Fetch Price output -> AI Agent input.",
+        focusNodeId: "ai",
+        requiredEdges: [
+          { from: "webhookTrigger", to: "price" },
+          { from: "price", to: "ai" },
+        ],
+        expectedInput: "{ priceUsd, liquidityUsd, amount, reason }",
+        expectedOutput: "{ approved: boolean, reason: string }",
+        executionLog: [
+          "Built AI prompt from signal and price data.",
+          "Returned structured approval decision.",
+        ],
+      },
+      {
+        id: "if",
+        title: "Branch on approval",
+        add: "Drag If / Else. It protects the swap action from running on rejected signals.",
+        configure: [
+          { label: "field", value: "approved" },
+          { label: "operator", value: "truthy" },
+        ],
+        connect: "Connect AI Agent output -> If / Else input.",
+        focusNodeId: "if",
+        requiredEdges: [
+          { from: "webhookTrigger", to: "price" },
+          { from: "price", to: "ai" },
+          { from: "ai", to: "if" },
+        ],
+        expectedInput: "{ approved, reason }",
+        expectedOutput:
+          "true output continues to swap; false output stops or reports rejection",
+        executionLog: [
+          "Checked approved flag.",
+          "Routed approved item to true output.",
+        ],
+      },
+      {
+        id: "swap",
+        title: "Execute Jupiter swap",
+        add: "Drag Jupiter Swap. This is the wallet action, so it should come after the approval branch.",
+        configure: [
+          { label: "walletId", value: "trading-wallet" },
+          { label: "inputMint", value: "{{ $json.tokenIn }}" },
+          { label: "outputMint", value: "{{ $json.tokenOut }}" },
+          { label: "amount", value: "{{ $json.amount }}" },
+        ],
+        connect: "Connect If / Else true -> Jupiter Swap input.",
+        focusNodeId: "swap",
+        requiredEdges: [
+          { from: "webhookTrigger", to: "price" },
+          { from: "price", to: "ai" },
+          { from: "ai", to: "if" },
+          { from: "if", to: "swap" },
+        ],
+        expectedInput: "{ tokenIn, tokenOut, amount, approved: true }",
+        expectedOutput: "{ signature, inputMint, outputMint, amountOut }",
+        executionLog: [
+          "Requested quote from Jupiter.",
+          "Signed transaction with selected wallet.",
+          "Sent swap and captured signature.",
+        ],
+      },
+      {
+        id: "report",
+        title: "Report the result",
+        add: "Drag Webhook Output. Send the transaction signature back to your app.",
+        configure: [
+          { label: "url", value: "https://example.com/swap-result" },
+          { label: "body", value: "{{ $json.signature }}" },
+        ],
+        connect: "Connect Jupiter Swap output -> Webhook Output input.",
+        focusNodeId: "webhook",
+        requiredEdges: [
+          { from: "webhookTrigger", to: "price" },
+          { from: "price", to: "ai" },
+          { from: "ai", to: "if" },
+          { from: "if", to: "swap" },
+          { from: "swap", to: "webhook" },
+        ],
+        expectedInput: "{ signature, amountOut }",
+        expectedOutput: "{ status: 200, sentAt }",
+        executionLog: ["Built response payload.", "Sent result webhook."],
+      },
     ],
+  },
+  {
+    id: "payout",
+    title: "Manual token payout",
+    goal: "Manual trigger sends tokens from a selected wallet, waits briefly, then reports the transfer signature.",
+    nodes: [
+      {
+        id: "manual",
+        label: "Manual Trigger",
+        type: "trigger:manual",
+        category: "trigger",
+        icon: "Workflow",
+        x: 40,
+        y: 90,
+        inputs: [],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [{ label: "mode", value: "click Run" }],
+      },
+      {
+        id: "transfer",
+        label: "Token Transfer",
+        type: "action:token-transfer",
+        category: "action",
+        icon: "Wallet",
+        x: 300,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "output" }],
+        rows: [
+          { label: "wallet", value: "ops" },
+          { label: "amount", value: "10" },
+        ],
+      },
+      {
+        id: "filter",
+        label: "Filter",
+        type: "transform:filter",
+        category: "transform",
+        icon: "Filter",
+        x: 560,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "matched" }],
+        rows: [
+          { label: "field", value: "signature" },
+          { label: "operator", value: "exists" },
+        ],
+      },
+      {
+        id: "webhook",
+        label: "Webhook Output",
+        type: "output:webhook",
+        category: "output",
+        icon: "Send",
+        x: 820,
+        y: 90,
+        inputs: [{ type: "main", label: "input" }],
+        outputs: [{ type: "main", label: "response" }],
+        rows: [
+          { label: "method", value: "POST" },
+          { label: "body", value: "signature" },
+        ],
+      },
+    ],
+    steps: [
+      {
+        id: "manual",
+        title: "Start with Manual Trigger",
+        add: "Drag Manual Trigger. Use this for operator-controlled workflows and tests.",
+        configure: [{ label: "mode", value: "manual run" }],
+        connect: "No input. This is the source node.",
+        focusNodeId: "manual",
+        requiredEdges: [],
+        expectedInput: "None",
+        expectedOutput: "{ triggered: true, triggerType: 'manual' }",
+        executionLog: ["Manual run started.", "Emitted one trigger item."],
+      },
+      {
+        id: "transfer",
+        title: "Transfer tokens",
+        add: "Drag Token Transfer. This wallet action sends SPL tokens to a recipient.",
+        configure: [
+          { label: "walletId", value: "ops-wallet" },
+          { label: "mint", value: "USDC" },
+          { label: "recipient", value: "recipient pubkey" },
+          { label: "amount", value: "10" },
+        ],
+        connect: "Connect Manual Trigger output -> Token Transfer input.",
+        focusNodeId: "transfer",
+        requiredEdges: [{ from: "manual", to: "transfer" }],
+        expectedInput: "{ triggered: true }",
+        expectedOutput: "{ signature, mint, recipient, amount }",
+        executionLog: [
+          "Loaded selected wallet public key.",
+          "Built token transfer transaction.",
+          "Signed and sent transaction.",
+        ],
+      },
+      {
+        id: "filter",
+        title: "Verify signature exists",
+        add: "Drag Filter. It keeps only successful transfer outputs before reporting.",
+        configure: [
+          { label: "field", value: "signature" },
+          { label: "operator", value: "exists" },
+        ],
+        connect: "Connect Token Transfer output -> Filter input.",
+        focusNodeId: "filter",
+        requiredEdges: [
+          { from: "manual", to: "transfer" },
+          { from: "transfer", to: "filter" },
+        ],
+        expectedInput: "{ signature, mint, recipient, amount }",
+        expectedOutput: "matched output keeps successful transfer item",
+        executionLog: [
+          "Checked signature field.",
+          "Forwarded successful transfer item.",
+        ],
+      },
+      {
+        id: "report",
+        title: "Report payout result",
+        add: "Drag Webhook Output and send the transfer signature to your backend.",
+        configure: [
+          { label: "url", value: "https://example.com/payouts" },
+          { label: "body", value: "{{ $json.signature }}" },
+        ],
+        connect: "Connect Filter matched -> Webhook Output input.",
+        focusNodeId: "webhook",
+        requiredEdges: [
+          { from: "manual", to: "transfer" },
+          { from: "transfer", to: "filter" },
+          { from: "filter", to: "webhook" },
+        ],
+        expectedInput: "{ signature, recipient, amount }",
+        expectedOutput: "{ status, response }",
+        executionLog: [
+          "Built payout report body.",
+          "Sent webhook with transfer signature.",
+        ],
+      },
+    ],
+  },
+];
+
+const cloudNodeCards = [
+  {
+    node: cloudGuidedExercises[2].nodes[0],
+    use: cloudNodeLessons[0].use,
+    connects: cloudNodeLessons[0].connects,
+    expects: "None. The operator clicks Run.",
+    output: "{ triggered: true, triggerType: 'manual' }",
+  },
+  {
+    node: cloudGuidedExercises[0].nodes[0],
+    use: cloudNodeLessons[1].use,
+    connects: cloudNodeLessons[1].connects,
+    expects: "None. The schedule creates the workflow item.",
+    output: "{ triggered: true, timestamp, schedule }",
+  },
+  {
+    node: cloudGuidedExercises[1].nodes[0],
+    use: cloudNodeLessons[2].use,
+    connects: cloudNodeLessons[2].connects,
+    expects: "HTTP request body from an external app.",
+    output: "{ body, headers, method, path }",
+  },
+  {
+    node: cloudGuidedExercises[0].nodes[1],
+    use: cloudNodeLessons[3].use,
+    connects: cloudNodeLessons[3].connects,
+    expects: "{ token, timestamp } or a token expression.",
+    output: "{ token, priceUsd, source, fetchedAt }",
+  },
+  {
+    node: cloudGuidedExercises[0].nodes[2],
+    use: cloudNodeLessons[4].use,
+    connects: cloudNodeLessons[4].connects,
+    expects: "Any item with the fields referenced by the prompt.",
+    output: "{ decision fields requested in responseFormat }",
+  },
+  {
+    node: cloudGuidedExercises[1].nodes[4],
+    use: cloudNodeLessons[5].use,
+    connects: cloudNodeLessons[5].connects,
+    expects: "{ inputMint, outputMint, amount, walletId }",
+    output: "{ signature, amountOut, route }",
+  },
+  {
+    node: cloudGuidedExercises[2].nodes[1],
+    use: cloudNodeLessons[6].use,
+    connects: cloudNodeLessons[6].connects,
+    expects: "{ mint, recipient, amount, walletId }",
+    output: "{ signature, mint, recipient, amount }",
+  },
+  {
+    node: cloudGuidedExercises[0].nodes[4],
+    use: cloudNodeLessons[7].use,
+    connects: cloudNodeLessons[7].connects,
+    expects: "The final item from an action, AI, filter, or branch.",
+    output: "{ status, response, sentAt }",
   },
 ];
 
@@ -404,9 +1457,9 @@ function nodeColor(type: string) {
 }
 
 function buildPath(from: ExerciseNode, to: ExerciseNode) {
-  const startX = from.x + 60;
-  const startY = from.y + 52;
-  const endX = to.x + 60;
+  const startX = from.x + 100;
+  const startY = from.y + 96;
+  const endX = to.x + 100;
   const endY = to.y;
   const midY = (startY + endY) / 2;
   return `M${startX} ${startY} C${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
@@ -514,44 +1567,263 @@ function LessonSection({
   );
 }
 
-function MiniNode({ type, label }: { type: string; label?: string }) {
+function accentForNode(type: string) {
+  if (type === "Program") return "#4a47a3";
+  if (type === "Instruction") return "#2563eb";
+  if (type === "Account") return "#16a34a";
+  if (type === "State") return "#7c3aed";
+  if (type === "Constraint") return "#ea580c";
+  if (type === "Event") return "#eab308";
+  if (type === "Error") return "#dc2626";
+  return "#0d9488";
+}
+
+const HANDLE_COLORS: Record<string, string> = {
+  "instruction-in": "#2563eb",
+  "instruction-out": "#2563eb",
+  "account-in": "#16a34a",
+  "account-out": "#16a34a",
+  "data-in": "#7c3aed",
+  "data-out": "#7c3aed",
+  "constraint-in": "#ea580c",
+  "constraint-out": "#ea580c",
+  "logic-in": "#0d9488",
+  "logic-out": "#0d9488",
+  "event-out": "#eab308",
+  "error-out": "#dc2626",
+};
+
+function iconForNode(type: string) {
+  if (type === "Program") return <Code2 size={10} />;
+  if (type === "Instruction") return <Zap size={10} />;
+  if (type === "Account") return <Wallet size={10} />;
+  if (type === "State") return <Database size={10} />;
+  if (type === "Constraint") return <Shield size={10} />;
+  if (type === "Event") return <GitBranch size={10} />;
+  return <Workflow size={10} />;
+}
+
+function handlesForNode(type: string) {
+  if (type === "Program") {
+    return [{ kind: "instruction-out", side: "bottom" as const }];
+  }
+  if (type === "Instruction") {
+    return [
+      { kind: "instruction-in", side: "top" as const },
+      { kind: "account-out", side: "right" as const, top: "38%" },
+      { kind: "logic-out", side: "bottom" as const },
+      { kind: "error-out", side: "left" as const, top: "38%" },
+      { kind: "event-out", side: "left" as const, top: "62%" },
+    ];
+  }
+  if (type === "Account") {
+    return [
+      { kind: "account-in", side: "top" as const },
+      { kind: "constraint-out", side: "right" as const },
+      { kind: "data-in", side: "left" as const },
+    ];
+  }
+  if (type === "State") {
+    return [{ kind: "data-out", side: "right" as const }];
+  }
+  if (type === "Constraint") {
+    return [{ kind: "constraint-in", side: "left" as const }];
+  }
+  return [
+    { kind: "logic-in", side: "top" as const },
+    { kind: "logic-out", side: "bottom" as const },
+  ];
+}
+
+function LessonHandle({
+  kind,
+  side,
+  top,
+}: {
+  kind: string;
+  side: "top" | "right" | "bottom" | "left";
+  top?: string;
+}) {
+  const color = HANDLE_COLORS[kind] ?? "#4a47a3";
+  const positionClass =
+    side === "top"
+      ? "left-1/2 top-[-6px] -translate-x-1/2"
+      : side === "bottom"
+        ? "bottom-[-6px] left-1/2 -translate-x-1/2"
+        : side === "right"
+          ? "right-[-6px] -translate-y-1/2"
+          : "left-[-6px] -translate-y-1/2";
+
   return (
-    <div className={`rounded-lg border p-3 ${nodeColor(type)}`}>
-      <p className="truncate text-xs font-semibold">{label ?? type}</p>
-      <p className="mt-1 text-[10px] text-muted-foreground">{type}</p>
+    <span
+      title={kind.replace(/-/g, " ")}
+      className={`absolute h-3 w-3 rounded-full border-2 border-background ${positionClass}`}
+      style={{
+        background: color,
+        top: side === "left" || side === "right" ? (top ?? "50%") : undefined,
+      }}
+    />
+  );
+}
+
+function rowsForNode(node: ExerciseNode): LessonProperty[] {
+  if (node.type === "Program") {
+    return [
+      { label: "name", value: node.label.toLowerCase().replace(/\s+/g, "_") },
+      { label: "version", value: "0.1.0" },
+    ];
+  }
+  if (node.type === "Instruction") {
+    return [
+      { label: "fn", value: node.label },
+      { label: "args", value: node.label.includes("deposit") ? "1" : "0" },
+    ];
+  }
+  if (node.type === "Account") {
+    return [
+      { label: "name", value: node.label },
+      {
+        label: "type",
+        value: node.label.includes("ata") ? "token-account" : "account",
+      },
+    ];
+  }
+  if (node.type === "State") {
+    return [
+      { label: "struct", value: node.label },
+      { label: "fields", value: node.label === "Vault" ? "2" : "6" },
+    ];
+  }
+  if (node.type === "Constraint") {
+    return [
+      { label: "rule", value: node.label },
+      { label: "target", value: "account" },
+    ];
+  }
+  return [
+    { label: "logic", value: node.label },
+    { label: "order", value: "1" },
+  ];
+}
+
+function StaticEditorNode({ type, label }: { type: string; label?: string }) {
+  const accent = accentForNode(type);
+  return (
+    <div
+      className="relative min-h-[96px] min-w-[200px] rounded-xl border border-border bg-card text-card-foreground shadow-lg shadow-black/30"
+      style={{ borderLeft: `3px solid ${accent}` }}
+    >
+      <div className="flex items-center gap-2 rounded-t-xl border-b border-border px-3 py-2">
+        <span
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px]"
+          style={{ background: `${accent}22`, color: accent }}
+        >
+          {iconForNode(type)}
+        </span>
+        <span className="truncate text-xs font-semibold leading-none tracking-wide">
+          {label ?? type}
+        </span>
+      </div>
+      <div className="space-y-1 px-3 py-2 text-xs text-muted-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground/70">type</span>
+          <span className="truncate max-w-[110px] text-right font-mono">
+            {type}
+          </span>
+        </div>
+      </div>
+      {handlesForNode(type).map((handle) => (
+        <LessonHandle key={handle.kind} {...handle} />
+      ))}
     </div>
   );
 }
 
-function VisualPractice({
+function EditorLessonNode({
+  node,
+  selected,
+  active,
+  onClick,
+}: {
+  node: ExerciseNode;
+  selected: boolean;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const accent = accentForNode(node.type);
+  const rows = rowsForNode(node);
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ left: node.x, top: node.y, borderLeft: `3px solid ${accent}` }}
+      className={`absolute min-h-[96px] w-[200px] rounded-xl border bg-card text-left text-card-foreground shadow-lg shadow-black/30 transition-all hover:border-border/80 focus-visible:ring-2 focus-visible:ring-ring ${
+        active ? "border-primary shadow-primary/20" : "border-border"
+      } ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+    >
+      <div className="flex items-center gap-2 rounded-t-xl border-b border-border px-3 py-2">
+        <span
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px]"
+          style={{ background: `${accent}22`, color: accent }}
+        >
+          {iconForNode(node.type)}
+        </span>
+        <span className="truncate text-xs font-semibold leading-none tracking-wide">
+          {node.label}
+        </span>
+      </div>
+      <div className="space-y-1 px-3 py-2 text-xs text-muted-foreground">
+        {rows.map((row) => (
+          <div
+            key={`${row.label}-${row.value}`}
+            className="flex items-center justify-between gap-2"
+          >
+            <span className="text-muted-foreground/70">{row.label}</span>
+            <span className="truncate max-w-[120px] text-right font-mono text-[10px]">
+              {row.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      {handlesForNode(node.type).map((handle) => (
+        <LessonHandle key={handle.kind} {...handle} />
+      ))}
+    </button>
+  );
+}
+
+function GuidedProgramBuilder({
   defaultExercise = "vault",
 }: {
-  defaultExercise?: string;
+  defaultExercise?: "vault" | "escrow";
 }) {
-  const [exerciseId, setExerciseId] = useState(defaultExercise);
+  const [exerciseId, setExerciseId] = useState<"vault" | "escrow">(
+    defaultExercise,
+  );
+  const [stepIndex, setStepIndex] = useState(0);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [selected, setSelected] = useState<NodeId | null>(null);
   const [result, setResult] = useState("");
-  const [hintIndex, setHintIndex] = useState(0);
   const exercise =
     visualExercises.find((item) => item.id === exerciseId) ??
     visualExercises[0];
+  const steps = exerciseId === "vault" ? vaultLessonSteps : escrowLessonSteps;
+  const currentStep = steps[stepIndex];
+  const [completed, setCompleted] = useState<Set<string>>(new Set());
   const nodeMap = useMemo(
     () => new Map(exercise.nodes.map((node) => [node.id, node])),
     [exercise],
   );
-  const correctCount = edges.filter((edge) =>
-    exercise.requiredEdges.some(
-      (required) => required.from === edge.from && required.to === edge.to,
-    ),
-  ).length;
+  const currentComplete = completed.has(currentStep.id);
 
-  function switchExercise(id: string) {
+  function switchExercise(id: "vault" | "escrow") {
     setExerciseId(id);
+    setStepIndex(0);
     setEdges([]);
     setSelected(null);
     setResult("");
-    setHintIndex(0);
+    setCompleted(new Set());
   }
 
   function handleNodeClick(id: NodeId) {
@@ -569,171 +1841,267 @@ function VisualPractice({
     const exists = edges.some((edge) => edgeKey(edge) === edgeKey(nextEdge));
     setEdges(exists ? edges : [...edges, nextEdge]);
     setSelected(null);
-    setResult("Connection added. Hit Run when the graph looks right.");
+    setResult(
+      "Connection added. Run the step check when it matches the instruction.",
+    );
   }
 
   function runCheck() {
     const made = new Set(edges.map(edgeKey));
-    const missing = exercise.requiredEdges.filter(
+    const missing = currentStep.requiredEdges.filter(
       (edge) => !made.has(edgeKey(edge)),
     );
-    const extra = edges.filter(
-      (edge) =>
-        !exercise.requiredEdges.some(
-          (required) => edgeKey(required) === edgeKey(edge),
-        ),
-    );
 
-    if (missing.length === 0 && extra.length === 0) {
-      setResult("Correct. This graph has the required SolStudio connections.");
+    if (missing.length === 0) {
+      const nextCompleted = new Set(completed);
+      nextCompleted.add(currentStep.id);
+      setCompleted(nextCompleted);
+      setResult("Step verified. The generated code preview is unlocked.");
       return;
     }
-    if (missing.length > 0) {
-      const firstMissing = missing[0];
-      setResult(
-        `Missing: ${nodeMap.get(firstMissing.from)?.label} -> ${nodeMap.get(firstMissing.to)?.label}`,
-      );
-      return;
-    }
-    const firstExtra = extra[0];
+
+    const firstMissing = missing[0];
     setResult(
-      `Check this edge: ${nodeMap.get(firstExtra.from)?.label} -> ${nodeMap.get(firstExtra.to)?.label}`,
+      `Missing: ${nodeMap.get(firstMissing.from)?.label} -> ${nodeMap.get(firstMissing.to)?.label}`,
     );
   }
 
+  function nextStep() {
+    setStepIndex((index) => Math.min(index + 1, steps.length - 1));
+    setSelected(null);
+    setResult("");
+  }
+
   return (
-    <div className="rounded-lg border border-border/60 bg-background/40 p-4">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            {exercise.title}
-          </h3>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {exercise.goal}
-          </p>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex items-center justify-between border-b border-border/50 bg-background/40 px-3 py-1.5">
+        <div className="flex gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-500/40" />
+          <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/40" />
+          <span className="h-2.5 w-2.5 rounded-full bg-green-500/40" />
+        </div>
+        <div className="flex items-center gap-3 text-[9px] font-mono text-muted-foreground">
+          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+            canvas
+          </span>
+          <span>properties</span>
+          <span>generated code</span>
         </div>
         <div className="flex gap-2">
-          {visualExercises.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => switchExercise(item.id)}
-              className={`h-8 rounded-md px-3 text-xs font-medium transition-colors ${
-                exercise.id === item.id
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {item.id === "vault" ? "Vault" : "Escrow"}
-            </button>
-          ))}
+          <button
+            type="button"
+            onClick={() => switchExercise("vault")}
+            className={`h-7 rounded-md px-2.5 text-[10px] font-medium ${
+              exerciseId === "vault"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Vault
+          </button>
+          <button
+            type="button"
+            onClick={() => switchExercise("escrow")}
+            className={`h-7 rounded-md px-2.5 text-[10px] font-medium ${
+              exerciseId === "escrow"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Escrow
+          </button>
         </div>
       </div>
 
-      <div className="mt-4 overflow-x-auto rounded-lg border border-border/50 bg-background">
-        <div className="relative h-[336px] min-w-[620px]">
-          <svg className="absolute inset-0 h-full w-full">
-            <defs>
-              <marker
-                id={`practice-arrow-${exercise.id}`}
-                markerWidth="8"
-                markerHeight="8"
-                refX="7"
-                refY="4"
-                orient="auto"
+      <div className="grid grid-cols-1 lg:grid-cols-[160px_1fr_280px]">
+        <aside className="border-b border-border/40 bg-card/70 p-3 lg:border-b-0 lg:border-r">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            Lesson steps
+          </p>
+          <div className="space-y-1">
+            {steps.map((step, index) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => {
+                  setStepIndex(index);
+                  setSelected(null);
+                  setResult("");
+                }}
+                className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[11px] transition-colors ${
+                  stepIndex === index
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
               >
-                <path d="M0,0 L8,4 L0,8 z" className="fill-primary" />
-              </marker>
-            </defs>
-            {edges.map((edge) => {
-              const from = nodeMap.get(edge.from);
-              const to = nodeMap.get(edge.to);
-              if (!from || !to) return null;
-              return (
-                <path
-                  key={edgeKey(edge)}
-                  d={buildPath(from, to)}
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  markerEnd={`url(#practice-arrow-${exercise.id})`}
-                  className="text-primary"
-                />
-              );
-            })}
-          </svg>
+                <span className="truncate">
+                  {index + 1}. {step.title}
+                </span>
+                {completed.has(step.id) && (
+                  <CheckCircle2
+                    size={12}
+                    className="shrink-0 text-emerald-400"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Add now
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-foreground">
+              {currentStep.add}
+            </p>
+          </div>
+        </aside>
 
-          {exercise.nodes.map((node) => (
+        <div className="overflow-x-auto bg-background/50">
+          <div className="relative h-[490px] min-w-[940px]">
+            <div
+              className="absolute inset-0 opacity-25"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle, var(--color-border) 1px, transparent 1px)",
+                backgroundSize: "24px 24px",
+              }}
+            />
+            <svg className="absolute inset-0 h-full w-full">
+              <defs>
+                <marker
+                  id={`guided-arrow-${exercise.id}`}
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M0,0 L8,4 L0,8 z" className="fill-primary" />
+                </marker>
+              </defs>
+              {edges.map((edge) => {
+                const from = nodeMap.get(edge.from);
+                const to = nodeMap.get(edge.to);
+                if (!from || !to) return null;
+                return (
+                  <path
+                    key={edgeKey(edge)}
+                    d={buildPath(from, to)}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    markerEnd={`url(#guided-arrow-${exercise.id})`}
+                    className="text-primary"
+                  />
+                );
+              })}
+            </svg>
+
+            {exercise.nodes.map((node) => (
+              <EditorLessonNode
+                key={node.id}
+                node={node}
+                selected={selected === node.id}
+                active={currentStep.focusNodeId === node.id}
+                onClick={() => handleNodeClick(node.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <aside className="border-t border-border/40 bg-card/70 p-3 lg:border-l lg:border-t-0">
+          <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Current step
+            </p>
+            <h3 className="mt-2 text-sm font-semibold text-foreground">
+              {currentStep.title}
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {currentStep.connect}
+            </p>
+          </div>
+
+          <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Properties panel
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {currentStep.configure.map((property, index) => (
+                <div
+                  key={`${property.label}-${index}`}
+                  className="flex items-center justify-between gap-3 text-xs"
+                >
+                  <span className="text-muted-foreground/70">
+                    {property.label}
+                  </span>
+                  <span className="max-w-[148px] truncate text-right font-mono text-foreground">
+                    {property.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
             <button
-              key={node.id}
               type="button"
-              onClick={() => handleNodeClick(node.id)}
-              style={{ left: node.x, top: node.y }}
-              className={`absolute h-[54px] w-[120px] rounded-lg border p-2 text-left transition-all hover:scale-[1.02] focus-visible:ring-2 focus-visible:ring-ring ${
-                selected === node.id
-                  ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
-                  : ""
-              } ${nodeColor(node.type)}`}
+              onClick={runCheck}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
             >
-              <span className="block truncate text-xs font-semibold">
-                {node.label}
-              </span>
-              <span className="mt-1 block text-[10px] text-muted-foreground">
-                {node.type}
-              </span>
+              <Play size={14} /> Run check
             </button>
-          ))}
-        </div>
-      </div>
+            <button
+              type="button"
+              onClick={() => {
+                setEdges([]);
+                setSelected(null);
+                setResult("");
+                setCompleted(new Set());
+                setStepIndex(0);
+              }}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              <RotateCcw size={14} /> Reset
+            </button>
+            {currentComplete && stepIndex < steps.length - 1 && (
+              <button
+                type="button"
+                onClick={nextStep}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                Next step <ChevronRight size={14} />
+              </button>
+            )}
+          </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
-        <div className="rounded-lg bg-muted/40 p-3">
-          <p className="text-xs font-medium text-foreground">
-            Hint {hintIndex + 1}
-          </p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {exercise.hints[hintIndex]}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              setHintIndex((index) => (index + 1) % exercise.hints.length)
-            }
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            Next hint <ChevronRight size={14} />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setEdges([]);
-              setSelected(null);
-              setResult("");
-            }}
-            className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
-          >
-            <RotateCcw size={14} /> Reset
-          </button>
-          <button
-            type="button"
-            onClick={runCheck}
-            className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
-          >
-            <Play size={14} /> Run check
-          </button>
-        </div>
-      </div>
+          {result && (
+            <p className="mt-3 rounded-lg border border-border/50 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+              {result}
+            </p>
+          )}
 
-      <div className="mt-3 flex flex-col gap-2 rounded-lg border border-border/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-xs text-muted-foreground">
-          {correctCount}/{exercise.requiredEdges.length} required edges
-          connected
-        </p>
-        {result && (
-          <p className="text-xs font-medium text-foreground">{result}</p>
-        )}
+          <div className="mt-3 rounded-lg border border-border/50 bg-background/40">
+            <div className="border-b border-border/50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                Generated code
+              </p>
+              <p className="mt-1 font-mono text-[10px] text-primary">
+                {currentStep.generatedFile}
+              </p>
+            </div>
+            {currentComplete ? (
+              <pre className="max-h-72 overflow-auto p-3 text-[11px] leading-relaxed text-foreground/90">
+                <code>{currentStep.generatedCode}</code>
+              </pre>
+            ) : (
+              <p className="p-3 text-xs leading-relaxed text-muted-foreground">
+                Run the step check after making the required connection to
+                unlock this generated code preview.
+              </p>
+            )}
+          </div>
+        </aside>
       </div>
     </div>
   );
@@ -784,97 +2152,537 @@ function CliPractice() {
   );
 }
 
-function CloudPractice() {
-  const [taskIndex, setTaskIndex] = useState(0);
-  const [sequence, setSequence] = useState<string[]>([]);
+function cloudIconFor(icon: CloudLessonNode["icon"]) {
+  if (icon === "Clock") return <Clock size={12} />;
+  if (icon === "TrendingUp") return <TrendingUp size={12} />;
+  if (icon === "Bot") return <Bot size={12} />;
+  if (icon === "GitBranch") return <GitBranch size={12} />;
+  if (icon === "Send") return <Send size={12} />;
+  if (icon === "Zap") return <Zap size={12} />;
+  if (icon === "Filter") return <Filter size={12} />;
+  if (icon === "Wallet") return <Wallet size={12} />;
+  return <Workflow size={12} />;
+}
+
+function buildCloudPath(from: CloudLessonNode, to: CloudLessonNode) {
+  const startX = from.x + 220;
+  const startY = from.y + 58;
+  const endX = to.x;
+  const endY = to.y + 58;
+  const midX = (startX + endX) / 2;
+  return `M${startX} ${startY} C${midX} ${startY}, ${midX} ${endY}, ${endX} ${endY}`;
+}
+
+function CloudLessonHandle({
+  port,
+  side,
+  index,
+  total,
+}: {
+  port: CloudPort;
+  side: "left" | "right";
+  index: number;
+  total: number;
+}) {
+  const color = CLOUD_CONNECTION_COLORS[port.type];
+  const top = `${((index + 1) / (total + 1)) * 100}%`;
+  return (
+    <span
+      title={port.label}
+      className={`absolute h-[11px] w-[11px] -translate-y-1/2 rounded-full border-2 border-background ${
+        side === "left" ? "left-[-5px]" : "right-[-5px]"
+      }`}
+      style={{ top, background: color }}
+    />
+  );
+}
+
+function CloudEditorNode({
+  node,
+  selected,
+  active,
+  status,
+  onClick,
+}: {
+  node: CloudLessonNode;
+  selected: boolean;
+  active: boolean;
+  status: "idle" | "running" | "success";
+  onClick: () => void;
+}) {
+  const accent = CLOUD_CATEGORY_COLORS[node.category];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{ left: node.x, top: node.y, borderLeft: `3px solid ${accent}` }}
+      className={`absolute min-h-[116px] w-[220px] rounded-xl border bg-card text-left text-card-foreground shadow-lg shadow-black/30 transition-all duration-150 hover:border-border/80 focus-visible:ring-2 focus-visible:ring-ring ${
+        active ? "border-primary shadow-primary/20" : "border-border"
+      } ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
+    >
+      <div className="flex items-center gap-2 rounded-t-xl border-b border-border px-3 py-2">
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs"
+          style={{ background: `${accent}22`, color: accent }}
+        >
+          {cloudIconFor(node.icon)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold leading-none tracking-wide">
+          {node.label}
+        </span>
+        <span
+          className={`h-2 w-2 shrink-0 rounded-full ${
+            status === "running"
+              ? "animate-pulse bg-blue-400"
+              : status === "success"
+                ? "bg-emerald-400"
+                : "bg-zinc-500"
+          }`}
+        />
+      </div>
+      <div className="space-y-0.5 px-3 py-2 text-[11px] text-muted-foreground">
+        {node.rows.map((row) => (
+          <div
+            key={`${node.id}-${row.label}`}
+            className="flex items-center justify-between gap-2"
+          >
+            <span className="text-muted-foreground/70">{row.label}</span>
+            <span className="max-w-[120px] truncate text-right font-mono text-[10px] text-foreground/90">
+              {row.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      {node.inputs.map((port, index) => (
+        <CloudLessonHandle
+          key={`in-${port.label}`}
+          port={port}
+          side="left"
+          index={index}
+          total={node.inputs.length}
+        />
+      ))}
+      {node.outputs.map((port, index) => (
+        <CloudLessonHandle
+          key={`out-${port.label}`}
+          port={port}
+          side="right"
+          index={index}
+          total={node.outputs.length}
+        />
+      ))}
+    </button>
+  );
+}
+
+function StaticCloudNode({ node }: { node: CloudLessonNode }) {
+  const accent = CLOUD_CATEGORY_COLORS[node.category];
+  return (
+    <div
+      className="relative min-h-[116px] w-full rounded-xl border border-border bg-card text-card-foreground shadow-lg shadow-black/30"
+      style={{ borderLeft: `3px solid ${accent}` }}
+    >
+      <div className="flex items-center gap-2 rounded-t-xl border-b border-border px-3 py-2">
+        <span
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs"
+          style={{ background: `${accent}22`, color: accent }}
+        >
+          {cloudIconFor(node.icon)}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-xs font-semibold leading-none tracking-wide">
+          {node.label}
+        </span>
+        <span className="h-2 w-2 shrink-0 rounded-full bg-zinc-500" />
+      </div>
+      <div className="space-y-0.5 px-3 py-2 text-[11px] text-muted-foreground">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground/70">category</span>
+          <span className="font-mono text-[10px] text-foreground/90">
+            {node.category}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground/70">type</span>
+          <span className="max-w-[120px] truncate text-right font-mono text-[10px] text-foreground/90">
+            {node.type}
+          </span>
+        </div>
+      </div>
+      {node.inputs.map((port, index) => (
+        <CloudLessonHandle
+          key={`static-in-${port.label}`}
+          port={port}
+          side="left"
+          index={index}
+          total={node.inputs.length}
+        />
+      ))}
+      {node.outputs.map((port, index) => (
+        <CloudLessonHandle
+          key={`static-out-${port.label}`}
+          port={port}
+          side="right"
+          index={index}
+          total={node.outputs.length}
+        />
+      ))}
+    </div>
+  );
+}
+
+function GuidedCloudBuilder({
+  defaultExercise = "price-monitor",
+  lockedExercise = false,
+}: {
+  defaultExercise?: CloudGuidedExercise["id"];
+  lockedExercise?: boolean;
+}) {
+  const [exerciseId, setExerciseId] =
+    useState<CloudGuidedExercise["id"]>(defaultExercise);
+  const [stepIndex, setStepIndex] = useState(0);
+  const [edges, setEdges] = useState<Edge[]>([]);
+  const [selected, setSelected] = useState<NodeId | null>(null);
   const [result, setResult] = useState("");
-  const task = cloudTasks[taskIndex];
+  const [completed, setCompleted] = useState<Set<string>>(new Set());
+  const exercise =
+    cloudGuidedExercises.find((item) => item.id === exerciseId) ??
+    cloudGuidedExercises[0];
+  const currentStep = exercise.steps[stepIndex];
+  const currentComplete = completed.has(currentStep.id);
+  const nodeMap = useMemo(
+    () => new Map(exercise.nodes.map((node) => [node.id, node])),
+    [exercise],
+  );
+  const canvasWidth = Math.max(
+    1080,
+    Math.max(...exercise.nodes.map((node) => node.x)) + 280,
+  );
+
+  function switchExercise(id: CloudGuidedExercise["id"]) {
+    setExerciseId(id);
+    setStepIndex(0);
+    setEdges([]);
+    setSelected(null);
+    setResult("");
+    setCompleted(new Set());
+  }
+
+  function handleNodeClick(id: NodeId) {
+    if (!selected) {
+      setSelected(id);
+      setResult("Pick the target Cloud node for this connection.");
+      return;
+    }
+    if (selected === id) {
+      setSelected(null);
+      setResult("Pick two different nodes.");
+      return;
+    }
+    const nextEdge = { from: selected, to: id };
+    const exists = edges.some((edge) => edgeKey(edge) === edgeKey(nextEdge));
+    setEdges(exists ? edges : [...edges, nextEdge]);
+    setSelected(null);
+    setResult(
+      "Connection added. Run the step check when it matches the instruction.",
+    );
+  }
 
   function runCheck() {
-    const correct =
-      sequence.length === task.required.length &&
-      sequence.every((item, index) => item === task.required[index]);
+    const made = new Set(edges.map(edgeKey));
+    const missing = currentStep.requiredEdges.filter(
+      (edge) => !made.has(edgeKey(edge)),
+    );
+
+    if (missing.length === 0) {
+      const nextCompleted = new Set(completed);
+      nextCompleted.add(currentStep.id);
+      setCompleted(nextCompleted);
+      setResult(
+        "Step verified. Expected output and execution logs are unlocked.",
+      );
+      return;
+    }
+
+    const firstMissing = missing[0];
     setResult(
-      correct
-        ? "Correct. This workflow has the right trigger, data, AI, decision, action, and output order."
-        : `Expected: ${task.required.join(" -> ")}`,
+      `Missing: ${nodeMap.get(firstMissing.from)?.label} -> ${nodeMap.get(firstMissing.to)?.label}`,
     );
   }
 
   return (
-    <div className="rounded-lg border border-border/50 p-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">
-            {task.title}
-          </h3>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {task.goal}
-          </p>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="flex items-center justify-between border-b border-border/50 bg-background/40 px-3 py-1.5">
+        <div className="flex gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-red-500/40" />
+          <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/40" />
+          <span className="h-2.5 w-2.5 rounded-full bg-green-500/40" />
         </div>
-        <div className="flex gap-2">
-          {cloudTasks.map((item, index) => (
-            <button
-              key={item.title}
-              type="button"
-              onClick={() => {
-                setTaskIndex(index);
-                setSequence([]);
-                setResult("");
-              }}
-              className={`h-8 rounded-md px-3 text-xs font-medium ${
-                taskIndex === index
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {index + 1}
-            </button>
-          ))}
+        <div className="flex items-center gap-3 text-[9px] font-mono text-muted-foreground">
+          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+            workflow
+          </span>
+          <span>properties</span>
+          <span>execution</span>
         </div>
-      </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {task.options.map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => setSequence([...sequence, option])}
-            className="h-8 rounded-md border border-border bg-background/40 px-3 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            {option}
-          </button>
-        ))}
-      </div>
-      <div className="mt-4 min-h-14 rounded-lg bg-muted/40 p-3">
-        {sequence.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Your workflow sequence will appear here.
-          </p>
+        {lockedExercise ? (
+          <div className="rounded bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
+            {exercise.title}
+          </div>
         ) : (
-          <p className="text-xs font-medium text-foreground">
-            {sequence.join(" -> ")}
-          </p>
+          <div className="flex gap-2">
+            {cloudGuidedExercises.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => switchExercise(item.id)}
+                className={`h-7 rounded-md px-2.5 text-[10px] font-medium ${
+                  exerciseId === item.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {item.id === "price-monitor"
+                  ? "Monitor"
+                  : item.id === "swap-guard"
+                    ? "Swap"
+                    : "Payout"}
+              </button>
+            ))}
+          </div>
         )}
       </div>
-      <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            setSequence([]);
-            setResult("");
-          }}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
-        >
-          <RotateCcw size={14} /> Reset
-        </button>
-        <button
-          type="button"
-          onClick={runCheck}
-          className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
-        >
-          <Play size={14} /> Run check
-        </button>
-        {result && <p className="text-xs text-muted-foreground">{result}</p>}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[170px_1fr_300px]">
+        <aside className="border-b border-border/40 bg-card/70 p-3 lg:border-b-0 lg:border-r">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            Workflow steps
+          </p>
+          <div className="space-y-1">
+            {exercise.steps.map((step, index) => (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => {
+                  setStepIndex(index);
+                  setSelected(null);
+                  setResult("");
+                }}
+                className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[11px] transition-colors ${
+                  stepIndex === index
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <span className="truncate">
+                  {index + 1}. {step.title}
+                </span>
+                {completed.has(step.id) && (
+                  <CheckCircle2
+                    size={12}
+                    className="shrink-0 text-emerald-400"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Add now
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-foreground">
+              {currentStep.add}
+            </p>
+          </div>
+        </aside>
+
+        <div className="overflow-x-auto bg-background/50">
+          <div className="relative h-[330px]" style={{ minWidth: canvasWidth }}>
+            <div
+              className="absolute inset-0 opacity-25"
+              style={{
+                backgroundImage:
+                  "radial-gradient(circle, var(--color-border) 1px, transparent 1px)",
+                backgroundSize: "24px 24px",
+              }}
+            />
+            <svg className="absolute inset-0 h-full w-full">
+              <defs>
+                <marker
+                  id={`cloud-arrow-${exercise.id}`}
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M0,0 L8,4 L0,8 z" className="fill-primary" />
+                </marker>
+              </defs>
+              {edges.map((edge) => {
+                const from = nodeMap.get(edge.from);
+                const to = nodeMap.get(edge.to);
+                if (!from || !to) return null;
+                return (
+                  <path
+                    key={edgeKey(edge)}
+                    d={buildCloudPath(from, to)}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    markerEnd={`url(#cloud-arrow-${exercise.id})`}
+                    className="text-primary"
+                  />
+                );
+              })}
+            </svg>
+            {exercise.nodes.map((node) => (
+              <CloudEditorNode
+                key={node.id}
+                node={node}
+                selected={selected === node.id}
+                active={currentStep.focusNodeId === node.id}
+                status={
+                  completed.has(currentStep.id) &&
+                  currentStep.focusNodeId === node.id
+                    ? "success"
+                    : currentStep.focusNodeId === node.id
+                      ? "running"
+                      : "idle"
+                }
+                onClick={() => handleNodeClick(node.id)}
+              />
+            ))}
+          </div>
+        </div>
+
+        <aside className="border-t border-border/40 bg-card/70 p-3 lg:border-l lg:border-t-0">
+          <div className="rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Current step
+            </p>
+            <h3 className="mt-2 text-sm font-semibold text-foreground">
+              {currentStep.title}
+            </h3>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+              {currentStep.connect}
+            </p>
+          </div>
+
+          <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Properties
+            </p>
+            <div className="mt-2 space-y-1.5">
+              {currentStep.configure.map((property, index) => (
+                <div
+                  key={`${property.label}-${index}`}
+                  className="flex items-center justify-between gap-3 text-xs"
+                >
+                  <span className="text-muted-foreground/70">
+                    {property.label}
+                  </span>
+                  <span className="max-w-[154px] truncate text-right font-mono text-foreground">
+                    {property.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={runCheck}
+              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+            >
+              <Play size={14} /> Run check
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEdges([]);
+                setSelected(null);
+                setResult("");
+                setCompleted(new Set());
+                setStepIndex(0);
+              }}
+              className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+            >
+              <RotateCcw size={14} /> Reset
+            </button>
+            {currentComplete && stepIndex < exercise.steps.length - 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setStepIndex((index) =>
+                    Math.min(index + 1, exercise.steps.length - 1),
+                  );
+                  setSelected(null);
+                  setResult("");
+                }}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                Next step <ChevronRight size={14} />
+              </button>
+            )}
+          </div>
+
+          {result && (
+            <p className="mt-3 rounded-lg border border-border/50 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+              {result}
+            </p>
+          )}
+
+          <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              Expected input
+            </p>
+            <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
+              {currentStep.expectedInput}
+            </p>
+          </div>
+
+          <div className="mt-3 rounded-lg border border-border/50 bg-background/40">
+            <div className="border-b border-border/50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                Expected output
+              </p>
+            </div>
+            {currentComplete ? (
+              <p className="p-3 font-mono text-[11px] leading-relaxed text-foreground/90">
+                {currentStep.expectedOutput}
+              </p>
+            ) : (
+              <p className="p-3 text-xs leading-relaxed text-muted-foreground">
+                Run the step check to unlock the expected output.
+              </p>
+            )}
+          </div>
+
+          <div className="mt-3 rounded-lg border border-border/50 bg-background/40">
+            <div className="border-b border-border/50 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                Execution log
+              </p>
+            </div>
+            {currentComplete ? (
+              <div className="space-y-1 p-3">
+                {currentStep.executionLog.map((line) => (
+                  <p
+                    key={line}
+                    className="font-mono text-[11px] text-foreground/90"
+                  >
+                    {">"} {line}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="p-3 text-xs leading-relaxed text-muted-foreground">
+                Logs appear after the step is verified.
+              </p>
+            )}
+          </div>
+        </aside>
       </div>
     </div>
   );
@@ -951,9 +2759,9 @@ export function VisualBuilderLearnClient() {
             {visualNodeLessons.map((lesson) => (
               <div
                 key={lesson.type}
-                className="grid gap-3 rounded-lg border border-border/50 bg-background/40 p-4 md:grid-cols-[140px_1fr]"
+                className="grid gap-4 rounded-lg border border-border/50 bg-background/40 p-4 md:grid-cols-[220px_1fr]"
               >
-                <MiniNode type={lesson.type} />
+                <StaticEditorNode type={lesson.type} />
                 <div>
                   <p className="text-sm font-medium text-foreground">
                     {lesson.use}
@@ -1043,7 +2851,7 @@ export function VisualBuilderLearnClient() {
               run the connection check below.
             </p>
           </div>
-          <VisualPractice defaultExercise="vault" />
+          <GuidedProgramBuilder defaultExercise="vault" />
         </LessonSection>
 
         <LessonSection
@@ -1060,7 +2868,7 @@ export function VisualBuilderLearnClient() {
               to the escrow account.
             </p>
           </div>
-          <VisualPractice defaultExercise="escrow" />
+          <GuidedProgramBuilder defaultExercise="escrow" />
         </LessonSection>
 
         <LessonSection
@@ -1202,21 +3010,45 @@ export function CloudLearnClient() {
           title="Learn Cloud node families"
           body="Cloud workflows are not Rust programs. They are trigger-action graphs that can run continuously."
         >
-          <div className="grid gap-3 md:grid-cols-2">
-            {cloudNodeLessons.map((lesson) => (
+          <div className="grid gap-3">
+            {cloudNodeCards.map((lesson) => (
               <div
-                key={lesson.type}
-                className="rounded-lg border border-border/50 bg-background/40 p-4"
+                key={lesson.node.id}
+                className="grid gap-3 rounded-xl border border-border/50 bg-background/40 p-3 md:grid-cols-[230px_1fr]"
               >
-                <p className="text-sm font-semibold text-foreground">
-                  {lesson.type}
-                </p>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  {lesson.use}
-                </p>
-                <p className="mt-3 font-mono text-xs text-primary">
-                  {lesson.connects}
-                </p>
+                <StaticCloudNode node={lesson.node} />
+                <div className="grid gap-3 py-1 text-xs leading-relaxed md:grid-cols-2">
+                  <div>
+                    <p className="font-semibold text-foreground">
+                      What it does
+                    </p>
+                    <p className="mt-1 text-muted-foreground">{lesson.use}</p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">
+                      Connect rule
+                    </p>
+                    <p className="mt-1 font-mono text-primary">
+                      {lesson.connects}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">
+                      Expected input
+                    </p>
+                    <p className="mt-1 font-mono text-muted-foreground">
+                      {lesson.expects}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-foreground">
+                      Expected output
+                    </p>
+                    <p className="mt-1 font-mono text-muted-foreground">
+                      {lesson.output}
+                    </p>
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -1225,7 +3057,7 @@ export function CloudLearnClient() {
         <LessonSection
           number="2"
           title="Learn the Cloud connection pattern"
-          body="Most workflows follow the same order: trigger, fetch or transform data, decide, act, then output."
+          body="Most workflows follow the same order: trigger, fetch or transform data, decide, act, then output. The blue handles carry normal item data; trigger nodes create the first item."
         >
           <div className="overflow-x-auto rounded-lg border border-border/50 bg-background p-4">
             <div className="flex min-w-[640px] items-center gap-3 text-center">
@@ -1265,11 +3097,44 @@ export function CloudLearnClient() {
               Webhook Output sends the alert.
             </p>
           </div>
-          <CloudPractice />
+          <GuidedCloudBuilder defaultExercise="price-monitor" lockedExercise />
         </LessonSection>
 
         <LessonSection
           number="4"
+          title="Guided workflow: AI-assisted swap guard"
+          body="This one teaches the safer Cloud pattern for wallet actions: receive a signal, enrich it, ask AI, branch, then swap only on the approved path."
+        >
+          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+            <p className="font-semibold text-foreground">Build order</p>
+            <p className="mt-2">
+              Webhook Trigger receives a trade idea, Fetch Price adds market
+              context, AI Agent returns an approval object, If/Else blocks
+              rejected runs, Jupiter Swap executes, and Webhook Output reports
+              the signature.
+            </p>
+          </div>
+          <GuidedCloudBuilder defaultExercise="swap-guard" lockedExercise />
+        </LessonSection>
+
+        <LessonSection
+          number="5"
+          title="Guided workflow: Manual payout"
+          body="This teaches a short operator workflow where a human starts the run, the Cloud action sends tokens, a filter verifies success, and the output reports the result."
+        >
+          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+            <p className="font-semibold text-foreground">Build order</p>
+            <p className="mt-2">
+              Manual Trigger starts the item, Token Transfer signs and sends the
+              SPL transfer, Filter keeps only successful outputs, and Webhook
+              Output sends the transfer signature to your backend.
+            </p>
+          </div>
+          <GuidedCloudBuilder defaultExercise="payout" lockedExercise />
+        </LessonSection>
+
+        <LessonSection
+          number="6"
           title="Activation checklist"
           body="Before activating any Cloud workflow, slow down and verify the operational details."
         >

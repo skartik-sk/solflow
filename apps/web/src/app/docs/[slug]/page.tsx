@@ -10,25 +10,26 @@ const DOCS_DIR = fs.existsSync(path.join(process.cwd(), "src/app/docs"))
 
 const DOC_SLUGS = [
   "visual-editor",
-  "cli",
-  "cloud",
   "getting-started",
   "node-reference",
   "connection-rules",
   "codegen-guide",
   "flags-and-constraints",
+  "cli",
+  "cloud",
 ];
 
 const DOC_META: Record<
   string,
   { title: string; prev?: string; next?: string }
 > = {
-  "visual-editor": { title: "Visual Builder", next: "cli" },
-  cli: { title: "CLI", prev: "visual-editor", next: "cloud" },
-  cloud: { title: "Cloud", prev: "cli", next: "getting-started" },
+  "visual-editor": {
+    title: "Visual Builder Reference",
+    next: "getting-started",
+  },
   "getting-started": {
     title: "Getting Started",
-    prev: "cloud",
+    prev: "visual-editor",
     next: "node-reference",
   },
   "node-reference": {
@@ -49,7 +50,10 @@ const DOC_META: Record<
   "flags-and-constraints": {
     title: "Flags & Constraints",
     prev: "codegen-guide",
+    next: "cli",
   },
+  cli: { title: "CLI Reference", prev: "flags-and-constraints", next: "cloud" },
+  cloud: { title: "Cloud Platform Reference", prev: "cli" },
 };
 
 export function generateStaticParams() {
