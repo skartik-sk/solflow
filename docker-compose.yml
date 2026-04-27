@@ -3,7 +3,9 @@
 
 services:
   app:
-    build: .
+    build:
+      context: .
+      target: runner
     image: solstudio-web:latest
     ports:
       - "3000:3000"
