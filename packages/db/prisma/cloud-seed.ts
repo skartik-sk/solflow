@@ -443,7 +443,11 @@ const CLOUD_TEMPLATES = [
 
 // ─── Seed ───────────────────────────────────────────────────────────────────
 
-async function main() {
+export async function seedCloudWorkflowTemplates() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL is required to seed cloud workflow templates.");
+  }
+
   console.log("Seeding cloud workflow templates...\n");
 
   for (const tmpl of CLOUD_TEMPLATES) {
@@ -491,9 +495,18 @@ async function main() {
   console.log("\nDone. Seeded cloud workflow templates.");
 }
 
-main()
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+async function main() {
+  await seedCloudWorkflowTemplates();
+}
+
+// Only run main() when executed directly (not when imported by tests)
+const seedPath = import.meta.path ?? "";
+const isEntry = typeof Bun !== "undefined" && Bun.main === seedPath;
+if (isEntry) {
+  main()
+    .catch((err) => {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}

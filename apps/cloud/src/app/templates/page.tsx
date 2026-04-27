@@ -232,7 +232,7 @@ export default function CloudTemplatesPage() {
             <Workflow className="mx-auto mb-3 h-9 w-9 text-muted-foreground/40" aria-hidden="true" />
             <p className="text-sm font-medium">No matching templates</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              Clear the search or run <code className="rounded bg-muted px-1 py-0.5">bun run db:cloud-seed</code> to seed the starter set.
+              Clear the search or check again after starter templates are seeded.
             </p>
           </div>
         )}

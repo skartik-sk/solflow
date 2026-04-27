@@ -17,8 +17,9 @@
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
     "db:generate": "turbo db:generate",
     "db:migrate": "turbo db:migrate",
-    "db:seed": "bun --cwd packages/db run db:seed",
-    "db:cloud-seed": "bun --cwd packages/db run db:cloud-seed",
+    "db:seed": "bun run --cwd packages/db db:seed",
+    "db:cloud-seed": "bun run --cwd packages/db db:cloud-seed",
+    "db:seed:all": "bun run db:seed && bun run db:cloud-seed",
     "clean": "turbo clean && rm -rf node_modules"
   },
   "devDependencies": {

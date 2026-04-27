@@ -212,7 +212,7 @@ export default function DashboardPage() {
           {!templatesLoading && templates && templates.length === 0 && (
             <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
               <p className="text-sm text-muted-foreground">
-                No templates available yet. Run <code className="rounded bg-muted px-1 py-0.5 text-xs">bun run db:cloud-seed</code> to add starter templates.
+                No templates available yet.
               </p>
             </div>
           )}
