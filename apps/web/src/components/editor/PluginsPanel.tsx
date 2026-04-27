@@ -4,7 +4,7 @@
 
 import React, { useMemo, useEffect } from "react";
 import { Puzzle, ExternalLink, CheckCircle2, Circle, AlertTriangle, ShieldCheck, ShieldAlert } from "lucide-react";
-import { pluginRegistry } from "@solflow/plugin-sdk";
+import { assessPluginTrust, pluginRegistry } from "@solflow/plugin-sdk";
 import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { usePluginStore } from "@/store/plugin-store";
 import { registerAuditRules } from "@solflow/audit";
@@ -65,6 +65,14 @@ function validatePlugin(plugin: SolFlowPlugin): ValidationWarning[] {
   // Security: check for audit rules
   if (!plugin.auditRules || plugin.auditRules.length === 0) {
     warnings.push({ severity: "warn", message: "No audit rules — code not security-reviewed" });
+  }
+
+  const trust = assessPluginTrust(plugin);
+  for (const error of trust.errors) {
+    warnings.push({ severity: "error", message: error });
+  }
+  for (const warning of trust.warnings) {
+    warnings.push({ severity: "warn", message: warning });
   }
 
   return warnings;
@@ -128,7 +136,8 @@ export function PluginsPanel() {
           const warnings = validationMap.get(plugin.id) ?? [];
           const hasErrors = warnings.some((w) => w.severity === "error");
           const hasAuditRules = (plugin.auditRules?.length ?? 0) > 0;
-          const isKnownAuthor = ["SolFlow", "SolFlow Team", "Community"].includes(plugin.author);
+          const trust = assessPluginTrust(plugin);
+          const isTrusted = trust.accepted && trust.trustLevel !== "untrusted";
 
           return (
             <div
@@ -164,7 +173,20 @@ export function PluginsPanel() {
                       active
                     </span>
                   )}
-                  {/* Security badge */}
+                  <span
+                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                      trust.trustLevel === "first-party"
+                        ? "bg-green-500/10 text-green-400"
+                        : trust.trustLevel === "verified"
+                          ? "bg-blue-500/10 text-blue-400"
+                          : trust.trustLevel === "community"
+                            ? "bg-yellow-500/10 text-yellow-400"
+                            : "bg-red-500/10 text-red-400"
+                    }`}
+                    title={`Trust level: ${trust.trustLevel}`}
+                  >
+                    {trust.trustLevel}
+                  </span>
                   {hasAuditRules ? (
                     <span className="flex items-center gap-0.5 text-[10px] text-green-400" title="Has audit rules">
                       <ShieldCheck size={10} />
@@ -174,8 +196,8 @@ export function PluginsPanel() {
                       <ShieldAlert size={10} />
                     </span>
                   )}
-                  {!isKnownAuthor && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-orange-400" title="Unverified author">
+                  {!isTrusted && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-orange-400" title="Untrusted plugin">
                       <AlertTriangle size={10} />
                     </span>
                   )}
@@ -185,6 +207,18 @@ export function PluginsPanel() {
                 </p>
                 <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground/60">
                   <span>by {plugin.author}</span>
+                  {plugin.security?.provenance ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openFloatingBrowser(plugin.security!.provenance!, `${plugin.name} provenance`);
+                      }}
+                      className="flex items-center gap-0.5 hover:text-foreground transition-colors"
+                    >
+                      <ShieldCheck className="h-2.5 w-2.5" />
+                      provenance
+                    </button>
+                  ) : null}
                   <span>
                     {plugin.nodes.length} node
                     {plugin.nodes.length !== 1 ? "s" : ""}

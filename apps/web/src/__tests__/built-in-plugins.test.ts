@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { assessPluginTrust, pluginRegistry, validatePluginManifest } from "@solflow/plugin-sdk";
+import {
+  PLUGIN_SIGNATURE_ALGORITHM,
+  assessPluginTrust,
+  base64UrlEncode,
+  canonicalPluginManifest,
+  computePluginManifestDigest,
+  pluginRegistry,
+  validatePluginManifest,
+  verifyPluginSignature,
+} from "@solflow/plugin-sdk";
 import { splTokenPlugin } from "@solflow/plugin-spl-token";
+import type { SolFlowPlugin } from "@solflow/plugin-sdk";
 import {
   BUILT_IN_PLUGIN_IDS,
   registerBuiltInPlugins,
@@ -83,5 +93,89 @@ describe("built-in plugin registration", () => {
     expect(() => validatePluginManifest(unsafePlugin)).toThrow(
       "namespaced node types must use the plugin id prefix",
     );
+  });
+
+  it("verifies signed third-party plugin provenance", async () => {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const signedPlugin: SolFlowPlugin = {
+      ...splTokenPlugin,
+      id: "acme-token-tools",
+      name: "Acme Token Tools",
+      author: "Acme Labs",
+      website: "https://example.com",
+      nodes: [{ ...splTokenPlugin.nodes[0], type: "acme-token-tools:create-mint" }],
+      security: {
+        trustLevel: "verified" as const,
+        publisher: "Acme Labs",
+        verified: true,
+        audited: true,
+        signatureAlgorithm: PLUGIN_SIGNATURE_ALGORITHM,
+        publicKeyId: "acme-p256",
+        provenance: "https://example.com/solstudio-plugin.json",
+      },
+    };
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      keyPair.privateKey,
+      new TextEncoder().encode(canonicalPluginManifest(signedPlugin)),
+    );
+    signedPlugin.security!.manifestDigest = await computePluginManifestDigest(signedPlugin);
+    signedPlugin.security!.signature = base64UrlEncode(new Uint8Array(signature));
+
+    const result = await verifyPluginSignature(signedPlugin, {
+      requireSignature: true,
+      trustedPublisherKeys: { "acme-p256": publicJwk },
+    });
+
+    expect(result.verified).toBe(true);
+    expect(result.reason).toBeUndefined();
+    expect(() => validatePluginManifest(signedPlugin, {
+      trustPolicy: { requireSignature: true, requireProvenance: true },
+    })).not.toThrow();
+  });
+
+  it("rejects signed plugin manifests after tampering", async () => {
+    const keyPair = await crypto.subtle.generateKey(
+      { name: "ECDSA", namedCurve: "P-256" },
+      true,
+      ["sign", "verify"],
+    );
+    const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
+    const signedPlugin: SolFlowPlugin = {
+      ...splTokenPlugin,
+      id: "acme-token-tools",
+      name: "Acme Token Tools",
+      author: "Acme Labs",
+      website: "https://example.com",
+      nodes: [{ ...splTokenPlugin.nodes[0], type: "acme-token-tools:create-mint" }],
+      security: {
+        trustLevel: "verified" as const,
+        publisher: "Acme Labs",
+        verified: true,
+        signatureAlgorithm: PLUGIN_SIGNATURE_ALGORITHM,
+        publicKeyId: "acme-p256",
+        provenance: "https://example.com/solstudio-plugin.json",
+      },
+    };
+    const signature = await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      keyPair.privateKey,
+      new TextEncoder().encode(canonicalPluginManifest(signedPlugin)),
+    );
+    signedPlugin.security!.manifestDigest = await computePluginManifestDigest(signedPlugin);
+    signedPlugin.security!.signature = base64UrlEncode(new Uint8Array(signature));
+
+    const tamperedPlugin = { ...signedPlugin, version: "9.9.9" };
+    const result = await verifyPluginSignature(tamperedPlugin, {
+      trustedPublisherKeys: { "acme-p256": publicJwk },
+    });
+
+    expect(result.verified).toBe(false);
+    expect(result.reason).toMatch(/digest|verify/i);
   });
 });

@@ -12,7 +12,9 @@ export const DEFAULT_PLUGIN_TRUST_POLICY: Required<PluginTrustPolicy> = {
   allowedTrustLevels: ["first-party", "verified", "community"],
   requireSignature: false,
   requireAuditRules: false,
+  requireProvenance: false,
   firstPartyAuthors: ["SolFlow", "SolFlow Team"],
+  trustedPublisherKeys: {},
 };
 
 export interface PluginValidationOptions {
@@ -47,8 +49,7 @@ export function validatePluginManifest(plugin: SolFlowPlugin, options: PluginVal
     throw new Error(`Plugin "${plugin.id}" must have an \`author\` string`);
   }
   if (plugin.website) {
-    const website = parseHttpsUrl(plugin.website);
-    if (!website) {
+    if (!isHttpsUrl(plugin.website)) {
       throw new Error(`Plugin "${plugin.id}" website must be a valid https URL`);
     }
   }
@@ -125,8 +126,17 @@ export function assessPluginTrust(
   if (mergedPolicy.requireSignature && !plugin.security?.signature) {
     errors.push("signed plugin provenance is required");
   }
+  if (mergedPolicy.requireSignature && !plugin.security?.publicKeyId) {
+    errors.push("publisher publicKeyId is required");
+  }
+  if (mergedPolicy.requireSignature && plugin.security?.signatureAlgorithm && plugin.security.signatureAlgorithm !== "ECDSA-P256-SHA256") {
+    errors.push(`unsupported signature algorithm "${plugin.security.signatureAlgorithm}"`);
+  }
   if (mergedPolicy.requireAuditRules && (!plugin.auditRules || plugin.auditRules.length === 0)) {
     errors.push("at least one audit rule is required");
+  }
+  if (mergedPolicy.requireProvenance && !plugin.security?.provenance) {
+    errors.push("provenance URL is required");
   }
 
   if (!plugin.security) {
@@ -137,6 +147,15 @@ export function assessPluginTrust(
     }
     if (plugin.security.trustLevel === "verified" && !plugin.security.verified) {
       warnings.push("verified plugin is missing verified=true");
+    }
+    if (plugin.security.provenance && !isHttpsUrl(plugin.security.provenance)) {
+      errors.push("provenance URL must be https");
+    }
+    if (plugin.security.signature && !plugin.security.publicKeyId) {
+      warnings.push("plugin signature is present without publicKeyId");
+    }
+    if (plugin.security.manifestDigest && !/^[a-f0-9]{64}$/i.test(plugin.security.manifestDigest)) {
+      errors.push("manifestDigest must be a SHA-256 hex digest");
     }
   }
 
@@ -155,11 +174,11 @@ function resolveTrustLevel(plugin: SolFlowPlugin, firstPartyAuthors: string[]): 
   return firstPartyAuthors.includes(plugin.author) ? "first-party" : "community";
 }
 
-function parseHttpsUrl(value: string): URL | null {
+function isHttpsUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" ? url : null;
+    return url.protocol === "https:";
   } catch {
-    return null;
+    return false;
   }
 }

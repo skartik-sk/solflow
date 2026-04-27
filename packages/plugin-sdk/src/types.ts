@@ -106,6 +106,9 @@ export interface PluginSecurityMetadata {
   publisher: string;
   verified?: boolean;
   audited?: boolean;
+  signatureAlgorithm?: "ECDSA-P256-SHA256";
+  publicKeyId?: string;
+  manifestDigest?: string;
   signature?: string;
   provenance?: string;
   publishedAt?: string;
@@ -115,7 +118,9 @@ export interface PluginTrustPolicy {
   allowedTrustLevels?: PluginTrustLevel[];
   requireSignature?: boolean;
   requireAuditRules?: boolean;
+  requireProvenance?: boolean;
   firstPartyAuthors?: string[];
+  trustedPublisherKeys?: Record<string, JsonWebKey>;
 }
 
 export interface PluginTrustReport {
@@ -123,6 +128,14 @@ export interface PluginTrustReport {
   trustLevel: PluginTrustLevel;
   errors: string[];
   warnings: string[];
+}
+
+export interface PluginSignatureVerification {
+  verified: boolean;
+  digest: string;
+  publicKeyId?: string;
+  algorithm?: string;
+  reason?: string;
 }
 
 // ─── Audit rule ──────────────────────────────────────────────────────────────
