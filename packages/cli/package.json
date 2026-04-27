@@ -8,7 +8,7 @@
   "description": "SolStudio CLI for parsing, visualizing, testing, and auditing local Solana projects.",
   "type": "module",
   "bin": {
-    "solstudio": "./dist/index.js"
+    "solstudio": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
