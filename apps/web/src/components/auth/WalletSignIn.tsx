@@ -28,7 +28,11 @@ Nonce: ${nonce}
 Issued At: ${issuedAt}`;
 }
 
-export function WalletSignIn() {
+export function WalletSignIn({
+  callbackUrl = "/dashboard",
+}: {
+  callbackUrl?: string;
+}) {
   const { publicKey, signMessage, connected, disconnect } = useWallet();
   const [signing, setSigning] = useState(false);
 
@@ -110,7 +114,7 @@ export function WalletSignIn() {
         message,
         nonce,
         redirect: false,
-        callbackUrl: "/dashboard",
+        callbackUrl,
       });
 
       if (result?.error) {

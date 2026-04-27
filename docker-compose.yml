@@ -22,6 +22,12 @@ services:
       - PORT=3000
       - HOST=0.0.0.0
       - SOLFLOW_BUILD_DIR=/tmp/solflow-builds
+      - AUTH_URL=https://solstudio.fun
+      - AUTH_TRUST_HOST=true
+      - AUTH_COOKIE_DOMAIN=.solstudio.fun
+      - NEXT_PUBLIC_APP_URL=https://solstudio.fun
+      - NEXT_PUBLIC_WEB_URL=https://solstudio.fun
+      - NEXT_PUBLIC_CLOUD_URL=https://cloud.solstudio.fun
     restart: unless-stopped
     init: true
     depends_on:
@@ -51,6 +57,12 @@ services:
       - PORT=3001
       - HOST=0.0.0.0
       - CLOUD_RUNTIME_MODE=api
+      - AUTH_URL=https://cloud.solstudio.fun
+      - AUTH_TRUST_HOST=true
+      - AUTH_COOKIE_DOMAIN=.solstudio.fun
+      - NEXT_PUBLIC_APP_URL=https://solstudio.fun
+      - NEXT_PUBLIC_WEB_URL=https://solstudio.fun
+      - NEXT_PUBLIC_CLOUD_URL=https://cloud.solstudio.fun
     restart: unless-stopped
     init: true
     depends_on:
@@ -75,6 +87,12 @@ services:
     environment:
       - NODE_ENV=production
       - CLOUD_RUNTIME_MODE=worker
+      - AUTH_URL=https://cloud.solstudio.fun
+      - AUTH_TRUST_HOST=true
+      - AUTH_COOKIE_DOMAIN=.solstudio.fun
+      - NEXT_PUBLIC_APP_URL=https://solstudio.fun
+      - NEXT_PUBLIC_WEB_URL=https://solstudio.fun
+      - NEXT_PUBLIC_CLOUD_URL=https://cloud.solstudio.fun
     restart: unless-stopped
     init: true
     depends_on:

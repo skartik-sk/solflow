@@ -1,11 +1,28 @@
 "use client";
 
+import { Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Github, Workflow } from "lucide-react";
 import Link from "next/link";
 import { WalletSignIn } from "@/components/auth/WalletSignIn";
 
 export default function SignInPage() {
+  return (
+    <Suspense fallback={<SignInShell callbackUrl="/dashboard" />}>
+      <SignInContent />
+    </Suspense>
+  );
+}
+
+function SignInContent() {
+  const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get("callbackUrl") ?? "/dashboard";
+
+  return <SignInShell callbackUrl={callbackUrl} />;
+}
+
+function SignInShell({ callbackUrl }: { callbackUrl: string }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       {/* Background glow */}
@@ -36,7 +53,7 @@ export default function SignInPage() {
           <div className="flex flex-col gap-3">
             {/* GitHub */}
             <button
-              onClick={() => signIn("github", { callbackUrl: "/dashboard" })}
+              onClick={() => signIn("github", { callbackUrl })}
               className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               <Github className="h-4 w-4" />
@@ -45,7 +62,7 @@ export default function SignInPage() {
 
             {/* Google */}
             <button
-              onClick={() => signIn("google", { callbackUrl: "/dashboard" })}
+              onClick={() => signIn("google", { callbackUrl })}
               className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
             >
               <GoogleIcon />
@@ -60,7 +77,7 @@ export default function SignInPage() {
           </div>
 
           {/* Wallet */}
-          <WalletSignIn />
+          <WalletSignIn callbackUrl={callbackUrl} />
         </div>
 
         <p className="mt-6 text-center text-xs text-muted-foreground">
