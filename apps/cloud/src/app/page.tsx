@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -35,25 +35,63 @@ function Label({ children }: { children: React.ReactNode }) {
   return <span className="inline-block text-[11px] font-semibold text-primary uppercase tracking-[0.14em] mb-2.5">{children}</span>;
 }
 
-/* ─── Workflow node types for showcase ──────────────────────────── */
+/* ─── Canvas types ──────────────────────────────────────────────── */
 
-type WFNode = {
-  id: string;
-  label: string;
-  sublabel: string;
-  icon: React.ReactNode;
-  color: string;
-  x: number;
-  y: number;
+type NodeId = "trigger" | "fetch" | "split" | "swap" | "webhook";
+type Pos = { x: number; y: number };
+
+const CANVAS_W = 640;
+const CANVAS_H = 360;
+
+const INITIAL_POSITIONS: Record<NodeId, Pos> = {
+  trigger:  { x: 15,  y: 145 },
+  fetch:    { x: 160, y: 145 },
+  split:    { x: 310, y: 145 },
+  swap:     { x: 460, y: 60 },
+  webhook:  { x: 460, y: 230 },
 };
 
-const WORKFLOW_NODES: WFNode[] = [
-  { id: "trigger", label: "CRON TRIGGER", sublabel: "Every 5 minutes", icon: <Radio className="h-3 w-3" />, color: "#f59e0b", x: 8, y: 50 },
-  { id: "swap", label: "FETCH PRICE", sublabel: "Birdeye or DexScreener", icon: <Zap className="h-3 w-3" />, color: "#3b82f6", x: 32, y: 50 },
-  { id: "split", label: "IF / ELSE", sublabel: "price > threshold", icon: <GitBranch className="h-3 w-3" />, color: "#8b5cf6", x: 56, y: 50 },
-  { id: "transfer", label: "JUPITER SWAP", sublabel: "Signed by Cloud wallet", icon: <Wallet className="h-3 w-3" />, color: "#10b981", x: 80, y: 34 },
-  { id: "alert", label: "WEBHOOK", sublabel: "Send run summary", icon: <Activity className="h-3 w-3" />, color: "#ef4444", x: 80, y: 66 },
+const NODE_DEFS: Record<NodeId, { w: number; h: number; color: string; label: string; sub: string; icon: React.ReactNode; badge?: string }> = {
+  trigger:  { w: 130, h: 72, color: "#f59e0b", label: "CRON TRIGGER", sub: "Every 5 minutes",       icon: <Radio className="h-3 w-3" /> },
+  fetch:    { w: 130, h: 72, color: "#3b82f6", label: "FETCH PRICE",  sub: "Birdeye SOL/USDT",      icon: <Zap className="h-3 w-3" /> },
+  split:    { w: 130, h: 72, color: "#8b5cf6", label: "IF / ELSE",    sub: "price > threshold?",    icon: <GitBranch className="h-3 w-3" />, badge: "logic" },
+  swap:     { w: 140, h: 72, color: "#10b981", label: "JUPITER SWAP", sub: "Signed by Cloud wallet",icon: <Wallet className="h-3 w-3" /> },
+  webhook:  { w: 130, h: 72, color: "#ef4444", label: "WEBHOOK OUT",  sub: "Send run summary",      icon: <Activity className="h-3 w-3" /> },
+};
+
+const CONNECTIONS: { from: NodeId; fromSide: "bottom" | "right"; to: NodeId; toSide: "top" | "left" }[] = [
+  { from: "trigger", fromSide: "right", to: "fetch",   toSide: "left" },
+  { from: "fetch",   fromSide: "right", to: "split",   toSide: "left" },
+  { from: "split",   fromSide: "right", to: "swap",    toSide: "top" },
+  { from: "split",   fromSide: "right", to: "webhook", toSide: "top" },
 ];
+
+/* ─── Edge path builder ────────────────────────────────────────── */
+
+function getHandle(pos: Pos, size: { w: number; h: number }, side: string): Pos {
+  switch (side) {
+    case "top":    return { x: pos.x + size.w / 2, y: pos.y };
+    case "bottom": return { x: pos.x + size.w / 2, y: pos.y + size.h };
+    case "left":   return { x: pos.x,               y: pos.y + size.h / 2 };
+    case "right":  return { x: pos.x + size.w,       y: pos.y + size.h / 2 };
+    default:       return pos;
+  }
+}
+
+function buildPath(s: Pos, sSide: string, e: Pos, eSide: string): string {
+  const r = 8;
+  if (sSide === "right" && eSide === "left") {
+    const midX = (s.x + e.x) / 2;
+    if (Math.abs(s.y - e.y) < 2) return `M${s.x},${s.y} H${e.x}`;
+    const dir = e.y > s.y ? 1 : -1;
+    return `M${s.x},${s.y} H${midX - r} Q${midX},${s.y} ${midX},${s.y + dir * r} V${e.y - dir * r} Q${midX},${e.y} ${midX < e.x ? midX + r : midX - r},${e.y} H${e.x}`;
+  }
+  if (sSide === "right" && eSide === "top") {
+    const midX = (s.x + e.x) / 2;
+    return `M${s.x},${s.y} H${midX - r} Q${midX},${s.y} ${midX},${s.y + r} V${e.y - r} Q${midX},${e.y} ${e.x < midX ? midX - r : midX + r},${e.y} H${e.x}`;
+  }
+  return `M${s.x},${s.y} C${s.x},${s.y + (e.y - s.y) / 2} ${e.x},${e.y - (e.y - s.y) / 2} ${e.x},${e.y}`;
+}
 
 /* ─── Status ticker ─────────────────────────────────────────────── */
 
@@ -65,19 +103,57 @@ const STATUS_LINES = [
   { time: "7s ago", text: "Webhook output delivered execution summary", color: "#ef4444" },
 ];
 
+/* ─── Auto-cycle order ──────────────────────────────────────────── */
+
+const NODE_ORDER: NodeId[] = ["trigger", "fetch", "split", "swap", "webhook"];
+
 /* ═══════════════════════════════════════════════════════════════════
     PAGE
 ═══════════════════════════════════════════════════════════════════ */
 
 export default function CloudLandingPage() {
+  const [positions, setPositions] = useState<Record<NodeId, Pos>>(INITIAL_POSITIONS);
+  const [hoverNode, setHoverNode] = useState<NodeId | null>(null);
   const [activeLine, setActiveLine] = useState(0);
+  const [activeNode, setActiveNode] = useState<NodeId | null>(null);
+  const [cycleIndex, setCycleIndex] = useState(0);
 
+  // Auto-cycle status log
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveLine((prev) => (prev + 1) % STATUS_LINES.length);
     }, 2200);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-cycle node highlights
+  useEffect(() => {
+    const timers = new Set<ReturnType<typeof setTimeout>>();
+    const schedule = (id: NodeId, i: number) => {
+      const t = setTimeout(() => {
+        setActiveNode(id);
+        setCycleIndex(i);
+        timers.delete(t);
+      }, (i + 1) * 2500);
+      timers.add(t);
+    };
+    NODE_ORDER.forEach(schedule);
+    const total = (NODE_ORDER.length + 1) * 2500;
+    const loop = setInterval(() => NODE_ORDER.forEach(schedule), total);
+    return () => { timers.forEach(clearTimeout); clearInterval(loop); };
+  }, []);
+
+  const updatePos = useCallback((id: NodeId, x: number, y: number) => {
+    setPositions(prev => ({ ...prev, [id]: { x, y } }));
+  }, []);
+
+  const relevantNode = hoverNode ?? activeNode;
+  const activeConns = relevantNode
+    ? CONNECTIONS.reduce<number[]>((acc, c, i) => {
+        if (c.from === relevantNode || c.to === relevantNode) acc.push(i);
+        return acc;
+      }, [])
+    : [];
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground font-bricolage selection:bg-primary/30 selection:text-primary-foreground overflow-x-hidden">
@@ -100,7 +176,6 @@ export default function CloudLandingPage() {
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</a>
             <a href="#features" className="hover:text-foreground transition-colors">Features</a>
             <a href="#integrations" className="hover:text-foreground transition-colors">Integrations</a>
-            <Link href="/templates" className="hover:text-foreground transition-colors">Templates</Link>
             <a href={WEB_URL} className="hover:text-foreground transition-colors">Editor</a>
           </div>
           <div className="flex items-center gap-3">
@@ -122,29 +197,29 @@ export default function CloudLandingPage() {
                 <span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative rounded-full h-1.5 w-1.5 bg-emerald-400" />
               </span>
-              Queue-backed workflows for Solana ops
+              Solana-native workflow automation
             </motion.div>
             <motion.h1 initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.06 }}
               className="mb-3 text-[28px] font-extrabold tracking-tight sm:text-4xl md:text-[42px] leading-[1.1] text-foreground">
-              Run Solana workflows<br /><span className="text-muted-foreground">without backend glue.</span>
+              Automate your Solana<br /><span className="text-muted-foreground">operations visually.</span>
             </motion.h1>
             <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.12 }}
               className="mb-7 max-w-md text-sm text-muted-foreground leading-relaxed">
-              Combine cron jobs, webhooks, price checks, AI decisions, Jupiter swaps, and token transfers in one visual Cloud runner.
+              Build powerful workflows for DeFi. Just drag, connect, deploy.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.18 }}
               className="flex flex-col items-center gap-2.5 sm:flex-row">
               <Link href="/dashboard" className="inline-flex h-9 w-full sm:w-auto items-center justify-center rounded-lg bg-primary px-6 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/15">
-                Open Dashboard <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                Get Started <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Link>
               <Link href="/templates" className="inline-flex h-9 w-full sm:w-auto items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
-                <Boxes className="h-3.5 w-3.5 text-muted-foreground" /> Explore Templates
+                <Boxes className="h-3.5 w-3.5 text-muted-foreground" /> Browse Templates
               </Link>
             </motion.div>
           </div>
         </section>
 
-        {/* ═══ WORKFLOW SHOWCASE ════════════════════════ */}
+        {/* ═══ WORKFLOW SHOWCASE (interactive) ═══════════ */}
         <section className="relative z-20 px-5 pb-20 pt-4 md:pt-8">
           <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.3 }}
             className="mx-auto max-w-4xl">
@@ -171,91 +246,102 @@ export default function CloudLandingPage() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px]">
-                {/* Workflow canvas */}
-                <div className="relative border-r border-border/40 bg-background/30 overflow-hidden" style={{ minHeight: 320 }}>
+                {/* Canvas */}
+                <div id="cloud-canvas" className="relative border-r border-border/40 bg-background/30 overflow-hidden select-none" style={{ height: 360 }}>
                   {/* Dot grid */}
                   <div className="absolute inset-0 opacity-25" style={{
                     backgroundImage: "radial-gradient(circle, oklch(0.32 0.01 240) 0.5px, transparent 0.5px)",
                     backgroundSize: "16px 16px",
                   }} />
 
-                  {/* Connection lines */}
-                  <svg className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>
-                    {/* trigger → swap */}
-                    <motion.path
-                      d="M 18% 58% C 24% 58%, 26% 58%, 32% 58%"
-                      stroke="#f59e0b" strokeWidth={1.5} fill="none" opacity={0.25}
-                      initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                      transition={{ duration: 0.8, delay: 0.5 }}
-                    />
-                    <circle r={2} fill="#f59e0b" opacity={0.5}>
-                      <animateMotion dur="2.5s" repeatCount="indefinite" begin="0.5" path="M 18% 58% C 24% 58%, 26% 58%, 32% 58%" />
-                    </circle>
+                  {/* SVG edges */}
+                  <svg viewBox={`0 0 ${CANVAS_W} ${CANVAS_H}`} preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden>
+                    {CONNECTIONS.map((conn, i) => {
+                      const sH = getHandle(positions[conn.from], NODE_DEFS[conn.from], conn.fromSide);
+                      const eH = getHandle(positions[conn.to], NODE_DEFS[conn.to], conn.toSide);
+                      const d = buildPath(sH, conn.fromSide, eH, conn.toSide);
+                      const active = activeConns.includes(i);
+                      const color = NODE_DEFS[conn.from].color;
 
-                    {/* swap → split */}
-                    <motion.path
-                      d="M 42% 58% C 48% 58%, 50% 58%, 56% 58%"
-                      stroke="#3b82f6" strokeWidth={1.5} fill="none" opacity={0.25}
-                      initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                      transition={{ duration: 0.8, delay: 0.7 }}
-                    />
-                    <circle r={2} fill="#3b82f6" opacity={0.5}>
-                      <animateMotion dur="2.5s" repeatCount="indefinite" begin="0.7" path="M 42% 58% C 48% 58%, 50% 58%, 56% 58%" />
-                    </circle>
-
-                    {/* split → transfer (up) */}
-                    <motion.path
-                      d="M 66% 50% C 72% 50%, 74% 42%, 80% 42%"
-                      stroke="#8b5cf6" strokeWidth={1.5} fill="none" opacity={0.25}
-                      initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                      transition={{ duration: 0.8, delay: 0.9 }}
-                    />
-                    <circle r={2} fill="#8b5cf6" opacity={0.5}>
-                      <animateMotion dur="2.5s" repeatCount="indefinite" begin="0.9" path="M 66% 50% C 72% 50%, 74% 42%, 80% 42%" />
-                    </circle>
-
-                    {/* split → alert (down) */}
-                    <motion.path
-                      d="M 66% 66% C 72% 66%, 74% 74%, 80% 74%"
-                      stroke="#8b5cf6" strokeWidth={1.5} fill="none" opacity={0.25}
-                      initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
-                      transition={{ duration: 0.8, delay: 1.0 }}
-                    />
-                    <circle r={2} fill="#8b5cf6" opacity={0.5}>
-                      <animateMotion dur="2.5s" repeatCount="indefinite" begin="1.0" path="M 66% 66% C 72% 66%, 74% 74%, 80% 74%" />
-                    </circle>
+                      return (
+                        <g key={i}>
+                          <motion.path d={d} stroke={color} strokeWidth={active ? 2.5 : 1.5}
+                            fill="none" opacity={active ? 0.6 : 0.2}
+                            initial={{ pathLength: 0 }} animate={{ pathLength: 1 }}
+                            transition={{ duration: 1, delay: 0.4 + i * 0.15, ease: "easeInOut" }}
+                          />
+                          <circle r={active ? 2.5 : 1.5} fill={color} opacity={active ? 0.7 : 0.35}>
+                            <animateMotion dur={active ? "1.2s" : "2.5s"} repeatCount="indefinite" begin={0.4 + i * 0.15} path={d} />
+                          </circle>
+                          <circle cx={sH.x} cy={sH.y} r={active ? 4 : 3}
+                            fill="var(--color-background)" stroke={color} strokeWidth={active ? 2 : 1.5} />
+                          <circle cx={eH.x} cy={eH.y} r={active ? 4 : 3}
+                            fill="var(--color-background)" stroke={color} strokeWidth={active ? 2 : 1.5} />
+                        </g>
+                      );
+                    })}
                   </svg>
 
-                  {/* Workflow nodes */}
-                  {WORKFLOW_NODES.map((node, i) => (
-                    <motion.div
-                      key={node.id}
-                      initial={{ opacity: 0, scale: 0.92 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ duration: 0.35, delay: 0.4 + i * 0.1 }}
-                      className="absolute rounded-lg border bg-card/90 shadow-md backdrop-blur-sm"
-                      style={{
-                        left: `${node.x}%`,
-                        top: `${node.y}%`,
-                        transform: "translate(-50%, -50%)",
-                        borderLeftWidth: 3,
-                        borderLeftColor: node.color,
-                        width: "16%",
-                        minWidth: 120,
-                      }}
-                    >
-                      <div className="flex items-center gap-1.5 px-2 py-[4px] border-b border-border/40">
-                        <div className="flex h-4 w-4 items-center justify-center rounded"
-                          style={{ backgroundColor: `${node.color}1A`, color: node.color }}>
-                          {node.icon}
+                  {/* Draggable nodes */}
+                  {NODE_ORDER.map((id, i) => {
+                    const n = NODE_DEFS[id];
+                    const pos = positions[id];
+                    const active = hoverNode === id || activeNode === id;
+                    const pctX = (pos.x / CANVAS_W) * 100;
+                    const pctY = (pos.y / CANVAS_H) * 100;
+                    const pctW = (n.w / CANVAS_W) * 100;
+
+                    return (
+                      <motion.div key={id}
+                        initial={{ opacity: 0, scale: 0.92 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ duration: 0.35, delay: 0.3 + i * 0.08 }}
+                        drag
+                        dragMomentum={false}
+                        dragElastic={0}
+                        onDrag={(_, info) => {
+                          const container = document.getElementById("cloud-canvas");
+                          if (!container) return;
+                          const rect = container.getBoundingClientRect();
+                          const scale = (CANVAS_W / rect.width) * 0.3;
+                          const newX = pos.x + info.delta.x * scale;
+                          const newY = pos.y + info.delta.y * scale;
+                          updatePos(id,
+                            Math.max(0, Math.min(CANVAS_W - n.w, newX)),
+                            Math.max(0, Math.min(CANVAS_H - n.h, newY)),
+                          );
+                        }}
+                        onMouseEnter={() => setHoverNode(id)}
+                        onMouseLeave={() => setHoverNode(null)}
+                        className="absolute rounded-lg border bg-card/90 shadow-md backdrop-blur-sm cursor-grab active:cursor-grabbing transition-shadow duration-150"
+                        style={{
+                          left: `${pctX}%`,
+                          top: `${pctY}%`,
+                          width: `${pctW}%`,
+                          borderLeftWidth: 3,
+                          borderLeftColor: n.color,
+                          borderColor: active ? n.color : undefined,
+                          boxShadow: active ? `0 0 20px ${n.color}25, 0 4px 12px rgba(0,0,0,0.3)` : undefined,
+                          zIndex: active ? 10 : 1,
+                        }}
+                      >
+                        <div className="flex items-center gap-1.5 px-2 py-[4px] border-b border-border/40">
+                          <div className="flex h-4 w-4 items-center justify-center rounded"
+                            style={{ backgroundColor: `${n.color}1A`, color: n.color }}>
+                            {n.icon}
+                          </div>
+                          <span className="text-[8px] font-semibold text-foreground tracking-wide">{n.label}</span>
+                          {n.badge && (
+                            <span className="ml-auto text-[7px] font-mono px-1 py-[1px] rounded"
+                              style={{ color: n.color, backgroundColor: `${n.color}12` }}>{n.badge}</span>
+                          )}
                         </div>
-                        <span className="text-[8px] font-semibold text-foreground tracking-wide">{node.label}</span>
-                      </div>
-                      <div className="px-2 py-1.5">
-                        <span className="text-[7px] font-mono text-muted-foreground">{node.sublabel}</span>
-                      </div>
-                    </motion.div>
-                  ))}
+                        <div className="px-2 py-1.5">
+                          <span className="text-[7px] font-mono text-muted-foreground">{n.sub}</span>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
 
                   {/* Type badges */}
                   <div className="absolute bottom-2 left-3 flex gap-2">
@@ -269,10 +355,17 @@ export default function CloudLandingPage() {
                         style={{ color: t.color, backgroundColor: `${t.color}0D` }}>{t.label}</span>
                     ))}
                   </div>
+
+                  {/* Hint */}
+                  {(hoverNode === null && activeNode === null) && (
+                    <div className="absolute bottom-2 right-3 text-[8px] text-muted-foreground font-mono opacity-35 whitespace-nowrap">
+                      drag nodes to rearrange &middot; hover to inspect
+                    </div>
+                  )}
                 </div>
 
                 {/* Status panel */}
-                <div className="hidden lg:block border-l border-border/40 bg-card/50">
+                <div className="hidden lg:block relative border-l border-border/40 bg-card/50">
                   <div className="px-3 py-2 border-b border-border/30">
                     <div className="flex items-center gap-1.5">
                       <Activity className="w-2.5 h-2.5 text-primary" />
@@ -292,7 +385,6 @@ export default function CloudLandingPage() {
                           key={i}
                           animate={{
                             opacity: i <= activeLine ? 1 : 0.3,
-                            x: 0,
                             backgroundColor: i === activeLine ? "oklch(0.65 0.22 260 / 0.05)" : "transparent",
                           }}
                           transition={{ duration: 0.3 }}
@@ -310,9 +402,9 @@ export default function CloudLandingPage() {
                   <div className="absolute bottom-0 left-0 right-0 border-t border-border/30 bg-background/30 px-3 py-2">
                     <div className="grid grid-cols-3 gap-2 text-center">
                       {[
-                        { val: "Redis", label: "queue" },
-                        { val: "Cron", label: "triggers" },
-                        { val: "Logs", label: "history" },
+                        { val: "847ms", label: "avg run" },
+                        { val: "99.7%", label: "uptime" },
+                        { val: "1.2k", label: "runs/day" },
                       ].map((s) => (
                         <div key={s.label}>
                           <div className="text-[9px] font-bold text-foreground">{s.val}</div>
@@ -334,14 +426,14 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-10 text-center">
               <Label>How it works</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Set up the flow, then let workers run it.</h2>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Cloud handles the trigger, queue, execution, retry, and run history.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Set up in minutes. Run forever.</h2>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Three steps to automated Solana operations.</p>
             </motion.div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { step: "01", icon: <Workflow className="h-4 w-4" />, title: "Pick a Trigger", desc: "Start from cron schedules, manual runs, or secured webhooks from your Solana data stack.", color: "#f59e0b" },
-                { step: "02", icon: <Shield className="h-4 w-4" />, title: "Wire Actions", desc: "Connect price fetches, conditions, AI analysis, Jupiter swaps, token transfers, and webhooks.", color: "#3b82f6" },
-                { step: "03", icon: <Zap className="h-4 w-4" />, title: "Activate Workers", desc: "Run the workflow through Cloud workers with retry policy, execution logs, and trigger restore.", color: "#10b981" },
+                { step: "01", icon: <Workflow className="h-4 w-4" />, title: "Build Visually", desc: "Drag triggers, actions, and logic nodes onto the canvas. Wire them together to define your automation.", color: "#f59e0b" },
+                { step: "02", icon: <Shield className="h-4 w-4" />, title: "Configure & Secure", desc: "Set parameters, connect wallets with AES-256 encryption, and define retry/fallback policies.", color: "#3b82f6" },
+                { step: "03", icon: <Zap className="h-4 w-4" />, title: "Deploy & Monitor", desc: "Activate your workflow. Real-time logs, execution history, and alerts keep you in control 24/7.", color: "#10b981" },
               ].map((s, i) => (
                 <motion.div key={s.step} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                   transition={{ duration: 0.4, delay: i * 0.08 }} className="rounded-lg border border-border bg-card p-5">
@@ -364,21 +456,21 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-10 text-center">
               <Label>Features</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Built around the nodes that exist today.</h2>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto">The page now mirrors the actual Cloud runtime: triggers, queue-backed workers, credentials, wallets, and execution logs.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Built for serious operations.</h2>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">Enterprise-grade infrastructure for automated Solana workflows.</p>
             </motion.div>
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
               {[
-                { icon: <Workflow className="h-4 w-4" />, title: "Visual Workflow Canvas", desc: "Build from real Cloud nodes: cron, webhook, price fetch, filter, if/else, wait, AI, swap, transfer, and webhook output." },
-                { icon: <Wallet className="h-4 w-4" />, title: "Cloud Wallet Signing", desc: "Connect encrypted Cloud wallets for Jupiter swaps and SOL or SPL token transfers." },
-                { icon: <Bot className="h-4 w-4" />, title: "AI Analysis Node", desc: "Call OpenAI or Anthropic to classify webhook payloads, summarize activity, or produce JSON for downstream steps." },
-                { icon: <Shield className="h-4 w-4" />, title: "Credential Isolation", desc: "Store provider credentials server-side and reference them from workflow nodes instead of exposing keys in the browser." },
-                { icon: <Layers className="h-4 w-4" />, title: "Jupiter + Price Data", desc: "Use Jupiter for swaps and Birdeye or DexScreener for token price checks." },
-                { icon: <Plug className="h-4 w-4" />, title: "Webhook In and Out", desc: "Receive signed or header-authenticated webhook events and send structured outputs to external systems." },
-                { icon: <Timer className="h-4 w-4" />, title: "Cron Triggers", desc: "Schedule recurring runs for price checks, portfolio reports, DCA jobs, and payment workflows." },
-                { icon: <BarChart3 className="h-4 w-4" />, title: "Execution History", desc: "Track node inputs, outputs, timing, retries, skipped branches, and failures for every workflow run." },
-                { icon: <Lock className="h-4 w-4" />, title: "Rate-Limited API", desc: "Protected workflow lifecycle and manual execution endpoints reduce accidental or abusive repeat runs." },
+                { icon: <Workflow className="h-4 w-4" />, title: "Visual Builder", desc: "Drag-and-drop node editor with 20+ node types. Build complex automations without code." },
+                { icon: <Wallet className="h-4 w-4" />, title: "Cloud Wallets", desc: "Encrypted wallet management. Swap, transfer, and manage tokens around the clock." },
+                { icon: <Bot className="h-4 w-4" />, title: "AI Agents", desc: "Integrate LLMs to analyze on-chain data and make intelligent decisions automatically." },
+                { icon: <Shield className="h-4 w-4" />, title: "Enterprise Security", desc: "AES-256-GCM encryption, audit logging, and rate limiting. Keys never leave the server." },
+                { icon: <Layers className="h-4 w-4" />, title: "DeFi Integrations", desc: "Native support for Jupiter, Raydium, Orca, MarginFi, Kamino, and more." },
+                { icon: <Plug className="h-4 w-4" />, title: "Plugin Architecture", desc: "Extend with custom nodes. Build integrations for any protocol or service." },
+                { icon: <Timer className="h-4 w-4" />, title: "Cron Triggers", desc: "Schedule workflows on cron expressions. Recurring swaps, rebalancing, or monitoring." },
+                { icon: <BarChart3 className="h-4 w-4" />, title: "Execution Logs", desc: "Detailed run history with inputs, outputs, and error traces for every execution." },
+                { icon: <Lock className="h-4 w-4" />, title: "Role-Based Access", desc: "Team management with granular permissions. Control who can create, edit, or run workflows." },
               ].map((f) => (
                 <motion.div key={f.title} variants={fadeUp}
                   whileHover={{ y: -2, transition: { duration: 0.12 } }}
@@ -398,32 +490,28 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-10 text-center">
               <Label>Integrations</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Focused integrations for the first Cloud release.</h2>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Use supported providers directly, or connect the rest of your stack through webhooks.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Powering real Solana workflows.</h2>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Built-in nodes for the protocols and services you actually use.</p>
             </motion.div>
-            <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               {[
-                { name: "Jupiter", tag: "Swap", color: "#10b981" },
-                { name: "Birdeye", tag: "Price", color: "#06b6d4" },
-                { name: "DexScreener", tag: "Price", color: "#3b82f6" },
-                { name: "OpenAI", tag: "AI", color: "#10a37f" },
-                { name: "Anthropic", tag: "AI", color: "#f59e0b" },
-                { name: "Cloud Wallets", tag: "Signing", color: "#8b5cf6" },
-                { name: "Incoming Webhooks", tag: "Trigger", color: "#ef4444" },
-                { name: "Outgoing Webhooks", tag: "Notify", color: "#5865F2" },
+                { name: "Jupiter", tag: "Swap", color: "#10b981", desc: "Token swaps and quotes" },
+                { name: "Birdeye", tag: "Price", color: "#06b6d4", desc: "Real-time price feeds" },
+                { name: "OpenAI", tag: "AI", color: "#10a37f", desc: "Analyze and classify data" },
+                { name: "Webhooks", tag: "I/O", color: "#ef4444", desc: "Receive and send events" },
               ].map((p) => (
-                <motion.div key={p.name} variants={fadeUp}
-                  className="group rounded-lg border border-border bg-card px-4 py-3.5 transition-all hover:border-primary/25">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <div className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
+                <div key={p.name}
+                  className="group rounded-lg border border-border bg-card px-4 py-4 transition-colors hover:border-primary/25">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: p.color }} />
                     <span className="text-[8px] font-semibold uppercase tracking-wider px-1.5 py-[1px] rounded"
                       style={{ color: p.color, backgroundColor: `${p.color}0D` }}>{p.tag}</span>
                   </div>
-                  <span className="text-[12px] font-semibold text-foreground group-hover:text-primary transition-colors">{p.name}</span>
-                </motion.div>
+                  <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors">{p.name}</span>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{p.desc}</p>
+                </div>
               ))}
-            </motion.div>
+            </div>
           </div>
         </section>
 
@@ -433,10 +521,10 @@ export default function CloudLandingPage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { val: "11", label: "Node Types" },
-                { val: "3", label: "Trigger Modes" },
-                { val: "2", label: "AI Providers" },
-                { val: "Redis", label: "Queue Runtime" },
+                { val: "20+", label: "Node Types" },
+                { val: "8+", label: "Protocols" },
+                { val: "99.7%", label: "Uptime" },
+                { val: "<1s", label: "Avg. Run" },
               ].map((s) => (
                 <motion.div key={s.label} variants={fadeUp} className="text-center">
                   <div className="text-xl font-extrabold text-foreground">{s.val}</div>
@@ -453,15 +541,15 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-8 text-center">
               <Label>Templates</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Start from a real Cloud workflow.</h2>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Seeded templates create editable workflows with the same nodes available in the Cloud builder.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Start with a blueprint.</h2>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Pre-built workflows ready to customize and deploy.</p>
             </motion.div>
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
               {[
-                { title: "Price Alert Bot", desc: "Check a token price and send a webhook when the threshold matches", tags: ["Cron", "Price", "Webhook"], color: "#3b82f6" },
-                { title: "DCA Strategy", desc: "Run scheduled Jupiter swaps through a selected Cloud wallet", tags: ["Jupiter", "Wallet"], color: "#10b981" },
-                { title: "Webhook Processor", desc: "Receive event data, ask an AI node to summarize it, and forward the result", tags: ["Webhook", "AI"], color: "#8b5cf6" },
+                { title: "DCA Trader", desc: "Dollar-cost average into any token on a schedule", tags: ["Jupiter", "Cron"], color: "#3b82f6" },
+                { title: "Liquidation Guard", desc: "Monitor lending positions and auto-deleverage", tags: ["MarginFi", "Alert"], color: "#ef4444" },
+                { title: "Yield Harvester", desc: "Auto-compound rewards across DeFi protocols", tags: ["Raydium", "Kamino"], color: "#10b981" },
               ].map((t) => (
                 <Link key={t.title} href={`/templates?q=${encodeURIComponent(t.title)}`}
                   className="group rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/30 hover:shadow-sm">
@@ -484,7 +572,7 @@ export default function CloudLandingPage() {
             </motion.div>
             <div className="mt-5 text-center">
               <Link href="/templates" className="text-[12px] text-primary font-medium hover:underline inline-flex items-center gap-0.5">
-                Browse Cloud templates <ChevronRight className="h-3 w-3" />
+                Browse all templates <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
           </div>
@@ -495,11 +583,11 @@ export default function CloudLandingPage() {
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,oklch(0.35_0.12_260/0.04)_0%,transparent_50%)] pointer-events-none" />
           <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
             className="mx-auto max-w-md text-center relative">
-            <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground mb-2">Move repeat Solana ops<br />into workflows.</h2>
-            <p className="text-sm text-muted-foreground mb-6 max-w-xs mx-auto">Start from a seeded template, connect credentials and wallets, then activate the worker-backed flow.</p>
+            <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground mb-2">Stop watching charts.<br />Start automating.</h2>
+            <p className="text-sm text-muted-foreground mb-6 max-w-xs mx-auto">The easiest way to automate Solana operations — no code, no servers, no babysitting.</p>
             <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
               <Link href="/dashboard" className="inline-flex h-9 items-center rounded-lg bg-primary px-5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/15">
-                Open Dashboard <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                Start Free <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Link>
               <Link href="/templates" className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-5 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
                 Browse Templates
