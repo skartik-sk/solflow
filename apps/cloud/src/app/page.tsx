@@ -48,21 +48,21 @@ type WFNode = {
 };
 
 const WORKFLOW_NODES: WFNode[] = [
-  { id: "trigger", label: "PRICE MONITOR", sublabel: "SOL/USDT < $148.50", icon: <Radio className="h-3 w-3" />, color: "#f59e0b", x: 8, y: 50 },
-  { id: "swap", label: "JUPITER SWAP", sublabel: "100 SOL → USDC", icon: <Zap className="h-3 w-3" />, color: "#3b82f6", x: 32, y: 50 },
-  { id: "split", label: "CONDITIONAL", sublabel: "amount > $10k?", icon: <GitBranch className="h-3 w-3" />, color: "#8b5cf6", x: 56, y: 50 },
-  { id: "transfer", label: "WALLET SEND", sublabel: "→ Cold Storage", icon: <Wallet className="h-3 w-3" />, color: "#10b981", x: 80, y: 34 },
-  { id: "alert", label: "DISCORD ALERT", sublabel: "Trade Executed", icon: <Activity className="h-3 w-3" />, color: "#ef4444", x: 80, y: 66 },
+  { id: "trigger", label: "CRON TRIGGER", sublabel: "Every 5 minutes", icon: <Radio className="h-3 w-3" />, color: "#f59e0b", x: 8, y: 50 },
+  { id: "swap", label: "FETCH PRICE", sublabel: "Birdeye or DexScreener", icon: <Zap className="h-3 w-3" />, color: "#3b82f6", x: 32, y: 50 },
+  { id: "split", label: "IF / ELSE", sublabel: "price > threshold", icon: <GitBranch className="h-3 w-3" />, color: "#8b5cf6", x: 56, y: 50 },
+  { id: "transfer", label: "JUPITER SWAP", sublabel: "Signed by Cloud wallet", icon: <Wallet className="h-3 w-3" />, color: "#10b981", x: 80, y: 34 },
+  { id: "alert", label: "WEBHOOK", sublabel: "Send run summary", icon: <Activity className="h-3 w-3" />, color: "#ef4444", x: 80, y: 66 },
 ];
 
 /* ─── Status ticker ─────────────────────────────────────────────── */
 
 const STATUS_LINES = [
-  { time: "2s ago", text: "SOL/USDT hit $147.82 — trigger fired", color: "#f59e0b" },
-  { time: "3s ago", text: "Jupiter: swapped 50 SOL → 7,391 USDC", color: "#3b82f6" },
-  { time: "5s ago", text: "Condition passed: amount $7,391 < $10k", color: "#8b5cf6" },
-  { time: "6s ago", text: "Transferred 7,391 USDC → cold wallet", color: "#10b981" },
-  { time: "7s ago", text: "Discord webhook: trade notification sent", color: "#ef4444" },
+  { time: "2s ago", text: "Cron trigger queued a price check", color: "#f59e0b" },
+  { time: "3s ago", text: "Price fetch returned SOL market data", color: "#3b82f6" },
+  { time: "5s ago", text: "Condition matched the configured threshold", color: "#8b5cf6" },
+  { time: "6s ago", text: "Jupiter quote prepared for wallet signing", color: "#10b981" },
+  { time: "7s ago", text: "Webhook output delivered execution summary", color: "#ef4444" },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -100,6 +100,7 @@ export default function CloudLandingPage() {
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</a>
             <a href="#features" className="hover:text-foreground transition-colors">Features</a>
             <a href="#integrations" className="hover:text-foreground transition-colors">Integrations</a>
+            <Link href="/templates" className="hover:text-foreground transition-colors">Templates</Link>
             <a href={WEB_URL} className="hover:text-foreground transition-colors">Editor</a>
           </div>
           <div className="flex items-center gap-3">
@@ -121,23 +122,23 @@ export default function CloudLandingPage() {
                 <span className="animate-ping absolute h-full w-full rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative rounded-full h-1.5 w-1.5 bg-emerald-400" />
               </span>
-              Solana-native workflow automation
+              Queue-backed workflows for Solana ops
             </motion.div>
             <motion.h1 initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.06 }}
               className="mb-3 text-[28px] font-extrabold tracking-tight sm:text-4xl md:text-[42px] leading-[1.1] text-foreground">
-              Automate your Solana<br /><span className="text-muted-foreground">operations visually.</span>
+              Run Solana workflows<br /><span className="text-muted-foreground">without backend glue.</span>
             </motion.h1>
             <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.12 }}
               className="mb-7 max-w-md text-sm text-muted-foreground leading-relaxed">
-              Build powerful workflows for DeFi. Just drag, connect, deploy.
+              Combine cron jobs, webhooks, price checks, AI decisions, Jupiter swaps, and token transfers in one visual Cloud runner.
             </motion.p>
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.18 }}
               className="flex flex-col items-center gap-2.5 sm:flex-row">
               <Link href="/dashboard" className="inline-flex h-9 w-full sm:w-auto items-center justify-center rounded-lg bg-primary px-6 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/15">
-                Get Started <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                Open Dashboard <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Link>
               <Link href="/templates" className="inline-flex h-9 w-full sm:w-auto items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
-                <Boxes className="h-3.5 w-3.5 text-muted-foreground" /> Browse Templates
+                <Boxes className="h-3.5 w-3.5 text-muted-foreground" /> Explore Templates
               </Link>
             </motion.div>
           </div>
@@ -309,9 +310,9 @@ export default function CloudLandingPage() {
                   <div className="absolute bottom-0 left-0 right-0 border-t border-border/30 bg-background/30 px-3 py-2">
                     <div className="grid grid-cols-3 gap-2 text-center">
                       {[
-                        { val: "847ms", label: "avg run" },
-                        { val: "99.7%", label: "uptime" },
-                        { val: "1.2k", label: "runs/day" },
+                        { val: "Redis", label: "queue" },
+                        { val: "Cron", label: "triggers" },
+                        { val: "Logs", label: "history" },
                       ].map((s) => (
                         <div key={s.label}>
                           <div className="text-[9px] font-bold text-foreground">{s.val}</div>
@@ -333,14 +334,14 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-10 text-center">
               <Label>How it works</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Set up in minutes. Run forever.</h2>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Three steps to automated Solana operations.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Set up the flow, then let workers run it.</h2>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Cloud handles the trigger, queue, execution, retry, and run history.</p>
             </motion.div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {[
-                { step: "01", icon: <Workflow className="h-4 w-4" />, title: "Build Visually", desc: "Drag triggers, actions, and logic nodes onto the canvas. Wire them together to define your automation.", color: "#f59e0b" },
-                { step: "02", icon: <Shield className="h-4 w-4" />, title: "Configure & Secure", desc: "Set parameters, connect wallets with AES-256 encryption, and define retry/fallback policies.", color: "#3b82f6" },
-                { step: "03", icon: <Zap className="h-4 w-4" />, title: "Deploy & Monitor", desc: "Activate your workflow. Real-time logs, execution history, and alerts keep you in control 24/7.", color: "#10b981" },
+                { step: "01", icon: <Workflow className="h-4 w-4" />, title: "Pick a Trigger", desc: "Start from cron schedules, manual runs, or secured webhooks from your Solana data stack.", color: "#f59e0b" },
+                { step: "02", icon: <Shield className="h-4 w-4" />, title: "Wire Actions", desc: "Connect price fetches, conditions, AI analysis, Jupiter swaps, token transfers, and webhooks.", color: "#3b82f6" },
+                { step: "03", icon: <Zap className="h-4 w-4" />, title: "Activate Workers", desc: "Run the workflow through Cloud workers with retry policy, execution logs, and trigger restore.", color: "#10b981" },
               ].map((s, i) => (
                 <motion.div key={s.step} initial={{ opacity: 0, y: 12 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }}
                   transition={{ duration: 0.4, delay: i * 0.08 }} className="rounded-lg border border-border bg-card p-5">
@@ -363,21 +364,21 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-10 text-center">
               <Label>Features</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Built for serious operations.</h2>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto">Enterprise-grade infrastructure for automated Solana workflows.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Built around the nodes that exist today.</h2>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">The page now mirrors the actual Cloud runtime: triggers, queue-backed workers, credentials, wallets, and execution logs.</p>
             </motion.div>
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
               {[
-                { icon: <Workflow className="h-4 w-4" />, title: "Visual Builder", desc: "Drag-and-drop node editor with 20+ node types. Build complex automations without code." },
-                { icon: <Wallet className="h-4 w-4" />, title: "Cloud Wallets", desc: "Encrypted wallet management. Swap, transfer, and manage tokens around the clock." },
-                { icon: <Bot className="h-4 w-4" />, title: "AI Agents", desc: "Integrate LLMs to analyze on-chain data and make intelligent decisions automatically." },
-                { icon: <Shield className="h-4 w-4" />, title: "Enterprise Security", desc: "AES-256-GCM encryption, audit logging, and rate limiting. Keys never leave the server." },
-                { icon: <Layers className="h-4 w-4" />, title: "DeFi Integrations", desc: "Native support for Jupiter, Raydium, Orca, MarginFi, Kamino, and more." },
-                { icon: <Plug className="h-4 w-4" />, title: "Plugin Architecture", desc: "Extend with custom nodes. Build integrations for any protocol or service." },
-                { icon: <Timer className="h-4 w-4" />, title: "Cron Triggers", desc: "Schedule workflows on cron expressions. Recurring swaps, rebalancing, or monitoring." },
-                { icon: <BarChart3 className="h-4 w-4" />, title: "Execution Logs", desc: "Detailed run history with inputs, outputs, and error traces for every execution." },
-                { icon: <Lock className="h-4 w-4" />, title: "Role-Based Access", desc: "Team management with granular permissions. Control who can create, edit, or run workflows." },
+                { icon: <Workflow className="h-4 w-4" />, title: "Visual Workflow Canvas", desc: "Build from real Cloud nodes: cron, webhook, price fetch, filter, if/else, wait, AI, swap, transfer, and webhook output." },
+                { icon: <Wallet className="h-4 w-4" />, title: "Cloud Wallet Signing", desc: "Connect encrypted Cloud wallets for Jupiter swaps and SOL or SPL token transfers." },
+                { icon: <Bot className="h-4 w-4" />, title: "AI Analysis Node", desc: "Call OpenAI or Anthropic to classify webhook payloads, summarize activity, or produce JSON for downstream steps." },
+                { icon: <Shield className="h-4 w-4" />, title: "Credential Isolation", desc: "Store provider credentials server-side and reference them from workflow nodes instead of exposing keys in the browser." },
+                { icon: <Layers className="h-4 w-4" />, title: "Jupiter + Price Data", desc: "Use Jupiter for swaps and Birdeye or DexScreener for token price checks." },
+                { icon: <Plug className="h-4 w-4" />, title: "Webhook In and Out", desc: "Receive signed or header-authenticated webhook events and send structured outputs to external systems." },
+                { icon: <Timer className="h-4 w-4" />, title: "Cron Triggers", desc: "Schedule recurring runs for price checks, portfolio reports, DCA jobs, and payment workflows." },
+                { icon: <BarChart3 className="h-4 w-4" />, title: "Execution History", desc: "Track node inputs, outputs, timing, retries, skipped branches, and failures for every workflow run." },
+                { icon: <Lock className="h-4 w-4" />, title: "Rate-Limited API", desc: "Protected workflow lifecycle and manual execution endpoints reduce accidental or abusive repeat runs." },
               ].map((f) => (
                 <motion.div key={f.title} variants={fadeUp}
                   whileHover={{ y: -2, transition: { duration: 0.12 } }}
@@ -397,20 +398,20 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-10 text-center">
               <Label>Integrations</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Plugs into the Solana ecosystem.</h2>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">First-class support for the protocols and tools you already use.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Focused integrations for the first Cloud release.</h2>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Use supported providers directly, or connect the rest of your stack through webhooks.</p>
             </motion.div>
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
               {[
-                { name: "Jupiter", tag: "DEX", color: "#10b981" },
-                { name: "Raydium", tag: "AMM", color: "#8b5cf6" },
-                { name: "Orca", tag: "DEX", color: "#3b82f6" },
-                { name: "MarginFi", tag: "Lending", color: "#f59e0b" },
-                { name: "Kamino", tag: "Lending", color: "#ef4444" },
-                { name: "Birdeye", tag: "Data", color: "#06b6d4" },
-                { name: "Helius", tag: "RPC", color: "#6366f1" },
-                { name: "Discord", tag: "Notify", color: "#5865F2" },
+                { name: "Jupiter", tag: "Swap", color: "#10b981" },
+                { name: "Birdeye", tag: "Price", color: "#06b6d4" },
+                { name: "DexScreener", tag: "Price", color: "#3b82f6" },
+                { name: "OpenAI", tag: "AI", color: "#10a37f" },
+                { name: "Anthropic", tag: "AI", color: "#f59e0b" },
+                { name: "Cloud Wallets", tag: "Signing", color: "#8b5cf6" },
+                { name: "Incoming Webhooks", tag: "Trigger", color: "#ef4444" },
+                { name: "Outgoing Webhooks", tag: "Notify", color: "#5865F2" },
               ].map((p) => (
                 <motion.div key={p.name} variants={fadeUp}
                   className="group rounded-lg border border-border bg-card px-4 py-3.5 transition-all hover:border-primary/25">
@@ -432,10 +433,10 @@ export default function CloudLandingPage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { val: "20+", label: "Node Types" },
-                { val: "8+", label: "Protocols" },
-                { val: "99.7%", label: "Uptime" },
-                { val: "<1s", label: "Avg. Run" },
+                { val: "11", label: "Node Types" },
+                { val: "3", label: "Trigger Modes" },
+                { val: "2", label: "AI Providers" },
+                { val: "Redis", label: "Queue Runtime" },
               ].map((s) => (
                 <motion.div key={s.label} variants={fadeUp} className="text-center">
                   <div className="text-xl font-extrabold text-foreground">{s.val}</div>
@@ -452,15 +453,15 @@ export default function CloudLandingPage() {
             <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
               className="mb-8 text-center">
               <Label>Templates</Label>
-              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Start with a blueprint.</h2>
-              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Pre-built workflows ready to customize and deploy.</p>
+              <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Start from a real Cloud workflow.</h2>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">Seeded templates create editable workflows with the same nodes available in the Cloud builder.</p>
             </motion.div>
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
               {[
-                { title: "DCA Trader", desc: "Dollar-cost average into any token on a schedule", tags: ["Jupiter", "Cron"], color: "#3b82f6" },
-                { title: "Liquidation Guard", desc: "Monitor lending positions and auto-deleverage", tags: ["MarginFi", "Alert"], color: "#ef4444" },
-                { title: "Yield Harvester", desc: "Auto-compound rewards across DeFi protocols", tags: ["Raydium", "Kamino"], color: "#10b981" },
+                { title: "Price Alert Bot", desc: "Check a token price and send a webhook when the threshold matches", tags: ["Cron", "Price", "Webhook"], color: "#3b82f6" },
+                { title: "DCA Strategy", desc: "Run scheduled Jupiter swaps through a selected Cloud wallet", tags: ["Jupiter", "Wallet"], color: "#10b981" },
+                { title: "Webhook Processor", desc: "Receive event data, ask an AI node to summarize it, and forward the result", tags: ["Webhook", "AI"], color: "#8b5cf6" },
               ].map((t) => (
                 <Link key={t.title} href={`/templates?q=${encodeURIComponent(t.title)}`}
                   className="group rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/30 hover:shadow-sm">
@@ -483,7 +484,7 @@ export default function CloudLandingPage() {
             </motion.div>
             <div className="mt-5 text-center">
               <Link href="/templates" className="text-[12px] text-primary font-medium hover:underline inline-flex items-center gap-0.5">
-                Browse all templates <ChevronRight className="h-3 w-3" />
+                Browse Cloud templates <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
           </div>
@@ -494,11 +495,11 @@ export default function CloudLandingPage() {
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,oklch(0.35_0.12_260/0.04)_0%,transparent_50%)] pointer-events-none" />
           <motion.div initial={{ opacity: 0, y: 14 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}
             className="mx-auto max-w-md text-center relative">
-            <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground mb-2">Stop watching charts.<br />Start automating.</h2>
-            <p className="text-sm text-muted-foreground mb-6 max-w-xs mx-auto">The easiest way to automate Solana operations — no code, no servers, no babysitting.</p>
+            <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-foreground mb-2">Move repeat Solana ops<br />into workflows.</h2>
+            <p className="text-sm text-muted-foreground mb-6 max-w-xs mx-auto">Start from a seeded template, connect credentials and wallets, then activate the worker-backed flow.</p>
             <div className="flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
               <Link href="/dashboard" className="inline-flex h-9 items-center rounded-lg bg-primary px-5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/15">
-                Start Free <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                Open Dashboard <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Link>
               <Link href="/templates" className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-5 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
                 Browse Templates

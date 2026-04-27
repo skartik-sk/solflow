@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/workflows", label: "Workflows" },
+  { href: "/templates", label: "Templates" },
   { href: "/wallets", label: "Wallets" },
   { href: "/credentials", label: "Credentials" },
   { href: "/executions", label: "Executions" },
