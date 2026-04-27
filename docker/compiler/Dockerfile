@@ -20,10 +20,15 @@
 #   --memory=2g --cpus=2 --network=none
 
 ################# BASE IMAGE #################
-FROM --platform=linux/amd64 ubuntu:24.04 AS base
+# The Solana/SBF compiler stack is still most reliable on amd64. Override this
+# build arg only after validating the full Solana + Anchor + Surfpool toolchain.
+ARG COMPILER_PLATFORM=linux/amd64
+FROM --platform=${COMPILER_PLATFORM} ubuntu:24.04 AS base
 
 ARG DEBIAN_FRONTEND="noninteractive"
 ENV HOME="/root"
+ENV CARGO_NET_GIT_FETCH_WITH_CLI=true
+ENV RUSTUP_PROFILE=minimal
 
 # System dependencies
 RUN apt-get update -qq && apt-get upgrade -qq && apt-get install -qq \
@@ -31,12 +36,20 @@ RUN apt-get update -qq && apt-get upgrade -qq && apt-get install -qq \
     git clang make ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Rust
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash
-ENV PATH="${HOME}/.cargo/bin:${PATH}"
-
-ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
+# Install Rust, Solana CLI, Anchor, and Surfpool.
+# Anza's toolchain installer covers the Solana compiler stack. Surfpool is
+# installed explicitly as a fallback because some Anza installs skip it.
+ENV PATH="${HOME}/.local/bin:${HOME}/.cargo/bin:${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
+RUN curl --proto '=https' --tlsv1.2 -sSfL https://solana-install.solana.workers.dev | bash \
+    && if ! command -v surfpool >/dev/null 2>&1; then curl -sL https://run.surfpool.run/ | bash; fi \
+    && if [ -x "${HOME}/.local/bin/surfpool" ]; then cp "${HOME}/.local/bin/surfpool" /usr/local/bin/surfpool; fi \
+    && rm -rf \
+      "${HOME}/.rustup/toolchains"/*/share/doc \
+      "${HOME}/.rustup/toolchains"/*/share/man \
+      "${HOME}/.cargo/registry/src" \
+      "${HOME}/.cargo/git/checkouts" \
+      "${HOME}/.npm" \
+      /tmp/*
 
 # Verify cargo-build-sbf is available
 RUN cargo-build-sbf --version
@@ -66,15 +79,15 @@ RUN cd /home/builder/template && anchor build 2>/dev/null || true
 RUN rm -rf /home/builder/template
 
 ################# RUNTIME USER #################
-ENV PATH="/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:${PATH}"
+ENV PATH="/usr/local/bin:/root/.local/bin:/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:${PATH}"
 RUN useradd -m builder
-RUN chmod a+rx /root && chmod -R a+rx /root/.cargo /root/.local /root/.rustup /root/.avm /root/.nvm || true
+RUN chmod a+rx /root && chmod -R a+rx /root/.cargo /root/.local /root/.rustup /root/.avm /root/.nvm /usr/local/bin/surfpool || true
 USER builder
 WORKDIR /home/builder/project
 
 
 # Verify all tools are accessible as builder user
-RUN  solana --version && anchor --version && cargo-build-sbf --version
+RUN solana --version && anchor --version && cargo-build-sbf --version && surfpool --version
 
 # Default: keep container alive for builds
 CMD ["sleep", "infinity"]

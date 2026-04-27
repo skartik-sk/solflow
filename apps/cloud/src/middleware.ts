@@ -1,6 +1,6 @@
-import { auth } from "@solflow/auth";
+import { hasAuthSessionCookie } from "@solflow/auth/edge";
 import { NextResponse } from "next/server";
-import type { NextMiddleware, NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 
 const protectedPrefixes = [
   "/dashboard",
@@ -10,8 +10,8 @@ const protectedPrefixes = [
   "/workflows",
 ];
 
-const middleware: NextMiddleware = auth((req: NextRequest & { auth: unknown }) => {
-  const isAuthenticated = !!req.auth;
+export default function middleware(req: NextRequest) {
+  const isAuthenticated = hasAuthSessionCookie(req);
   const { pathname, search } = req.nextUrl;
   const isAuthPage = pathname.startsWith("/auth");
   const isProtectedRoute = protectedPrefixes.some((prefix) =>
@@ -29,9 +29,7 @@ const middleware: NextMiddleware = auth((req: NextRequest & { auth: unknown }) =
   }
 
   return NextResponse.next();
-}) as unknown as NextMiddleware;
-
-export default middleware;
+}
 
 export const config = {
   matcher: [
@@ -43,4 +41,3 @@ export const config = {
     "/auth/:path*",
   ],
 };
-

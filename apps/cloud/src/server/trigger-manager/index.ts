@@ -4,7 +4,7 @@
 import { Queue, type Queue as QueueType } from "bullmq";
 import { prisma } from "@solflow/db";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
-import { queueExecution, startExecutionWorker } from "../execution-worker/queue";
+import { queueExecution } from "../execution-worker/queue";
 import { nanoid } from "nanoid";
 import {
   redactWebhookHeaders,
@@ -344,8 +344,6 @@ class TriggerManager {
       },
     });
 
-    // Enqueue execution
-    startExecutionWorker();
     await queueExecution(execution.id, workflow.id);
     logWebhookEvent("queued", {
       workflowId: workflow.id,

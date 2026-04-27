@@ -5,6 +5,7 @@ import { WebSocketServer } from "ws";
 import { startExecutionWorker } from "./src/server/execution-worker/queue";
 import { startCronWorker } from "./src/server/trigger-manager/cron-worker";
 import { getTriggerManager } from "./src/server/trigger-manager";
+import { logCloudRuntimeEvent, shouldRunWorkersInThisProcess } from "./src/server/runtime-mode";
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = process.env.HOST ?? "0.0.0.0";
@@ -14,6 +15,11 @@ const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
 async function startCloudRuntime(): Promise<void> {
+  if (!shouldRunWorkersInThisProcess()) {
+    logCloudRuntimeEvent("workers_external");
+    return;
+  }
+
   if (!process.env.DATABASE_URL) {
     console.warn(
       "[cloud-startup] Skipping workers/triggers because DATABASE_URL is not configured.",
@@ -24,6 +30,7 @@ async function startCloudRuntime(): Promise<void> {
   startExecutionWorker();
   startCronWorker();
   await getTriggerManager().restoreActiveTriggers();
+  logCloudRuntimeEvent("workers_embedded");
 }
 
 app.prepare().then(async () => {

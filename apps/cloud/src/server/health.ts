@@ -4,6 +4,7 @@ import {
   isExecutionWorkerRunning,
 } from "./execution-worker/queue";
 import { isCronWorkerRunning } from "./trigger-manager/cron-worker";
+import { getCloudRuntimeMode } from "./runtime-mode";
 
 export type HealthState = "ok" | "degraded" | "down";
 
@@ -25,6 +26,8 @@ export interface CloudHealthReport {
     };
     workers: {
       status: HealthState;
+      mode: ReturnType<typeof getCloudRuntimeMode>;
+      external: boolean;
       execution: boolean;
       cron: boolean;
     };
@@ -46,7 +49,11 @@ export async function getCloudHealthReport(): Promise<CloudHealthReport> {
     execution: isExecutionWorkerRunning(),
     cron: isCronWorkerRunning(),
   };
-  const workerStatus = workers.execution && workers.cron ? "ok" : "degraded";
+  const runtimeMode = getCloudRuntimeMode();
+  const expectsLocalWorkers = runtimeMode !== "api";
+  const workerStatus = expectsLocalWorkers && !(workers.execution && workers.cron)
+    ? "degraded"
+    : "ok";
   const redisStatus: HealthState = queueHealth.redis.ok ? "ok" : "down";
   const executionQueueStatus: HealthState = queueHealth.redis.ok ? "ok" : "down";
 
@@ -59,6 +66,8 @@ export async function getCloudHealthReport(): Promise<CloudHealthReport> {
     },
     workers: {
       status: workerStatus,
+      mode: runtimeMode,
+      external: runtimeMode === "api",
       ...workers,
     },
     executionQueue: {

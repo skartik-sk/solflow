@@ -3,7 +3,7 @@
 
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@solflow/db";
-import { queueExecution, startExecutionWorker } from "../execution-worker/queue";
+import { queueExecution } from "../execution-worker/queue";
 
 // ─── Redis connection ────────────────────────────────────────────────────────
 
@@ -61,8 +61,6 @@ export function startCronWorker(): void {
         },
       });
 
-      // Enqueue for execution
-      startExecutionWorker();
       await queueExecution(execution.id, workflow.id);
 
       // Update nextRunAt

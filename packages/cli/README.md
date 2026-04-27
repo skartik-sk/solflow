@@ -7,7 +7,7 @@ and running framework-aware build/test commands.
 ## Install
 
 ```bash
-npm install -g solstudio
+npm install -g @solstudio/cli
 ```
 
 ## Use
@@ -38,5 +38,5 @@ npm login
 npm publish packages/cli
 ```
 
-Use `npm view solstudio version` before publishing to confirm the next version
+Use `npm view @solstudio/cli version` before publishing to confirm the next version
 number is free.

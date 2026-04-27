@@ -13,6 +13,7 @@ exports.disconnectWS = disconnectWS;
 exports.onWSMessage = onWSMessage;
 exports.onJobMessage = onJobMessage;
 exports.sendWS = sendWS;
+exports.subscribeToJob = subscribeToJob;
 // ─── Type guards ──────────────────────────────────────────────────────────────
 function isBuildLog(msg) {
     return msg.type === "build-log";
@@ -31,9 +32,20 @@ function isDeployStatus(msg) {
 }
 let socket = null;
 let reconnectTimer = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+const BASE_RECONNECT_MS = 1000;
+const MAX_RECONNECT_MS = 30000;
 const listeners = new Set();
+function getReconnectDelay() {
+    // Exponential backoff with jitter: 1s, 2s, 4s, 8s, 16s, 30s, 30s, ...
+    const delay = Math.min(BASE_RECONNECT_MS * Math.pow(2, reconnectAttempts), MAX_RECONNECT_MS);
+    // Add random jitter (0-25% of delay) to avoid thundering herd
+    const jitter = delay * Math.random() * 0.25;
+    return delay + jitter;
+}
 /**
- * Connect to the SolFlow WebSocket server.
+ * Connect to the SolStudio WebSocket server.
  * Safe to call multiple times — only one connection is maintained.
  */
 function connectWS() {
@@ -52,6 +64,7 @@ function connectWS() {
             clearTimeout(reconnectTimer);
             reconnectTimer = null;
         }
+        reconnectAttempts = 0; // Reset on successful connection
     });
     socket.addEventListener("message", (event) => {
         try {
@@ -64,8 +77,11 @@ function connectWS() {
     });
     socket.addEventListener("close", () => {
         socket = null;
-        // Reconnect after 3 seconds
-        reconnectTimer = setTimeout(() => connectWS(), 3000);
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            const delay = getReconnectDelay();
+            reconnectAttempts++;
+            reconnectTimer = setTimeout(() => connectWS(), delay);
+        }
     });
     socket.addEventListener("error", () => {
         socket?.close();
@@ -79,6 +95,7 @@ function disconnectWS() {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
     }
+    reconnectAttempts = 0;
     socket?.close();
     socket = null;
 }
@@ -108,5 +125,20 @@ function onJobMessage(jobId, fn) {
 function sendWS(payload) {
     if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify(payload));
+    }
+}
+/**
+ * Subscribe the server to events for a specific job.
+ * If the socket is still connecting, queues the subscribe message until open.
+ */
+function subscribeToJob(jobId) {
+    const msg = { type: "subscribe", jobId };
+    if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(msg));
+    }
+    else if (socket?.readyState === WebSocket.CONNECTING) {
+        socket.addEventListener("open", () => {
+            socket?.send(JSON.stringify(msg));
+        }, { once: true });
     }
 }

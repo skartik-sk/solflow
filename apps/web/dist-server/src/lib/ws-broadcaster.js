@@ -26,6 +26,7 @@ function setWebSocketServer(server) {
             ws.ping();
         });
     }, 30000);
+    heartbeat.unref?.();
     wss.on("close", () => clearInterval(heartbeat));
     wss.on("connection", (ws) => {
         let subscribedJobs = [];

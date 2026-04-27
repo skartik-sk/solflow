@@ -3,6 +3,7 @@ import { TRPCError } from "@trpc/server";
 import { manualExecutionRateLimit } from "@/lib/rate-limit";
 import { router, protectedProcedure } from "../trpc";
 import { queueExecution, startExecutionWorker } from "../../execution-worker/queue";
+import { shouldApiStartEmbeddedWorkers } from "../../runtime-mode";
 
 export const executionRouter = router({
   list: protectedProcedure
@@ -83,8 +84,9 @@ export const executionRouter = router({
         },
       });
 
-      // Start the worker if not already running, then enqueue
-      startExecutionWorker();
+      if (shouldApiStartEmbeddedWorkers()) {
+        startExecutionWorker();
+      }
       await queueExecution(execution.id, workflow.id);
 
       return execution;

@@ -2,6 +2,12 @@ node_modules
 .next
 .turbo
 dist
+dist-server
+coverage
+target
+**/target
+**/*.tsbuildinfo
+apps/web/output
 .git
 .env
 .env.*
@@ -9,3 +15,4 @@ dist
 *.log
 .DS_Store
 .claude
+.superstack

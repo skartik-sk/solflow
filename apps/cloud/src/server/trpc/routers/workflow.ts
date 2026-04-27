@@ -4,10 +4,63 @@ import { workflowLifecycleRateLimit } from "@/lib/rate-limit";
 import { router, protectedProcedure } from "../trpc";
 import { getTriggerManager } from "../../trigger-manager";
 import { startCronWorker } from "../../trigger-manager/cron-worker";
+import { shouldApiStartEmbeddedWorkers } from "../../runtime-mode";
 import {
   workflowPublicSelect,
   workflowVersionPublicSelect,
 } from "../public-selects";
+
+function getPositiveIntEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+async function assertWorkflowActivationQuota(ctx: {
+  session: { user: { id?: string } };
+  prisma: any;
+}, workflowId: string): Promise<void> {
+  if (process.env.CLOUD_QUOTA_ENFORCEMENT !== "true") return;
+
+  const userId = ctx.session.user.id;
+  if (!userId) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Sign in before activating Cloud workflows.",
+    });
+  }
+  const [user, activeCount] = await Promise.all([
+    ctx.prisma.user.findUnique({
+      where: { id: userId },
+      select: { createdAt: true },
+    }),
+    ctx.prisma.workflow.count({
+      where: {
+        userId,
+        status: "ACTIVE",
+        NOT: { id: workflowId },
+      },
+    }),
+  ]);
+
+  const trialDays = getPositiveIntEnv("CLOUD_TRIAL_DAYS", 7);
+  const maxActiveWorkflows = getPositiveIntEnv("CLOUD_FREE_ACTIVE_WORKFLOWS", 1);
+  const trialStartedAt = user?.createdAt?.getTime?.() ?? Date.now();
+  const trialEndsAt = trialStartedAt + trialDays * 24 * 60 * 60 * 1000;
+
+  if (Date.now() > trialEndsAt) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Cloud trial quota expired. Upgrade is required to activate workflows.",
+    });
+  }
+
+  if (activeCount >= maxActiveWorkflows) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Free Cloud quota allows ${maxActiveWorkflows} active workflow${maxActiveWorkflows === 1 ? "" : "s"}.`,
+    });
+  }
+}
 
 export const workflowRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
@@ -142,8 +195,11 @@ export const workflowRouter = router({
       });
       if (!workflow) throw new Error("Workflow not found");
 
-      // Ensure cron worker is running
-      startCronWorker();
+      await assertWorkflowActivationQuota(ctx, input.id);
+
+      if (shouldApiStartEmbeddedWorkers()) {
+        startCronWorker();
+      }
 
       const triggerManager = getTriggerManager();
       await triggerManager.activate(input.id);

@@ -4,20 +4,28 @@
 services:
   app:
     build: .
+    image: solstudio-web:latest
     ports:
       - "3000:3000"
     env_file:
-      - .env.production
+      - path: .env.production
+        required: false
     volumes:
+      # Required only for the local compiler path that runs
+      # `docker exec solflow-compiler` for Pinocchio/Quasar builds.
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/solflow-builds:/tmp/solflow-builds
     environment:
       - NODE_ENV=production
       - PORT=3000
       - HOST=0.0.0.0
+      - SOLFLOW_BUILD_DIR=/tmp/solflow-builds
     restart: unless-stopped
+    init: true
     depends_on:
       redis:
+        condition: service_healthy
+      compiler:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000"]
@@ -25,6 +33,71 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  cloud:
+    build:
+      context: .
+      target: cloud-runner
+    image: solstudio-cloud:latest
+    ports:
+      - "3001:3001"
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - CLOUD_RUNTIME_MODE=api
+    restart: unless-stopped
+    init: true
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  cloud-worker:
+    build:
+      context: .
+      target: cloud-runner
+    image: solstudio-cloud:latest
+    command: node dist-server/worker.js
+    env_file:
+      - path: .env.production
+        required: false
+    environment:
+      - NODE_ENV=production
+      - CLOUD_RUNTIME_MODE=worker
+    restart: unless-stopped
+    init: true
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  compiler:
+    build:
+      context: docker/compiler
+      dockerfile: Dockerfile
+    image: solflow-compiler:latest
+    container_name: solflow-compiler
+    command: sleep infinity
+    volumes:
+      - compiler-cargo-registry:/root/.cargo/registry
+      - compiler-cargo-git:/root/.cargo/git
+      - compiler-rustup:/root/.rustup
+      - /tmp/solflow-builds:/tmp/solflow-builds
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "solana --version && anchor --version && cargo-build-sbf --version && surfpool --version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -41,3 +114,6 @@ services:
 
 volumes:
   redis-data:
+  compiler-cargo-registry:
+  compiler-cargo-git:
+  compiler-rustup:

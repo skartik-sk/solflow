@@ -1,7 +1,10 @@
 {
-  "name": "solstudio",
+  "name": "@solstudio/cli",
   "version": "0.1.0",
   "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "SolStudio CLI for parsing, visualizing, testing, and auditing local Solana projects.",
   "type": "module",
   "bin": {
