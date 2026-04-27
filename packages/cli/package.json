@@ -1,11 +1,29 @@
 {
   "name": "@solstudio/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "publishConfig": {
     "access": "public"
   },
   "description": "SolStudio CLI for parsing, visualizing, testing, and auditing local Solana projects.",
+  "keywords": [
+    "solana",
+    "anchor",
+    "pinocchio",
+    "quasar",
+    "surfpool",
+    "cli",
+    "visualizer",
+    "audit",
+    "smart-contracts",
+    "web3"
+  ],
+  "homepage": "https://solstudio.fun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skartik-sk/solflow.git",
+    "directory": "packages/cli"
+  },
   "type": "module",
   "bin": {
     "solstudio": "dist/index.js"
