@@ -4,21 +4,7 @@
 import { Worker, type Job } from "bullmq";
 import { prisma } from "@solflow/db";
 import { queueExecution } from "../execution-worker/queue";
-
-// ─── Redis connection ────────────────────────────────────────────────────────
-
-function getConnectionConfig() {
-  const url = process.env.REDIS_URL ?? "redis://localhost:6379";
-  try {
-    const parsed = new URL(url);
-    return {
-      host: parsed.hostname || "localhost",
-      port: parseInt(parsed.port || "6379", 10),
-    };
-  } catch {
-    return { host: "localhost", port: 6379 };
-  }
-}
+import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -78,10 +64,12 @@ export function startCronWorker(): void {
       });
     },
     {
-      connection: getConnectionConfig(),
+      connection: getRedisConnectionConfig(),
       concurrency: 5,
     }
   );
+
+  _cronWorker.on("error", createRedisErrorLogger("cron-worker"));
 
   _cronWorker.on("failed", (job, err) => {
     logCronWorkerEvent("job_failed", {

@@ -8,6 +8,7 @@ import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
 import type { CredentialOperations, WalletOperations } from "@solflow/cloud-nodes";
 import { decryptString, WalletSigner, type EncryptedKey } from "@solflow/cloud-wallet";
 import type { WorkflowSettings } from "@solflow/cloud-engine";
+import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
 // Ensure nodes are registered
 registerBuiltinNodes();
@@ -17,18 +18,6 @@ registerBuiltinNodes();
 export interface ExecutionJobData {
   executionId: string;
   workflowId: string;
-}
-
-// ─── Redis connection ─────────────────────────────────────────────────────────
-
-function getConnectionConfig() {
-  const url = process.env.REDIS_URL ?? "redis://localhost:6379";
-  try {
-    const parsed = new URL(url);
-    return { host: parsed.hostname || "localhost", port: parseInt(parsed.port || "6379", 10) };
-  } catch {
-    return { host: "localhost", port: 6379 };
-  }
 }
 
 function getRpcUrl(network: string): string {
@@ -84,13 +73,14 @@ let _queue: Queue<ExecutionJobData> | undefined;
 export function getExecutionQueue(): Queue<ExecutionJobData> {
   if (!_queue) {
     _queue = new Queue<ExecutionJobData>("cloud-execution", {
-      connection: getConnectionConfig(),
+      connection: getRedisConnectionConfig(),
       defaultJobOptions: {
         attempts: 1,
         removeOnComplete: 200,
         removeOnFail: 100,
       },
     });
+    _queue.on("error", createRedisErrorLogger("execution-queue"));
   }
   return _queue;
 }
@@ -315,11 +305,13 @@ export function startExecutionWorker(): void {
       });
     },
     {
-      connection: getConnectionConfig(),
+      connection: getRedisConnectionConfig(),
       concurrency: 5,
       lockDuration: 5 * 60_000, // 5 min
     },
   );
+
+  _worker.on("error", createRedisErrorLogger("execution-worker"));
 
   _worker.on("failed", (job, err) => {
     logExecutionWorkerEvent("job_failed", {

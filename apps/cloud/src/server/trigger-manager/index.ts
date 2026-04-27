@@ -10,23 +10,9 @@ import {
   redactWebhookHeaders,
   validateWebhookReplayProtection,
 } from "./webhook-security";
+import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
 registerBuiltinNodes();
-
-// ─── Redis connection ────────────────────────────────────────────────────────
-
-function getConnectionConfig() {
-  const url = process.env.REDIS_URL ?? "redis://localhost:6379";
-  try {
-    const parsed = new URL(url);
-    return {
-      host: parsed.hostname || "localhost",
-      port: parseInt(parsed.port || "6379", 10),
-    };
-  } catch {
-    return { host: "localhost", port: 6379 };
-  }
-}
 
 // ─── Trigger Manager ────────────────────────────────────────────────────────
 
@@ -107,8 +93,9 @@ class TriggerManager {
 
     if (!this.cronQueue) {
       this.cronQueue = new Queue("cloud-cron-triggers", {
-        connection: getConnectionConfig(),
+        connection: getRedisConnectionConfig(),
       });
+      this.cronQueue.on("error", createRedisErrorLogger("trigger-manager-cron-queue"));
     }
 
     // Remove existing repeatable job for this workflow if any
