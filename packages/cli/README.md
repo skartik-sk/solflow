@@ -51,5 +51,8 @@ solstudio view .
 solstudio view . --host 127.0.0.1 --port 6139
 ```
 
+`solstudio audit` exits `0` when no findings are detected, `1` when findings
+are detected, and `2` for tool or usage errors.
+
 SolStudio is designed for builders who want a fast local view of how a Solana
 project is structured before they compile, test, audit, or extend it.

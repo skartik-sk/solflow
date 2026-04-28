@@ -2,7 +2,12 @@
 // IR-level static analysis rules — runs in-browser, instant.
 // Per docs/architecture/14-audit-system.md
 
-import type { ProgramIR, Account, Instruction, LogicOperation } from "@solflow/ir";
+import type {
+  ProgramIR,
+  Account,
+  Instruction,
+  LogicOperation,
+} from "@solflow/ir";
 import type { AuditRule, AuditFinding, NodePatch } from "../types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -20,6 +25,132 @@ function hasOwner(acc: Account): boolean {
 
 function hasMut(acc: Account): boolean {
   return acc.constraints.some((c) => c.type === "mut");
+}
+
+function hasConstraint(
+  acc: Account,
+  type: Account["constraints"][number]["type"],
+): boolean {
+  return acc.constraints.some((c) => c.type === type);
+}
+
+function isWritableByConstraint(acc: Account): boolean {
+  return (
+    hasMut(acc) ||
+    acc.constraints.some(
+      (c) =>
+        c.type === "init" ||
+        c.type === "init-if-needed" ||
+        c.type === "realloc" ||
+        c.type === "close",
+    )
+  );
+}
+
+function hasStrongValidation(acc: Account): boolean {
+  return acc.constraints.some(
+    (c) =>
+      c.type === "signer" ||
+      c.type === "owner" ||
+      c.type === "address" ||
+      c.type === "seeds" ||
+      c.type === "has-one" ||
+      c.type === "token-authority" ||
+      c.type === "token-mint" ||
+      c.type === "associated-token-authority" ||
+      c.type === "associated-token-mint" ||
+      c.type === "mint-authority" ||
+      c.type === "custom",
+  );
+}
+
+function isProgramDataAccount(acc: Account): boolean {
+  return acc.accountType === "account" || !!acc.stateType;
+}
+
+function matchesNameToken(value: string, tokens: string[]): boolean {
+  return tokens.some((token) => value.includes(token));
+}
+
+function looksLikeDataAccount(acc: Account): boolean {
+  const value = `${acc.name} ${acc.stateType ?? ""}`.toLowerCase();
+  return (
+    isProgramDataAccount(acc) ||
+    matchesNameToken(value, [
+      "state",
+      "vault",
+      "escrow",
+      "pool",
+      "position",
+      "order",
+      "profile",
+      "config",
+      "treasury",
+      "registry",
+      "record",
+      "account",
+    ])
+  );
+}
+
+function looksLikeDisposableAccount(acc: Account): boolean {
+  const value = `${acc.name} ${acc.stateType ?? ""}`.toLowerCase();
+  return matchesNameToken(value, [
+    "temp",
+    "temporary",
+    "scratch",
+    "session",
+    "escrow",
+    "offer",
+    "trade",
+    "claim",
+    "receipt",
+    "disposable",
+  ]);
+}
+
+function looksLikeAuthorityAccount(acc: Account): boolean {
+  return /\b(authority|owner|admin|payer|user|maker|taker|signer)\b/i.test(
+    acc.name,
+  );
+}
+
+function hasAccountReferenceSeed(
+  acc: Account,
+  accountNames: Set<string>,
+): boolean {
+  const seedsConstraint = acc.constraints.find((c) => c.type === "seeds");
+  if (!seedsConstraint || seedsConstraint.type !== "seeds") return false;
+  return seedsConstraint.seeds.some(
+    (seed) =>
+      seed.type === "account-field" &&
+      Array.from(accountNames).some((name) => seed.value.includes(name)),
+  );
+}
+
+function modifiedAccountNames(ops: LogicOperation[]): Set<string> {
+  const names = new Set<string>();
+  for (const op of flattenOps(ops)) {
+    if (op.type === "set-field") {
+      names.add(op.account);
+    } else if (op.type === "transfer-sol") {
+      names.add(op.from);
+      names.add(op.to);
+    } else if (op.type === "transfer-token") {
+      names.add(op.from);
+      names.add(op.to);
+    } else if (op.type === "mint-to") {
+      names.add(op.mint);
+      names.add(op.to);
+    } else if (op.type === "burn") {
+      names.add(op.mint);
+      names.add(op.from);
+    } else if (op.type === "close-account") {
+      names.add(op.account);
+      names.add(op.destination);
+    }
+  }
+  return names;
 }
 
 function isMutableOperation(op: LogicOperation): boolean {
@@ -56,9 +187,16 @@ function operationNodeId(op: LogicOperation, ix: Instruction): string {
   return op.sourceNodeId ?? instructionNodeId(ix);
 }
 
-function nodeLocation(ix: Instruction, acc?: Account): AuditFinding["location"] {
+function nodeLocation(
+  ix: Instruction,
+  acc?: Account,
+): AuditFinding["location"] {
   return acc
-    ? { instructionName: ix.name, accountName: acc.name, nodeId: accountNodeId(acc) }
+    ? {
+        instructionName: ix.name,
+        accountName: acc.name,
+        nodeId: accountNodeId(acc),
+      }
     : { instructionName: ix.name, nodeId: instructionNodeId(ix) };
 }
 
@@ -151,7 +289,8 @@ export const RULES: AuditRule[] = [
   },
 
   {
-    id: "SOL-002",    name: "Missing Owner Check",
+    id: "SOL-002",
+    name: "Missing Owner Check",
     description:
       "Program-owned account is not verified to be owned by the expected program",
     severity: "high",
@@ -234,7 +373,10 @@ export const RULES: AuditRule[] = [
               severity: "high",
               title: `Unchecked ${op.operation} in "${ix.name}"`,
               description: `Math operation "${op.operation}" is not using checked arithmetic. This can lead to overflow/underflow.`,
-              location: { ...nodeLocation(ix), nodeId: operationNodeId(op, ix) },
+              location: {
+                ...nodeLocation(ix),
+                nodeId: operationNodeId(op, ix),
+              },
               recommendation:
                 'Enable "checked" on the math operation node to use checked_add/checked_sub/etc.',
               cweId: "CWE-190",
@@ -262,7 +404,9 @@ export const RULES: AuditRule[] = [
       });
       const targetsLogicNode =
         !!finding.location.nodeId &&
-        flattenOps(ix.body).some((op) => op.sourceNodeId === finding.location.nodeId);
+        flattenOps(ix.body).some(
+          (op) => op.sourceNodeId === finding.location.nodeId,
+        );
 
       patches.push({
         nodeId: finding.location.nodeId ?? instructionNodeId(ix),
@@ -273,7 +417,79 @@ export const RULES: AuditRule[] = [
   },
 
   {
-    id: "SOL-020",    name: "PDA Seed Collision Risk",
+    id: "SOL-011",
+    name: "Unsafe Narrowing Cast",
+    description: "Custom Rust code contains unchecked narrowing casts",
+    severity: "high",
+    category: "arithmetic",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      const narrowingCastPattern = /\bas\s+(u8|u16|u32|i8|i16|i32|usize)\b/;
+      for (const ix of ir.instructions) {
+        for (const op of flattenOps(ix.body)) {
+          if (op.type !== "custom-code") continue;
+          const match = op.code.match(narrowingCastPattern);
+          if (!match) continue;
+          findings.push({
+            ruleId: "SOL-011",
+            severity: "high",
+            title: `Potential narrowing cast to ${match[1]} in "${ix.name}"`,
+            description: `Custom code in "${ix.name}" uses an unchecked "as ${match[1]}" cast. Narrowing casts can silently truncate values.`,
+            location: { ...nodeLocation(ix), nodeId: operationNodeId(op, ix) },
+            recommendation:
+              "Use TryFrom/try_into with explicit error handling before narrowing numeric values.",
+            cweId: "CWE-681",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  // ── PDA SECURITY ──────────────────────────────────────────────────────────
+
+  {
+    id: "SOL-004",
+    name: "Non-Canonical PDA Derivation",
+    description: "PDA derivation uses user-controlled bump or program inputs",
+    severity: "medium",
+    category: "pda-security",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        const argNames = new Set(ix.args.map((arg) => arg.name));
+        for (const acc of ix.accounts) {
+          const seedsConstraint = acc.constraints.find(
+            (c) => c.type === "seeds",
+          );
+          if (!seedsConstraint || seedsConstraint.type !== "seeds") continue;
+
+          const bumpFromIxArg =
+            !!seedsConstraint.bump && argNames.has(seedsConstraint.bump);
+          const programFromIxArg =
+            !!seedsConstraint.programId &&
+            argNames.has(seedsConstraint.programId);
+          if (!bumpFromIxArg && !programFromIxArg) continue;
+
+          findings.push({
+            ruleId: "SOL-004",
+            severity: "medium",
+            title: `PDA "${acc.name}" may use non-canonical derivation`,
+            description: `PDA "${acc.name}" in "${ix.name}" derives from ${bumpFromIxArg ? "an instruction-provided bump" : "an instruction-provided program id"}.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Derive PDAs with canonical bumps from find_program_address and avoid user-controlled bump/program inputs.",
+            cweId: "CWE-345",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-020",
+    name: "PDA Seed Collision Risk",
     description:
       "PDA seeds may not be unique enough, allowing account collision",
     severity: "medium",
@@ -343,6 +559,116 @@ export const RULES: AuditRule[] = [
                 "Store the canonical bump in account data and use it in the seeds constraint (bump = account.bump).",
             });
           }
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-022",
+    name: "PDA Missing Seeds Or Bump",
+    description: "PDA-like account is missing seeds or bump validation",
+    severity: "medium",
+    category: "pda-security",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const acc of ix.accounts) {
+          const seedsConstraint = acc.constraints.find(
+            (c) => c.type === "seeds",
+          );
+          const hasInit = acc.constraints.some(
+            (c) => c.type === "init" || c.type === "init-if-needed",
+          );
+          const accountName = acc.name.toLowerCase();
+          const likelyPda =
+            matchesNameToken(accountName, [
+              "pda",
+              "vault",
+              "escrow",
+              "pool",
+              "position",
+              "config",
+              "state",
+              "treasury",
+              "registry",
+            ]) ||
+            (hasInit && isProgramDataAccount(acc));
+
+          if (
+            seedsConstraint &&
+            seedsConstraint.type === "seeds" &&
+            !seedsConstraint.bump
+          ) {
+            findings.push({
+              ruleId: "SOL-022",
+              severity: "medium",
+              title: `PDA "${acc.name}" has seeds without bump`,
+              description: `Account "${acc.name}" in "${ix.name}" uses PDA seeds but does not validate a bump.`,
+              location: nodeLocation(ix, acc),
+              recommendation:
+                "Add canonical bump validation to the PDA constraint and persist the bump if needed across instructions.",
+            });
+            continue;
+          }
+
+          if (!seedsConstraint && likelyPda) {
+            findings.push({
+              ruleId: "SOL-022",
+              severity: "medium",
+              title: `PDA-like account "${acc.name}" has no seeds`,
+              description: `Account "${acc.name}" in "${ix.name}" looks like program-owned state but has no PDA seeds constraint.`,
+              location: nodeLocation(ix, acc),
+              recommendation:
+                "Add seeds and bump constraints, or add an explicit address/owner/custom constraint if this account is intentionally not a PDA.",
+            });
+          }
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-023",
+    name: "Shared PDA Across Authority Domains",
+    description: "PDA seeds do not include authority-domain scoping",
+    severity: "medium",
+    category: "pda-security",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        const authorityNames = new Set(
+          ix.accounts.filter(looksLikeAuthorityAccount).map((acc) => acc.name),
+        );
+        if (authorityNames.size === 0) continue;
+
+        for (const acc of ix.accounts) {
+          const seedsConstraint = acc.constraints.find(
+            (c) => c.type === "seeds",
+          );
+          if (!seedsConstraint || seedsConstraint.type !== "seeds") continue;
+          if (hasAccountReferenceSeed(acc, authorityNames)) continue;
+
+          const seedText = seedsConstraint.seeds
+            .map((seed) => seed.value.toLowerCase())
+            .join(" ");
+          const mentionsAuthority = Array.from(authorityNames).some((name) =>
+            seedText.includes(name.toLowerCase()),
+          );
+          if (mentionsAuthority) continue;
+
+          findings.push({
+            ruleId: "SOL-023",
+            severity: "medium",
+            title: `PDA "${acc.name}" is not scoped by authority`,
+            description: `PDA "${acc.name}" in "${ix.name}" has authority-like accounts in scope but its seeds do not reference them.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Include authority/user/owner pubkeys in PDA seeds to avoid sharing one PDA across unrelated authority domains.",
+            cweId: "CWE-330",
+          });
         }
       }
       return findings;
@@ -474,6 +800,45 @@ export const RULES: AuditRule[] = [
   },
 
   {
+    id: "SOL-042",
+    name: "AccountInfo Used As CPI Target Program",
+    description:
+      "CPI target program account is typed as unchecked/raw AccountInfo",
+    severity: "critical",
+    category: "cpi-security",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const op of flattenOps(ix.body)) {
+          if (op.type !== "cpi") continue;
+          const targetAcc = ix.accounts.find(
+            (a) => a.name === op.targetProgram,
+          );
+          if (!targetAcc) continue;
+          const isUncheckedProgram =
+            targetAcc.accountType === "unchecked-account" ||
+            targetAcc.accountType === "system-account" ||
+            targetAcc.accountType === "custom";
+          const hasAddressCheck = hasConstraint(targetAcc, "address");
+          if (!isUncheckedProgram || hasAddressCheck) continue;
+
+          findings.push({
+            ruleId: "SOL-042",
+            severity: "critical",
+            title: `Unchecked CPI target program "${targetAcc.name}"`,
+            description: `Instruction "${ix.name}" uses "${targetAcc.name}" as a CPI target but it is modeled as an unchecked/raw account without a strict address constraint.`,
+            location: nodeLocation(ix, targetAcc),
+            recommendation:
+              "Use a typed Program account where possible, or add an address constraint pinned to the expected program ID.",
+            cweId: "CWE-346",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
     id: "SOL-041",
     name: "Account Not Reloaded After CPI",
     description: "Account data may be stale after CPI call",
@@ -498,7 +863,9 @@ export const RULES: AuditRule[] = [
               afterOp.type === "set-field" &&
               cpiAccountNames.has(afterOp.account)
             ) {
-              const account = ix.accounts.find((a) => a.name === afterOp.account);
+              const account = ix.accounts.find(
+                (a) => a.name === afterOp.account,
+              );
               findings.push({
                 ruleId: "SOL-041",
                 severity: "medium",
@@ -573,13 +940,14 @@ export const RULES: AuditRule[] = [
               description: `Instruction "${ix.name}" uses numeric arguments in math/transfer operations but has no require() validation.`,
               location: {
                 ...nodeLocation(ix),
-                nodeId: flatOps.find(
-                  (op) =>
-                    op.type === "math" ||
-                    op.type === "transfer-sol" ||
-                    op.type === "transfer-token" ||
-                    op.type === "mint-to",
-                )?.sourceNodeId ?? instructionNodeId(ix),
+                nodeId:
+                  flatOps.find(
+                    (op) =>
+                      op.type === "math" ||
+                      op.type === "transfer-sol" ||
+                      op.type === "transfer-token" ||
+                      op.type === "mint-to",
+                  )?.sourceNodeId ?? instructionNodeId(ix),
               },
               recommendation:
                 "Add require() checks (Logic > Require node) to validate argument bounds before use.",
@@ -633,6 +1001,43 @@ export const RULES: AuditRule[] = [
     },
   },
 
+  {
+    id: "SOL-052",
+    name: "Missing Close On Disposable Account",
+    description:
+      "Temporary or escrow-like initialized account has no close path",
+    severity: "low",
+    category: "data-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        const closeOps = new Set(
+          flattenOps(ix.body)
+            .filter((op) => op.type === "close-account")
+            .map((op) => (op.type === "close-account" ? op.account : "")),
+        );
+        for (const acc of ix.accounts) {
+          const isInitialized = acc.constraints.some(
+            (c) => c.type === "init" || c.type === "init-if-needed",
+          );
+          if (!isInitialized || !looksLikeDisposableAccount(acc)) continue;
+          if (hasConstraint(acc, "close") || closeOps.has(acc.name)) continue;
+
+          findings.push({
+            ruleId: "SOL-052",
+            severity: "low",
+            title: `Disposable account "${acc.name}" has no close path`,
+            description: `Account "${acc.name}" in "${ix.name}" looks temporary or escrow-like but is initialized without a close constraint or close operation.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Add a close constraint or a dedicated close instruction so rent is reclaimed and stale disposable state cannot linger.",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
   // ── DENIAL OF SERVICE ──────────────────────────────────────────────────────
 
   {
@@ -659,7 +1064,10 @@ export const RULES: AuditRule[] = [
                 severity: "medium",
                 title: `Potential unbounded iteration in "${ix.name}"`,
                 description: `Custom code block in "${ix.name}" contains a loop. If the collection size is unbounded, it may exceed the compute budget.`,
-                location: { ...nodeLocation(ix), nodeId: operationNodeId(op, ix) },
+                location: {
+                  ...nodeLocation(ix),
+                  nodeId: operationNodeId(op, ix),
+                },
                 recommendation:
                   "Add a maximum size bound to collections and verify the loop will not exceed compute limits (~200k CUs per instruction).",
               });
@@ -698,6 +1106,164 @@ export const RULES: AuditRule[] = [
                 "Realloc in increments ≤ 10,240 bytes across multiple instructions, or reconsider the account structure.",
             });
           }
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-062",
+    name: "Missing Realloc Zero",
+    description: "Realloc does not zero newly allocated bytes",
+    severity: "medium",
+    category: "data-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const acc of ix.accounts) {
+          const reallocConstraint = acc.constraints.find(
+            (c) => c.type === "realloc",
+          );
+          if (!reallocConstraint || reallocConstraint.type !== "realloc")
+            continue;
+          if (reallocConstraint.zeroInit) continue;
+
+          findings.push({
+            ruleId: "SOL-062",
+            severity: "medium",
+            title: `Realloc on "${acc.name}" does not zero new bytes`,
+            description: `Account "${acc.name}" in "${ix.name}" uses realloc with zeroInit=false.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Set realloc zeroing to true unless you have a reviewed reason to preserve uninitialized bytes.",
+            cweId: "CWE-665",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  // ── ACCOUNT LIFECYCLE / STRUCTURE ─────────────────────────────────────────
+
+  {
+    id: "SOL-070",
+    name: "Missing Mut On Modified Account",
+    description:
+      "Instruction logic modifies an account that is not marked writable",
+    severity: "high",
+    category: "account-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        const modified = modifiedAccountNames(ix.body);
+        for (const acc of ix.accounts) {
+          if (!modified.has(acc.name) || isWritableByConstraint(acc)) continue;
+          findings.push({
+            ruleId: "SOL-070",
+            severity: "high",
+            title: `Modified account "${acc.name}" is not marked mut`,
+            description: `Instruction "${ix.name}" writes to "${acc.name}" but the account has no mut/init/realloc/close writability constraint.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Mark the account writable with mut, or remove the write if the account should be read-only.",
+            cweId: "CWE-664",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-071",
+    name: "init_if_needed Manual Review",
+    description:
+      "init_if_needed can allow state reset or pre-initialization surprises",
+    severity: "low",
+    category: "account-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const acc of ix.accounts) {
+          if (!hasConstraint(acc, "init-if-needed")) continue;
+          findings.push({
+            ruleId: "SOL-071",
+            severity: "low",
+            title: `Review init_if_needed on "${acc.name}"`,
+            description: `Account "${acc.name}" in "${ix.name}" uses init_if_needed, which requires manual review for re-initialization and state-reset paths.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Validate existing state after init_if_needed and prefer explicit init flows for security-sensitive accounts.",
+            cweId: "CWE-665",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-072",
+    name: "AccountInfo Used For Data Account",
+    description:
+      "Data-account-like field is modeled as unchecked/raw AccountInfo",
+    severity: "high",
+    category: "account-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const acc of ix.accounts) {
+          if (
+            acc.accountType !== "unchecked-account" ||
+            !looksLikeDataAccount(acc)
+          )
+            continue;
+          if (hasOwner(acc) && hasConstraint(acc, "custom")) continue;
+          findings.push({
+            ruleId: "SOL-072",
+            severity: "high",
+            title: `Unchecked data account "${acc.name}"`,
+            description: `Account "${acc.name}" in "${ix.name}" looks like program data but is modeled as an unchecked/raw account.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Use a typed account wrapper, or add explicit owner and discriminator/custom validation.",
+            cweId: "CWE-345",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-073",
+    name: "Missing Constraint For Uniqueness",
+    description:
+      "Sensitive initialized account lacks domain-separating constraints",
+    severity: "medium",
+    category: "account-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const acc of ix.accounts) {
+          const isInitialized =
+            hasConstraint(acc, "init") || hasConstraint(acc, "init-if-needed");
+          const sensitive =
+            looksLikeDataAccount(acc) || looksLikeAuthorityAccount(acc);
+          if (!isInitialized || !sensitive || hasStrongValidation(acc))
+            continue;
+          findings.push({
+            ruleId: "SOL-073",
+            severity: "medium",
+            title: `Initialized account "${acc.name}" lacks uniqueness constraints`,
+            description: `Account "${acc.name}" in "${ix.name}" is initialized without seeds, address, has_one, owner, or custom uniqueness validation.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Add PDA seeds, has_one relationships, address constraints, or custom domain-separation checks so one account cannot be reused across unrelated domains.",
+            cweId: "CWE-330",
+          });
         }
       }
       return findings;

@@ -326,11 +326,21 @@ describe("Deterministic stress plan", () => {
               id: uuid(),
               name: "token_program",
               accountType: "token-program",
-              constraints: [{ type: "address", address: "Token111111111111111111111111111111111111" }],
+              constraints: [
+                {
+                  type: "address",
+                  address: "Token111111111111111111111111111111111111",
+                },
+              ],
             },
           ],
           body: [
-            { type: "require", sourceNodeId: "flow-require", condition: "amount > 0", errorCode: "InvalidAmount" },
+            {
+              type: "require",
+              sourceNodeId: "flow-require",
+              condition: "amount > 0",
+              errorCode: "InvalidAmount",
+            },
             {
               type: "math",
               sourceNodeId: "flow-math",
@@ -359,14 +369,23 @@ describe("Deterministic stress plan", () => {
     expect(report.stressSummary.total).toBe(report.stressTests.length);
     expect(ids).toContain("dst-deposit-input-boundary-amount-above-max");
     expect(ids).toContain("dst-deposit-require-boundary-amount-above");
-    expect(ids).toContain("dst-deposit-arithmetic-boundary-next-total-add-overflow");
-    expect(ids).toContain("dst-deposit-account-validation-authority-missing-signer");
+    expect(ids).toContain(
+      "dst-deposit-arithmetic-boundary-next-total-add-overflow",
+    );
+    expect(ids).toContain(
+      "dst-deposit-account-validation-authority-missing-signer",
+    );
     expect(ids).toContain("dst-deposit-pda-validation-vault-wrong-pda-seed");
-    expect(ids).toContain("dst-deposit-token-validation-user-token-wrong-token-mint");
-    expect(ids).toContain("dst-deposit-cpi-validation-token-program-transfer-wrong-program");
+    expect(ids).toContain(
+      "dst-deposit-token-validation-user-token-wrong-token-mint",
+    );
+    expect(ids).toContain(
+      "dst-deposit-cpi-validation-token-program-transfer-wrong-program",
+    );
 
     const overflow = report.stressTests.find(
-      (test) => test.id === "dst-deposit-arithmetic-boundary-next-total-add-overflow",
+      (test) =>
+        test.id === "dst-deposit-arithmetic-boundary-next-total-add-overflow",
     );
     expect(overflow?.severity).toBe("high");
     expect(overflow?.expected).toBe("reject");
@@ -404,7 +423,12 @@ describe("SOL-041: Account Not Reloaded After CPI", () => {
               id: uuid(),
               name: "external_program",
               accountType: "program",
-              constraints: [{ type: "address", address: "External111111111111111111111111111111111" }],
+              constraints: [
+                {
+                  type: "address",
+                  address: "External111111111111111111111111111111111",
+                },
+              ],
             },
           ],
           body: [
@@ -584,6 +608,284 @@ describe("SOL-030: Missing Mint Check", () => {
   });
 });
 
+// ─── Tests: SW011-SW020 Extended Rules ──────────────────────────────────────
+
+describe("Extended Solana Warden rules", () => {
+  it("detects unsafe narrowing casts in custom code", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "cast_amount",
+          accessControl: "none",
+          args: [{ name: "amount", type: "u64" }],
+          accounts: [],
+          body: [
+            {
+              type: "custom-code",
+              sourceNodeId: "flow-cast",
+              code: "let small = amount as u8;",
+              inputs: ["amount"],
+              outputs: ["small"],
+            },
+          ],
+        },
+      ],
+    });
+
+    const finding = runInstantAudit(ir).findings.find(
+      (f) => f.ruleId === "SOL-011",
+    );
+    expect(finding?.standardIds).toContain("SW005");
+    expect(finding?.location.nodeId).toBe("flow-cast");
+  });
+
+  it("detects CPI target programs modeled as unchecked accounts", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "swap",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "dex_program",
+              accountType: "unchecked-account",
+              constraints: [],
+            },
+          ],
+          body: [
+            {
+              type: "cpi",
+              targetProgram: "dex_program",
+              instruction: "swap",
+              accounts: [],
+              data: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    const finding = runInstantAudit(ir).findings.find(
+      (f) => f.ruleId === "SOL-042",
+    );
+    expect(finding?.standardIds).toContain("SW020");
+    expect(finding?.severity).toBe("critical");
+  });
+
+  it("detects untyped data accounts", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "load_vault",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "vault_state",
+              accountType: "unchecked-account",
+              stateType: "VaultState",
+              constraints: [],
+            },
+          ],
+          body: [],
+        },
+      ],
+    });
+
+    const finding = runInstantAudit(ir).findings.find(
+      (f) => f.ruleId === "SOL-072",
+    );
+    expect(finding?.standardIds).toEqual(
+      expect.arrayContaining(["SW007", "SW011"]),
+    );
+  });
+
+  it("detects missing mut on modified accounts", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "write_state",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "state",
+              accountType: "account",
+              stateType: "State",
+              constraints: [],
+            },
+          ],
+          body: [
+            {
+              type: "set-field",
+              account: "state",
+              field: "value",
+              value: "1",
+            },
+          ],
+        },
+      ],
+    });
+
+    const finding = runInstantAudit(ir).findings.find(
+      (f) => f.ruleId === "SOL-070",
+    );
+    expect(finding?.standardIds).toContain("SW015");
+    expect(finding?.severity).toBe("high");
+  });
+
+  it("detects init_if_needed and missing realloc zeroing", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "resize",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "session_state",
+              accountType: "account",
+              stateType: "SessionState",
+              constraints: [
+                { type: "init-if-needed", payer: "authority", space: "auto" },
+                {
+                  type: "realloc",
+                  space: 256,
+                  payer: "authority",
+                  zeroInit: false,
+                },
+              ],
+            },
+          ],
+          body: [],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    expect(
+      report.findings.find((f) => f.ruleId === "SOL-071")?.standardIds,
+    ).toContain("SW016");
+    expect(
+      report.findings.find((f) => f.ruleId === "SOL-062")?.standardIds,
+    ).toContain("SW018");
+  });
+
+  it("detects PDA domain and lifecycle risks", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "open_offer",
+          accessControl: "none",
+          args: [{ name: "bump", type: "u8" }],
+          accounts: [
+            {
+              id: uuid(),
+              name: "authority",
+              accountType: "signer",
+              constraints: [{ type: "signer" }],
+            },
+            {
+              id: uuid(),
+              name: "offer",
+              accountType: "account",
+              stateType: "OfferState",
+              constraints: [
+                { type: "init", payer: "authority", space: "auto" },
+                {
+                  type: "seeds",
+                  seeds: [{ type: "literal", value: "offer" }],
+                  bump: "bump",
+                },
+              ],
+            },
+          ],
+          body: [],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    expect(
+      report.findings.find((f) => f.ruleId === "SOL-004")?.standardIds,
+    ).toContain("SW004");
+    expect(
+      report.findings.find((f) => f.ruleId === "SOL-023")?.standardIds,
+    ).toContain("SW013");
+    expect(
+      report.findings.find((f) => f.ruleId === "SOL-052")?.standardIds,
+    ).toContain("SW017");
+  });
+
+  it("adds deterministic stress cases for lifecycle risks", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "resize",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              sourceNodeId: "flow-state",
+              name: "state",
+              accountType: "account",
+              stateType: "State",
+              constraints: [],
+            },
+            {
+              id: uuid(),
+              sourceNodeId: "flow-buffer",
+              name: "buffer",
+              accountType: "account",
+              stateType: "Buffer",
+              constraints: [
+                {
+                  type: "realloc",
+                  space: 128,
+                  payer: "authority",
+                  zeroInit: false,
+                },
+              ],
+            },
+          ],
+          body: [
+            {
+              type: "set-field",
+              account: "state",
+              field: "value",
+              value: "1",
+            },
+          ],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    expect(
+      report.stressTests.find((test) =>
+        test.id.includes("readonly-mutated-account"),
+      )?.nodeId,
+    ).toBe("flow-state");
+    expect(
+      report.stressTests.find((test) => test.id.includes("realloc-stale-bytes"))
+        ?.nodeId,
+    ).toBe("flow-buffer");
+  });
+});
+
 // ─── Tests: Clean Program (no findings) ──────────────────────────────────────
 
 describe("Clean program", () => {
@@ -745,7 +1047,7 @@ describe("Score calculation", () => {
   });
 });
 
-describe("SW001-SW010 security standard mapping", () => {
+describe("SW001-SW020 security standard mapping", () => {
   it("covers every product-facing Solana security rule", () => {
     expect(SOLANA_SECURITY_STANDARD_RULES.map((rule) => rule.id)).toEqual([
       "SW001",
@@ -758,6 +1060,16 @@ describe("SW001-SW010 security standard mapping", () => {
       "SW008",
       "SW009",
       "SW010",
+      "SW011",
+      "SW012",
+      "SW013",
+      "SW014",
+      "SW015",
+      "SW016",
+      "SW017",
+      "SW018",
+      "SW019",
+      "SW020",
     ]);
 
     for (const rule of SOLANA_SECURITY_STANDARD_RULES) {
@@ -796,6 +1108,7 @@ describe("SW001-SW010 security standard mapping", () => {
     const report = runInstantAudit(ir);
     const finding = report.findings.find((f) => f.ruleId === "SOL-001");
     expect(finding?.standardIds).toContain("SW001");
-    expect(getStandardIdsForAuditRule("SOL-040")).toEqual(["SW003"]);
+    expect(getStandardIdsForAuditRule("SOL-040")).toEqual(["SW003", "SW020"]);
+    expect(getStandardIdsForAuditRule("SOL-073")).toEqual(["SW019"]);
   });
 });

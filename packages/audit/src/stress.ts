@@ -26,18 +26,30 @@ const NUMERIC_BOUNDS: Record<string, NumericBounds> = {
   u16: { min: "0", max: "65535", signed: false },
   u32: { min: "0", max: "4294967295", signed: false },
   u64: { min: "0", max: "18446744073709551615", signed: false },
-  u128: { min: "0", max: "340282366920938463463374607431768211455", signed: false },
+  u128: {
+    min: "0",
+    max: "340282366920938463463374607431768211455",
+    signed: false,
+  },
   i8: { min: "-128", max: "127", signed: true },
   i16: { min: "-32768", max: "32767", signed: true },
   i32: { min: "-2147483648", max: "2147483647", signed: true },
-  i64: { min: "-9223372036854775808", max: "9223372036854775807", signed: true },
+  i64: {
+    min: "-9223372036854775808",
+    max: "9223372036854775807",
+    signed: true,
+  },
   i128: {
     min: "-170141183460469231731687303715884105728",
     max: "170141183460469231731687303715884105727",
     signed: true,
   },
   f32: { min: "-3.4028235e38", max: "3.4028235e38", signed: true },
-  f64: { min: "-1.7976931348623157e308", max: "1.7976931348623157e308", signed: true },
+  f64: {
+    min: "-1.7976931348623157e308",
+    max: "1.7976931348623157e308",
+    signed: true,
+  },
 };
 
 const STRESS_CATEGORIES: AuditStressCategory[] = [
@@ -50,7 +62,13 @@ const STRESS_CATEGORIES: AuditStressCategory[] = [
   "cpi-validation",
 ];
 
-const SEVERITIES: AuditSeverity[] = ["critical", "high", "medium", "low", "info"];
+const SEVERITIES: AuditSeverity[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "info",
+];
 
 function instructionNodeId(ix: Instruction): string {
   return ix.sourceNodeId ?? ix.id;
@@ -64,7 +82,9 @@ function operationNodeId(op: LogicOperation, ix: Instruction): string {
   return op.sourceNodeId ?? instructionNodeId(ix);
 }
 
-export function generateDeterministicStressPlan(ir: ProgramIR): AuditStressTestCase[] {
+export function generateDeterministicStressPlan(
+  ir: ProgramIR,
+): AuditStressTestCase[] {
   const cases: AuditStressTestCase[] = [];
   const seen = new Set<string>();
 
@@ -85,9 +105,15 @@ export function generateDeterministicStressPlan(ir: ProgramIR): AuditStressTestC
   return cases;
 }
 
-export function summarizeStressTests(tests: AuditStressTestCase[]): AuditStressSummary {
-  const bySeverity = Object.fromEntries(SEVERITIES.map((s) => [s, 0])) as Record<AuditSeverity, number>;
-  const byCategory = Object.fromEntries(STRESS_CATEGORIES.map((c) => [c, 0])) as Record<AuditStressCategory, number>;
+export function summarizeStressTests(
+  tests: AuditStressTestCase[],
+): AuditStressSummary {
+  const bySeverity = Object.fromEntries(
+    SEVERITIES.map((s) => [s, 0]),
+  ) as Record<AuditSeverity, number>;
+  const byCategory = Object.fromEntries(
+    STRESS_CATEGORIES.map((c) => [c, 0]),
+  ) as Record<AuditStressCategory, number>;
 
   for (const test of tests) {
     bySeverity[test.severity]++;
@@ -154,8 +180,10 @@ function addArithmeticBoundaryCases(
   for (const op of flattenOps(ix.body)) {
     if (op.type !== "math") continue;
 
-    const leftBounds = getBoundsForExpression(op.left, argsByName) ?? getDefaultIntegerBounds();
-    const rightBounds = getBoundsForExpression(op.right, argsByName) ?? getDefaultIntegerBounds();
+    const leftBounds =
+      getBoundsForExpression(op.left, argsByName) ?? getDefaultIntegerBounds();
+    const rightBounds =
+      getBoundsForExpression(op.right, argsByName) ?? getDefaultIntegerBounds();
     const severity: AuditSeverity = op.checked ? "info" : "high";
 
     if (op.operation === "add") {
@@ -214,7 +242,12 @@ function addArithmeticBoundaryCases(
 
     if (op.operation === "div" || op.operation === "mod") {
       add({
-        id: stressId(ix, "arithmetic-boundary", op.result, `${op.operation}-zero`),
+        id: stressId(
+          ix,
+          "arithmetic-boundary",
+          op.result,
+          `${op.operation}-zero`,
+        ),
         title: `${op.result} ${op.operation} by zero`,
         description: `Probe ${op.left} ${op.operation} ${op.right} with a zero divisor.`,
         category: "arithmetic-boundary",
@@ -232,7 +265,12 @@ function addArithmeticBoundaryCases(
 
     if (!op.checked) {
       add({
-        id: stressId(ix, "arithmetic-boundary", op.result, "checked-arithmetic-required"),
+        id: stressId(
+          ix,
+          "arithmetic-boundary",
+          op.result,
+          "checked-arithmetic-required",
+        ),
         title: `${op.result} checked arithmetic guard`,
         description: `Require ${op.operation} to use checked arithmetic before production.`,
         category: "arithmetic-boundary",
@@ -242,7 +280,8 @@ function addArithmeticBoundaryCases(
         severity: "high",
         inputs: inputMap(op.left, leftBounds.max, op.right, rightBounds.max),
         expected: "reject",
-        rationale: "The audit can auto-fix the graph node by enabling checked arithmetic.",
+        rationale:
+          "The audit can auto-fix the graph node by enabling checked arithmetic.",
       });
     }
   }
@@ -254,7 +293,11 @@ function addRequirementBoundaryCases(
 ) {
   for (const op of flattenOps(ix.body)) {
     const condition =
-      op.type === "require" ? op.condition : op.type === "if-else" ? op.condition : undefined;
+      op.type === "require"
+        ? op.condition
+        : op.type === "if-else"
+          ? op.condition
+          : undefined;
     if (!condition) continue;
 
     const parsed = parseSimpleCondition(condition);
@@ -263,7 +306,12 @@ function addRequirementBoundaryCases(
     const values = boundaryValuesForCondition(parsed.operator, parsed.literal);
     for (const point of values) {
       add({
-        id: stressId(ix, "require-boundary", parsed.symbol, `${parsed.operator}-${point.label}`),
+        id: stressId(
+          ix,
+          "require-boundary",
+          parsed.symbol,
+          `${parsed.operator}-${point.label}`,
+        ),
         title: `${parsed.symbol} ${point.label} ${parsed.literal}`,
         description: `Exercise ${condition} with ${parsed.symbol} ${point.label} the threshold.`,
         category: "require-boundary",
@@ -273,7 +321,8 @@ function addRequirementBoundaryCases(
         severity: point.expected === "pass" ? "info" : "medium",
         inputs: { [parsed.symbol]: toInputValue(point.value) },
         expected: point.expected,
-        rationale: "Boundary checks should cover the failing edge, exact equality, and the first passing edge.",
+        rationale:
+          "Boundary checks should cover the failing edge, exact equality, and the first passing edge.",
       });
     }
   }
@@ -283,15 +332,21 @@ function addAccountValidationCases(
   ix: Instruction,
   add: (testCase: AuditStressTestCase) => void,
 ) {
+  const modified = modifiedAccountNames(ix.body);
+
   for (const acc of ix.accounts) {
-    if (acc.accountType === "signer" || acc.constraints.some((c) => c.type === "signer")) {
+    if (
+      acc.accountType === "signer" ||
+      acc.constraints.some((c) => c.type === "signer")
+    ) {
       addAccountCase(ix, acc, add, {
         category: "account-validation",
         variant: "missing-signer",
         severity: "critical",
         title: `${acc.name} missing signer`,
         inputs: { [acc.name]: "non_signer_account" },
-        rationale: "Privileged instructions must reject the same account when it is not a transaction signer.",
+        rationale:
+          "Privileged instructions must reject the same account when it is not a transaction signer.",
       });
     }
 
@@ -303,7 +358,8 @@ function addAccountValidationCases(
           severity: "high",
           title: `${acc.name} wrong owner`,
           inputs: { [acc.name]: `owner_not_${constraint.owner}` },
-          rationale: "Unchecked and program-owned accounts must reject fake accounts owned by the wrong program.",
+          rationale:
+            "Unchecked and program-owned accounts must reject fake accounts owned by the wrong program.",
         });
       }
 
@@ -314,7 +370,8 @@ function addAccountValidationCases(
           severity: acc.accountType === "program" ? "critical" : "high",
           title: `${acc.name} wrong address`,
           inputs: { [acc.name]: `address_not_${constraint.address}` },
-          rationale: "Program and config accounts must reject lookalike accounts with a different address.",
+          rationale:
+            "Program and config accounts must reject lookalike accounts with a different address.",
         });
       }
 
@@ -325,7 +382,8 @@ function addAccountValidationCases(
           severity: "high",
           title: `${acc.name} ${constraint.field} mismatch`,
           inputs: { [constraint.field]: `not_${constraint.target}` },
-          rationale: "has_one relationships should reject account graphs with mismatched authority or owner fields.",
+          rationale:
+            "has_one relationships should reject account graphs with mismatched authority or owner fields.",
         });
       }
 
@@ -336,7 +394,8 @@ function addAccountValidationCases(
           severity: "medium",
           title: `${acc.name} wrong PDA seed`,
           inputs: { [acc.name]: "pda_with_mutated_seed" },
-          rationale: "PDA derivation should reject a valid account layout at the wrong derived address.",
+          rationale:
+            "PDA derivation should reject a valid account layout at the wrong derived address.",
         });
         if (constraint.bump) {
           addAccountCase(ix, acc, add, {
@@ -345,7 +404,18 @@ function addAccountValidationCases(
             severity: "medium",
             title: `${acc.name} wrong PDA bump`,
             inputs: { [constraint.bump]: "bump_minus_one" },
-            rationale: "Canonical bump handling should reject non-canonical PDA derivations.",
+            rationale:
+              "Canonical bump handling should reject non-canonical PDA derivations.",
+          });
+        } else {
+          addAccountCase(ix, acc, add, {
+            category: "pda-validation",
+            variant: "missing-pda-bump",
+            severity: "medium",
+            title: `${acc.name} missing PDA bump`,
+            inputs: { [acc.name]: "pda_without_canonical_bump" },
+            rationale:
+              "PDA validation should include a canonical bump to avoid non-canonical derivation surprises.",
           });
         }
       }
@@ -360,7 +430,8 @@ function addAccountValidationCases(
           severity: "high",
           title: `${acc.name} wrong token mint`,
           inputs: { [acc.name]: `mint_not_${constraint.mint}` },
-          rationale: "Token accounts must reject a valid account owned by a different mint.",
+          rationale:
+            "Token accounts must reject a valid account owned by a different mint.",
         });
       }
 
@@ -375,9 +446,63 @@ function addAccountValidationCases(
           severity: "high",
           title: `${acc.name} wrong token authority`,
           inputs: { [acc.name]: `authority_not_${constraint.authority}` },
-          rationale: "Token authority constraints must reject token accounts controlled by a different authority.",
+          rationale:
+            "Token authority constraints must reject token accounts controlled by a different authority.",
         });
       }
+
+      if (constraint.type === "init-if-needed") {
+        addAccountCase(ix, acc, add, {
+          category: "account-validation",
+          variant: "preinitialized-attacker-account",
+          severity: "medium",
+          title: `${acc.name} preinitialized account`,
+          inputs: { [acc.name]: "already_initialized_by_attacker" },
+          rationale:
+            "init_if_needed flows should prove the existing account state belongs to the expected authority/domain.",
+        });
+      }
+
+      if (constraint.type === "realloc" && !constraint.zeroInit) {
+        addAccountCase(ix, acc, add, {
+          category: "account-validation",
+          variant: "realloc-stale-bytes",
+          severity: "medium",
+          title: `${acc.name} realloc stale bytes`,
+          inputs: { [acc.name]: "account_with_dirty_extended_region" },
+          rationale:
+            "Realloc without zeroing should be tested for stale byte exposure and deterministic initialization.",
+        });
+      }
+    }
+
+    if (modified.has(acc.name) && !isWritableByConstraint(acc)) {
+      addAccountCase(ix, acc, add, {
+        category: "account-validation",
+        variant: "readonly-mutated-account",
+        severity: "high",
+        title: `${acc.name} read-only mutation`,
+        inputs: { [acc.name]: "readonly_account_meta" },
+        rationale:
+          "Accounts mutated by instruction logic should fail when passed as read-only, proving mutability is explicit.",
+      });
+    }
+
+    if (
+      acc.constraints.some(
+        (c) => c.type === "init" || c.type === "init-if-needed",
+      ) &&
+      !hasStrongValidation(acc)
+    ) {
+      addAccountCase(ix, acc, add, {
+        category: "account-validation",
+        variant: "duplicate-domain-account",
+        severity: "medium",
+        title: `${acc.name} duplicate domain`,
+        inputs: { [acc.name]: "account_reused_across_authority_domain" },
+        rationale:
+          "Initialized state should have seeds, address, has_one, owner, or custom uniqueness constraints.",
+      });
     }
 
     if (
@@ -391,10 +516,64 @@ function addAccountValidationCases(
         severity: "medium",
         title: `${acc.name} closed token account`,
         inputs: { [acc.name]: "closed_or_zero_lamport_token_account" },
-        rationale: "Token flows should reject closed, uninitialized, or zero-lamport token accounts.",
+        rationale:
+          "Token flows should reject closed, uninitialized, or zero-lamport token accounts.",
       });
     }
   }
+}
+
+function isWritableByConstraint(acc: Account): boolean {
+  return acc.constraints.some(
+    (c) =>
+      c.type === "mut" ||
+      c.type === "init" ||
+      c.type === "init-if-needed" ||
+      c.type === "realloc" ||
+      c.type === "close",
+  );
+}
+
+function hasStrongValidation(acc: Account): boolean {
+  return acc.constraints.some(
+    (c) =>
+      c.type === "signer" ||
+      c.type === "owner" ||
+      c.type === "address" ||
+      c.type === "seeds" ||
+      c.type === "has-one" ||
+      c.type === "token-authority" ||
+      c.type === "token-mint" ||
+      c.type === "associated-token-authority" ||
+      c.type === "associated-token-mint" ||
+      c.type === "mint-authority" ||
+      c.type === "custom",
+  );
+}
+
+function modifiedAccountNames(ops: LogicOperation[]): Set<string> {
+  const names = new Set<string>();
+  for (const op of flattenOps(ops)) {
+    if (op.type === "set-field") {
+      names.add(op.account);
+    } else if (op.type === "transfer-sol") {
+      names.add(op.from);
+      names.add(op.to);
+    } else if (op.type === "transfer-token") {
+      names.add(op.from);
+      names.add(op.to);
+    } else if (op.type === "mint-to") {
+      names.add(op.mint);
+      names.add(op.to);
+    } else if (op.type === "burn") {
+      names.add(op.mint);
+      names.add(op.from);
+    } else if (op.type === "close-account") {
+      names.add(op.account);
+      names.add(op.destination);
+    }
+  }
+  return names;
 }
 
 function addCpiValidationCases(
@@ -405,7 +584,12 @@ function addCpiValidationCases(
     if (op.type !== "cpi") continue;
 
     add({
-      id: stressId(ix, "cpi-validation", op.targetProgram, `${op.instruction}-wrong-program`),
+      id: stressId(
+        ix,
+        "cpi-validation",
+        op.targetProgram,
+        `${op.instruction}-wrong-program`,
+      ),
       title: `${op.instruction} CPI wrong program`,
       description: `Run ${ix.name} with ${op.targetProgram} replaced by a lookalike program.`,
       category: "cpi-validation",
@@ -415,12 +599,18 @@ function addCpiValidationCases(
       severity: "critical",
       inputs: { [op.targetProgram]: "malicious_program_id" },
       expected: "reject",
-      rationale: "CPI targets must be pinned to the expected program ID so attackers cannot route calls to a malicious program.",
+      rationale:
+        "CPI targets must be pinned to the expected program ID so attackers cannot route calls to a malicious program.",
     });
 
     for (const account of op.accounts) {
       add({
-        id: stressId(ix, "cpi-validation", account.from, `${op.instruction}-wrong-cpi-account`),
+        id: stressId(
+          ix,
+          "cpi-validation",
+          account.from,
+          `${op.instruction}-wrong-cpi-account`,
+        ),
         title: `${op.instruction} CPI wrong ${account.from}`,
         description: `Run ${ix.name} with the CPI account mapping ${account.from} -> ${account.to} mutated.`,
         category: "cpi-validation",
@@ -430,13 +620,19 @@ function addCpiValidationCases(
         severity: "high",
         inputs: { [account.from]: `not_${account.to}` },
         expected: "reject",
-        rationale: "CPI account metas should reject swapped accounts that satisfy shape checks but point at the wrong account.",
+        rationale:
+          "CPI account metas should reject swapped accounts that satisfy shape checks but point at the wrong account.",
       });
     }
 
     if (op.signerSeeds && op.signerSeeds.length > 0) {
       add({
-        id: stressId(ix, "cpi-validation", op.targetProgram, `${op.instruction}-wrong-signer-seeds`),
+        id: stressId(
+          ix,
+          "cpi-validation",
+          op.targetProgram,
+          `${op.instruction}-wrong-signer-seeds`,
+        ),
         title: `${op.instruction} CPI wrong signer seeds`,
         description: `Run ${ix.name} with mutated CPI signer seeds.`,
         category: "cpi-validation",
@@ -446,7 +642,8 @@ function addCpiValidationCases(
         severity: "high",
         inputs: { signerSeeds: "mutated_signer_seeds" },
         expected: "reject",
-        rationale: "CPI signer seeds must derive the exact PDA signer expected by the callee.",
+        rationale:
+          "CPI signer seeds must derive the exact PDA signer expected by the callee.",
       });
     }
   }
@@ -492,9 +689,9 @@ function flattenOps(ops: LogicOperation[]): LogicOperation[] {
   return result;
 }
 
-function parseSimpleCondition(condition: string):
-  | { symbol: string; operator: string; literal: string }
-  | null {
+function parseSimpleCondition(
+  condition: string,
+): { symbol: string; operator: string; literal: string } | null {
   const match = condition
     .trim()
     .match(/^([a-zA-Z_][\w.]*)\s*(<=|>=|==|!=|<|>)\s*(-?\d+(?:\.\d+)?)$/);
@@ -538,9 +735,21 @@ function boundaryValuesForCondition(operator: string, literal: string) {
   };
 
   return [
-    { label: "below", value: below, expected: passes("below") ? "pass" : "fail" },
-    { label: "equal", value: literal, expected: passes("equal") ? "pass" : "fail" },
-    { label: "above", value: above, expected: passes("above") ? "pass" : "fail" },
+    {
+      label: "below",
+      value: below,
+      expected: passes("below") ? "pass" : "fail",
+    },
+    {
+      label: "equal",
+      value: literal,
+      expected: passes("equal") ? "pass" : "fail",
+    },
+    {
+      label: "above",
+      value: above,
+      expected: passes("above") ? "pass" : "fail",
+    },
   ] as const;
 }
 
@@ -581,7 +790,9 @@ function getDefaultIntegerBounds(): NumericBounds {
 }
 
 function referencesSymbol(expression: string, name: string): boolean {
-  return new RegExp(`(^|[^a-zA-Z0-9_])${escapeRegExp(name)}($|[^a-zA-Z0-9_])`).test(expression);
+  return new RegExp(
+    `(^|[^a-zA-Z0-9_])${escapeRegExp(name)}($|[^a-zA-Z0-9_])`,
+  ).test(expression);
 }
 
 function inputMap(
@@ -666,11 +877,17 @@ function stressId(
   target: string,
   variant: string,
 ): string {
-  return ["dst", ix.name, category, target, variant].map(slug).filter(Boolean).join("-");
+  return ["dst", ix.name, category, target, variant]
+    .map(slug)
+    .filter(Boolean)
+    .join("-");
 }
 
 function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 function formatType(type: SolanaType): string {

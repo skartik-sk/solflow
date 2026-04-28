@@ -3,9 +3,18 @@
 import { Command } from "commander";
 import { resolve, extname } from "path";
 import { existsSync, statSync, writeFileSync } from "fs";
-import { parseFile, parseProgram, type ParseResult, type SourceCoverageOptions } from "@solflow/rust-parser";
+import {
+  parseFile,
+  parseProgram,
+  type ParseResult,
+  type SourceCoverageOptions,
+} from "@solflow/rust-parser";
 import { flowToIR, type ProgramIR } from "@solflow/ir";
-import { runInstantAudit, type AuditReport, type AuditSeverity } from "@solflow/audit";
+import {
+  runInstantAudit,
+  type AuditReport,
+  type AuditSeverity,
+} from "@solflow/audit";
 
 interface AuditCommandOptions {
   output?: string;
@@ -23,22 +32,39 @@ interface AuditCommandResult {
   report: AuditReport;
 }
 
-const SEVERITY_ORDER: AuditSeverity[] = ["critical", "high", "medium", "low", "info"];
+const SEVERITY_ORDER: AuditSeverity[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+  "info",
+];
 
 export const auditCommand = new Command("audit")
-  .description("Run static audit and deterministic stress checks for a Solana project")
+  .description(
+    "Run static audit and deterministic stress checks for a Solana project",
+  )
   .argument("[path]", "Path to the project directory or .rs file", ".")
   .option("-o, --output <file>", "Write output to file instead of stdout")
   .option("-f, --format <format>", "Output format: summary, json", "summary")
   .option("--include-tests", "Include tests/ directories in parser coverage")
-  .option("--include-examples", "Include examples/ directories in parser coverage")
-  .option("--include-benches", "Include benches/ directories in parser coverage")
-  .option("--include-migrations", "Include migration/ and migrations/ directories in parser coverage")
+  .option(
+    "--include-examples",
+    "Include examples/ directories in parser coverage",
+  )
+  .option(
+    "--include-benches",
+    "Include benches/ directories in parser coverage",
+  )
+  .option(
+    "--include-migrations",
+    "Include migration/ and migrations/ directories in parser coverage",
+  )
   .option("--include-hidden", "Include hidden directories in parser coverage")
   .action(async (pathArg: string, options: AuditCommandOptions) => {
     if (!["summary", "json"].includes(options.format)) {
       console.error("Invalid format. Use one of: summary, json");
-      process.exit(1);
+      process.exit(2);
     }
 
     try {
@@ -62,10 +88,14 @@ export const auditCommand = new Command("audit")
       } else {
         console.log(output);
       }
+
+      if (result.report.findings.length > 0) {
+        process.exit(1);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error(`Audit failed: ${message}`);
-      process.exit(1);
+      process.exit(2);
     }
   });
 
@@ -132,7 +162,9 @@ function formatAuditSummary(result: AuditCommandResult): string {
   );
   lines.push(`Stress cases : ${report.stressSummary.total}`);
   lines.push(`Framework    : ${parsed.report.framework}`);
-  lines.push(`Files        : ${parsed.report.filesParsed} parsed, ${parsed.report.filesSkipped} skipped`);
+  lines.push(
+    `Files        : ${parsed.report.filesParsed} parsed, ${parsed.report.filesSkipped} skipped`,
+  );
 
   const topFindings = report.findings.slice(0, 8);
   if (topFindings.length > 0) {
@@ -142,7 +174,9 @@ function formatAuditSummary(result: AuditCommandResult): string {
       const location = finding.location.instructionName
         ? ` (${finding.location.instructionName}${finding.location.accountName ? ` > ${finding.location.accountName}` : ""})`
         : "";
-      lines.push(`  - [${finding.severity}] ${finding.ruleId}: ${finding.title}${location}`);
+      lines.push(
+        `  - [${finding.severity}] ${finding.ruleId}: ${finding.title}${location}`,
+      );
     }
   }
 
@@ -153,7 +187,9 @@ function formatAuditSummary(result: AuditCommandResult): string {
     lines.push("");
     lines.push("Deterministic stress:");
     for (const test of highSignalStress) {
-      lines.push(`  - [${test.severity}] ${test.instructionName}: ${test.title} -> ${test.expected}`);
+      lines.push(
+        `  - [${test.severity}] ${test.instructionName}: ${test.title} -> ${test.expected}`,
+      );
     }
   }
 
