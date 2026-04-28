@@ -15,6 +15,7 @@ npm install -g @solstudio/cli
 ```bash
 solstudio init .
 solstudio parse . --format summary
+solstudio audit .
 solstudio view .
 ```
 
@@ -43,6 +44,8 @@ solstudio view .
 solstudio init .
 solstudio parse . --format json
 solstudio parse . --format summary
+solstudio audit . --format summary
+solstudio audit . --format json
 solstudio idl ./target/idl/my_program.json
 solstudio view .
 solstudio view . --host 127.0.0.1 --port 6139

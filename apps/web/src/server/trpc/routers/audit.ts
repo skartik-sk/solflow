@@ -6,7 +6,11 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import type { ProgramIR } from "@solflow/ir";
-import type { AuditFinding } from "@solflow/audit";
+import type {
+  AuditFinding,
+  AuditStressSummary,
+  AuditStressTestCase,
+} from "@solflow/audit";
 
 // ─── External API types ──────────────────────────────────────────────────────
 
@@ -68,6 +72,8 @@ export const auditRouter = router({
       // ── 1. Run local IR rules ──────────────────────────────────────────────
       let localFindings: AuditFinding[] = [];
       let localScore = 100;
+      let stressTests: AuditStressTestCase[] = [];
+      let stressSummary: AuditStressSummary | undefined;
 
       if (project.irData) {
         const { runInstantAudit } = await import("@solflow/audit");
@@ -75,6 +81,8 @@ export const auditRouter = router({
         const report = runInstantAudit(ir);
         localFindings = report.findings;
         localScore = report.score;
+        stressTests = report.stressTests;
+        stressSummary = report.stressSummary;
       }
 
       // ── 2. Call external audit API (if configured) ────────────────────────
@@ -136,7 +144,10 @@ export const auditRouter = router({
           projectId: input.projectId, irHash: "manual-run", auditType: "STATIC_ANALYSIS",
           findings: allFindings as any,
           score: mergedScore,
-          summary: summary as any,
+          summary: {
+            ...summary,
+            stress: stressSummary?.total ?? stressTests.length,
+          } as any,
         },
       });
 
@@ -146,6 +157,8 @@ export const auditRouter = router({
         findings: allFindings,
         score: mergedScore,
         summary,
+        stressTests,
+        stressSummary,
         externalCount: externalFindings.length,
         hasExternalApi: !!auditApiUrl,
       };

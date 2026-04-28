@@ -242,6 +242,152 @@ describe("SOL-010: Unchecked Arithmetic", () => {
   });
 });
 
+// ─── Tests: Deterministic Stress Plan ───────────────────────────────────────
+
+describe("Deterministic stress plan", () => {
+  it("generates boundary cases for numeric args, requires, arithmetic, and account constraints", () => {
+    const vaultId = uuid();
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "deposit",
+          accessControl: "none",
+          args: [{ name: "amount", type: "u64" }],
+          accounts: [
+            {
+              id: uuid(),
+              name: "authority",
+              accountType: "signer",
+              constraints: [{ type: "signer" }],
+            },
+            {
+              id: vaultId,
+              name: "vault",
+              accountType: "account",
+              constraints: [
+                {
+                  type: "seeds",
+                  seeds: [{ type: "literal", value: "vault" }],
+                  bump: "vault_bump",
+                },
+              ],
+            },
+            {
+              id: uuid(),
+              name: "user_token",
+              accountType: "token-account",
+              constraints: [{ type: "token-mint", mint: "mint" }],
+            },
+            {
+              id: uuid(),
+              name: "token_program",
+              accountType: "token-program",
+              constraints: [{ type: "address", address: "Token111111111111111111111111111111111111" }],
+            },
+          ],
+          body: [
+            { type: "require", condition: "amount > 0", errorCode: "InvalidAmount" },
+            {
+              type: "math",
+              operation: "add",
+              left: "vault.total",
+              right: "amount",
+              result: "next_total",
+              checked: false,
+            },
+            {
+              type: "cpi",
+              targetProgram: "token_program",
+              instruction: "transfer",
+              accounts: [{ from: "user_token", to: "source" }],
+              data: [{ name: "amount", value: "amount" }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    const ids = report.stressTests.map((test) => test.id);
+
+    expect(report.stressSummary.total).toBe(report.stressTests.length);
+    expect(ids).toContain("dst-deposit-input-boundary-amount-above-max");
+    expect(ids).toContain("dst-deposit-require-boundary-amount-above");
+    expect(ids).toContain("dst-deposit-arithmetic-boundary-next-total-add-overflow");
+    expect(ids).toContain("dst-deposit-account-validation-authority-missing-signer");
+    expect(ids).toContain("dst-deposit-pda-validation-vault-wrong-pda-seed");
+    expect(ids).toContain("dst-deposit-token-validation-user-token-wrong-token-mint");
+    expect(ids).toContain("dst-deposit-cpi-validation-token-program-transfer-wrong-program");
+
+    const overflow = report.stressTests.find(
+      (test) => test.id === "dst-deposit-arithmetic-boundary-next-total-add-overflow",
+    );
+    expect(overflow?.severity).toBe("high");
+    expect(overflow?.expected).toBe("reject");
+  });
+});
+
+// ─── Tests: SOL-041 Account Not Reloaded After CPI ──────────────────────────
+
+describe("SOL-041: Account Not Reloaded After CPI", () => {
+  it("checks later instructions even when an earlier instruction has no CPI", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "setup",
+          accessControl: "none",
+          args: [],
+          accounts: [],
+          body: [],
+        },
+        {
+          id: uuid(),
+          name: "settle",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "vault",
+              accountType: "account",
+              constraints: [{ type: "mut" }],
+            },
+            {
+              id: uuid(),
+              name: "external_program",
+              accountType: "program",
+              constraints: [{ type: "address", address: "External111111111111111111111111111111111" }],
+            },
+          ],
+          body: [
+            {
+              type: "cpi",
+              targetProgram: "external_program",
+              instruction: "sync",
+              accounts: [{ from: "vault", to: "vault" }],
+              data: [],
+            },
+            {
+              type: "set-field",
+              account: "vault",
+              field: "total",
+              value: "next_total",
+            },
+          ],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    const finding = report.findings.find((f) => f.ruleId === "SOL-041");
+
+    expect(finding).toBeDefined();
+    expect(finding?.location.instructionName).toBe("settle");
+  });
+});
+
 // ─── Tests: SOL-020 PDA Seed Collision ──────────────────────────────────────
 
 describe("SOL-020: PDA Seed Collision Risk", () => {

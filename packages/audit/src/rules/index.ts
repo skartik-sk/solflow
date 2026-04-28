@@ -474,7 +474,7 @@ export const RULES: AuditRule[] = [
       for (const ix of ir.instructions) {
         const flatOps = flattenOps(ix.body);
         const cpiOps = flatOps.filter((op) => op.type === "cpi");
-        if (cpiOps.length === 0) return findings;
+        if (cpiOps.length === 0) continue;
 
         // After any CPI, if there are set-field operations on accounts passed to the CPI,
         // the account data might be stale.

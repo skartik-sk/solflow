@@ -5,6 +5,7 @@
 import type { ProgramIR } from "@solflow/ir";
 import { RULES } from "./rules";
 import { getStandardIdsForAuditRule } from "./security-standard";
+import { generateDeterministicStressPlan, summarizeStressTests } from "./stress";
 import type { AuditFinding, AuditReport, AuditRule, AuditSeverity } from "./types";
 
 export type {
@@ -13,8 +14,16 @@ export type {
   AuditRule,
   AuditCategory,
   AuditSeverity,
+  AuditStressCategory,
+  AuditStressExpectation,
+  AuditStressSummary,
+  AuditStressTestCase,
   NodePatch,
 } from "./types";
+export {
+  generateDeterministicStressPlan,
+  summarizeStressTests,
+} from "./stress";
 export {
   SOLANA_SECURITY_STANDARD_RULES,
   getStandardIdsForAuditRule,
@@ -87,8 +96,10 @@ export function runInstantAudit(ir: ProgramIR): AuditReport {
   }
 
   const score = Math.max(0, 100 - penalty);
+  const stressTests = generateDeterministicStressPlan(ir);
+  const stressSummary = summarizeStressTests(stressTests);
 
-  return { findings, score, summary };
+  return { findings, score, summary, stressTests, stressSummary };
 }
 
 /**

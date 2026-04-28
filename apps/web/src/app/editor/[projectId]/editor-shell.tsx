@@ -72,10 +72,12 @@ export function EditorShell({
   const isDraggingRef = useRef(false);
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
 
   const onDragStart = useCallback(
     (e: React.MouseEvent | React.TouchEvent) => {
       e.preventDefault();
+      dragCleanupRef.current?.();
       isDraggingRef.current = true;
       const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
       startYRef.current = clientY;
@@ -90,7 +92,12 @@ export function EditorShell({
         setBottomPanelHeight(next);
       };
 
+      let cleanup = () => {};
       const onUp = () => {
+        cleanup();
+      };
+
+      cleanup = () => {
         isDraggingRef.current = false;
         document.removeEventListener("mousemove", onMove);
         document.removeEventListener("mouseup", onUp);
@@ -98,8 +105,10 @@ export function EditorShell({
         document.removeEventListener("touchend", onUp);
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        dragCleanupRef.current = null;
       };
 
+      dragCleanupRef.current = cleanup;
       document.body.style.cursor = "ns-resize";
       document.body.style.userSelect = "none";
       document.addEventListener("mousemove", onMove);
@@ -109,6 +118,10 @@ export function EditorShell({
     },
     [bottomPanelHeight],
   );
+
+  useEffect(() => {
+    return () => dragCleanupRef.current?.();
+  }, []);
 
   // ─── Boot stores with server-fetched data ──────────────────────────
   useEffect(() => {
@@ -480,6 +493,26 @@ function AuditPanel({
             low: 0,
             info: 0,
           },
+          stressTests: result.stressTests ?? [],
+          stressSummary: result.stressSummary ?? {
+            total: 0,
+            bySeverity: {
+              critical: 0,
+              high: 0,
+              medium: 0,
+              low: 0,
+              info: 0,
+            },
+            byCategory: {
+              "input-boundary": 0,
+              "arithmetic-boundary": 0,
+              "require-boundary": 0,
+              "account-validation": 0,
+              "pda-validation": 0,
+              "token-validation": 0,
+              "cpi-validation": 0,
+            },
+          },
         });
       }
       const { toast: toastFn } = await import("sonner");
@@ -522,7 +555,10 @@ function AuditPanel({
     );
   }
 
-  if (report.findings.length === 0) {
+  const stressTests = report.stressTests ?? [];
+  const stressTotal = report.stressSummary?.total ?? stressTests.length;
+
+  if (report.findings.length === 0 && stressTests.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
         <div className="text-2xl">✓</div>
@@ -568,6 +604,11 @@ function AuditPanel({
               {report.summary.info} info
             </span>
           )}
+          {stressTotal > 0 && (
+            <span className="text-cyan-400">
+              {stressTotal} stress
+            </span>
+          )}
         </div>
         <button
           onClick={runFullAudit}
@@ -581,6 +622,84 @@ function AuditPanel({
       {/* Findings list */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="divide-y divide-border">
+          {stressTests.length > 0 && (
+            <div className="px-4 py-3">
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-medium">Deterministic Stress</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {stressTests.length} generated edge-case probes
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const copy = navigator.clipboard?.writeText(
+                      JSON.stringify(stressTests, null, 2),
+                    );
+                    if (!copy) {
+                      toast.error("Copy failed");
+                      return;
+                    }
+                    void copy
+                      .then(() => toast.success("Stress cases copied"))
+                      .catch(() => toast.error("Copy failed"));
+                  }}
+                  className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  Copy JSON
+                </button>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {stressTests.slice(0, 12).map((test) => {
+                  const colors =
+                    SEVERITY_COLORS[test.severity] ?? SEVERITY_COLORS.info;
+                  return (
+                    <div
+                      key={test.id}
+                      className="rounded border border-border bg-background/40 p-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${colors.badge}`}
+                        >
+                          {colors.label}
+                        </span>
+                        <span className="truncate text-xs font-medium">
+                          {test.title}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                        <span className="font-mono">{test.instructionName}</span>
+                        <span>{test.category}</span>
+                        <span>expected: {test.expected}</span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                        {test.rationale}
+                      </p>
+                      {test.nodeId && onGoToNode && (
+                        <button
+                          onClick={() => onGoToNode(test.nodeId!)}
+                          className="mt-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          Go to Node
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {stressTests.length > 12 && (
+                <div className="mt-2 text-[10px] text-muted-foreground">
+                  Showing 12 of {stressTests.length}
+                </div>
+              )}
+            </div>
+          )}
+          {report.findings.length === 0 && (
+            <div className="px-4 py-3 text-xs text-green-400">
+              No static findings.
+            </div>
+          )}
           {report.findings.map((finding, idx) => {
             const colors =
               SEVERITY_COLORS[finding.severity] ?? SEVERITY_COLORS.info;

@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs
 import { tmpdir } from "os";
 import { parseProgram, parseFile } from "@solflow/rust-parser";
 import { idlToFlow } from "@solflow/idl-import";
+import { auditCommand, runAuditForPath } from "../commands/audit";
 
 const FIXTURES_DIR = join(__dirname, "fixtures");
 const MINI_ANCHOR = join(FIXTURES_DIR, "mini-anchor");
@@ -97,6 +98,23 @@ describe("parse command — Rust project parsing", () => {
 
     const errorNodes = result.nodes.filter((n) => n.type === "error");
     expect(result.stats.errors).toBe(errorNodes.length);
+  });
+});
+
+// ─── audit command logic ────────────────────────────────────────────
+
+describe("audit command", () => {
+  it("is registered with the expected command name", () => {
+    expect(auditCommand.name()).toBe("audit");
+  });
+
+  it("runs local audit and deterministic stress checks", () => {
+    const result = runAuditForPath(MINI_ANCHOR);
+
+    expect(result.report.score).toBeGreaterThanOrEqual(0);
+    expect(result.report.summary).toBeDefined();
+    expect(result.report.stressTests.length).toBeGreaterThan(0);
+    expect(result.report.stressSummary.total).toBe(result.report.stressTests.length);
   });
 });
 

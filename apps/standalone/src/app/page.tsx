@@ -791,6 +791,8 @@ function StandaloneAuditPanel({ nodes, edges }: { nodes: Node[]; edges: Edge[] }
 
   const findings = report.findings ?? [];
   const score = report.score ?? 100;
+  const stressTests = report.stressTests ?? [];
+  const stressTotal = report.stressSummary?.total ?? stressTests.length;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -803,6 +805,7 @@ function StandaloneAuditPanel({ nodes, edges }: { nodes: Node[]; edges: Edge[] }
           {(report.summary?.high ?? 0) > 0 && <span className="text-orange-400">{report.summary.high} high</span>}
           {(report.summary?.medium ?? 0) > 0 && <span className="text-yellow-400">{report.summary.medium} medium</span>}
           {(report.summary?.low ?? 0) > 0 && <span className="text-blue-400">{report.summary.low} low</span>}
+          {stressTotal > 0 && <span className="text-cyan-400">{stressTotal} stress</span>}
         </div>
         <button
           onClick={runAudit}
@@ -813,7 +816,7 @@ function StandaloneAuditPanel({ nodes, edges }: { nodes: Node[]; edges: Edge[] }
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {findings.length === 0 ? (
+        {findings.length === 0 && stressTests.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
             <CheckCircle size={24} className="text-green-400" />
             <p className="font-medium text-green-400">No issues found</p>
@@ -821,6 +824,49 @@ function StandaloneAuditPanel({ nodes, edges }: { nodes: Node[]; edges: Edge[] }
           </div>
         ) : (
           <div className="divide-y divide-border">
+            {stressTests.length > 0 && (
+              <div className="px-4 py-3">
+                <div className="mb-2">
+                  <div className="text-sm font-medium">Deterministic Stress</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {stressTests.length} generated edge-case probes
+                  </div>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {stressTests.slice(0, 12).map((test: AuditStressCaseData) => {
+                    const colors = SEVERITY_COLORS[test.severity] ?? SEVERITY_COLORS.info;
+                    return (
+                      <div key={test.id} className="rounded border border-border bg-background/40 p-2">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${colors.badge}`}>
+                            {colors.label}
+                          </span>
+                          <span className="truncate text-xs font-medium">{test.title}</span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                          <span className="font-mono">{test.instructionName}</span>
+                          <span>{test.category}</span>
+                          <span>expected: {test.expected}</span>
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-[11px] text-muted-foreground">
+                          {test.rationale}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+                {stressTests.length > 12 && (
+                  <div className="mt-2 text-[10px] text-muted-foreground">
+                    Showing 12 of {stressTests.length}
+                  </div>
+                )}
+              </div>
+            )}
+            {findings.length === 0 && (
+              <div className="px-4 py-3 text-xs text-green-400">
+                No static findings.
+              </div>
+            )}
             {findings.map((f: AuditFindingData, i: number) => {
               const colors = SEVERITY_COLORS[f.severity] ?? SEVERITY_COLORS.info;
               return (
@@ -1161,10 +1207,22 @@ interface AuditFindingData {
   location: { instructionName?: string; accountName?: string; nodeId?: string };
 }
 
+interface AuditStressCaseData {
+  id: string;
+  title: string;
+  category: string;
+  instructionName: string;
+  severity: string;
+  expected: string;
+  rationale: string;
+}
+
 interface AuditReportData {
   findings: AuditFindingData[];
   score: number;
   summary: { critical: number; high: number; medium: number; low: number; info: number };
+  stressTests?: AuditStressCaseData[];
+  stressSummary?: { total: number };
 }
 
 declare global {

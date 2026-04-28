@@ -1,6 +1,6 @@
 {
   "name": "@solstudio/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": false,
   "publishConfig": {
     "access": "public"
@@ -46,7 +46,7 @@
     "lint": "eslint src/",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:standalone": "cd ../../apps/standalone && bun run build && mkdir -p ../../packages/cli/static && cp -r out/* ../../packages/cli/static/"
+    "build:standalone": "cd ../../apps/standalone && bun run build && rm -rf ../../packages/cli/static && mkdir -p ../../packages/cli/static && cp -r out/* ../../packages/cli/static/"
   },
   "dependencies": {
     "commander": "^13.0.0"

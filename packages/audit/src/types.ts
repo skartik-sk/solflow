@@ -19,6 +19,17 @@ export type AuditCategory =
   | "denial-of-service"
   | "information-disclosure";
 
+export type AuditStressCategory =
+  | "input-boundary"
+  | "arithmetic-boundary"
+  | "require-boundary"
+  | "account-validation"
+  | "pda-validation"
+  | "token-validation"
+  | "cpi-validation";
+
+export type AuditStressExpectation = "pass" | "fail" | "reject" | "no-panic";
+
 // ─── Finding ─────────────────────────────────────────────────────────────────
 
 export interface AuditFinding {
@@ -35,6 +46,28 @@ export interface AuditFinding {
   recommendation: string;
   cweId?: string;
   references?: string[];
+}
+
+// ─── Deterministic Stress Tests ──────────────────────────────────────────────
+
+export interface AuditStressTestCase {
+  id: string;
+  title: string;
+  description: string;
+  category: AuditStressCategory;
+  instructionName: string;
+  nodeId?: string;
+  target?: string;
+  severity: AuditSeverity;
+  inputs: Record<string, string | number | boolean>;
+  expected: AuditStressExpectation;
+  rationale: string;
+}
+
+export interface AuditStressSummary {
+  total: number;
+  bySeverity: Record<AuditSeverity, number>;
+  byCategory: Record<AuditStressCategory, number>;
 }
 
 // ─── NodePatch ───────────────────────────────────────────────────────────────
@@ -75,4 +108,6 @@ export interface AuditReport {
     low: number;
     info: number;
   };
+  stressTests: AuditStressTestCase[];
+  stressSummary: AuditStressSummary;
 }
