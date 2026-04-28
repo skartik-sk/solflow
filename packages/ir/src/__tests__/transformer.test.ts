@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import type { Node, Edge } from "@xyflow/react";
-import { flowToIR, computeFlowHash } from "../transformer";
+import { flowToIR, computeFlowHash, flowNodeIdToIrId } from "../transformer";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -83,8 +83,39 @@ describe("flowToIR", () => {
     expect(ir.program.name).toBe("test_program");
     expect(ir.instructions).toHaveLength(1);
     expect(ir.instructions[0].name).toBe("initialize");
+    expect(ir.instructions[0].id).toBe(flowNodeIdToIrId(ix.id));
+    expect(ir.instructions[0].sourceNodeId).toBe(ix.id);
     expect(ir.instructions[0].accounts).toHaveLength(1);
     expect(ir.instructions[0].accounts[0].name).toBe("authority");
+    expect(ir.instructions[0].accounts[0].sourceNodeId).toBe(acc.id);
+  });
+
+  it("preserves source node IDs for logic operations used by audit navigation", () => {
+    const prog = programNode();
+    const ix = instructionNode({ name: "deposit" });
+    const logic: Node = {
+      id: uid(),
+      type: "logic",
+      position: { x: 0, y: 300 },
+      data: {
+        logicType: "math",
+        mathOperation: "add",
+        mathLeft: "amount",
+        mathRight: "1",
+        mathResult: "next_amount",
+        mathChecked: false,
+      },
+    };
+
+    const ir = flowToIR(
+      [prog, ix, logic],
+      [edge(prog.id, ix.id), edge(ix.id, logic.id)],
+    );
+
+    expect(ir.instructions[0].body[0]).toMatchObject({
+      type: "math",
+      sourceNodeId: logic.id,
+    });
   });
 
   it("throws when flow has no program node", () => {

@@ -190,6 +190,7 @@ export type AccountType = z.infer<typeof AccountTypeSchema>;
 
 export const AccountSchema = z.object({
   id: z.string().uuid(),
+  sourceNodeId: z.string().optional(),
   name: safeSnakeName,
   accountType: AccountTypeSchema,
   stateType: z.string().optional(),
@@ -201,15 +202,17 @@ export type Account = z.infer<typeof AccountSchema>;
 // ─── Logic Operations ──────────────────────────────────────────────
 
 export type LogicOperation =
-  | { type: "set-field"; account: string; field: string; value: string }
+  | { type: "set-field"; sourceNodeId?: string; account: string; field: string; value: string }
   | {
       type: "transfer-sol";
+      sourceNodeId?: string;
       from: string;
       to: string;
       amount: string;
     }
   | {
       type: "transfer-token";
+      sourceNodeId?: string;
       from: string;
       to: string;
       authority: string;
@@ -218,6 +221,7 @@ export type LogicOperation =
     }
   | {
       type: "mint-to";
+      sourceNodeId?: string;
       mint: string;
       to: string;
       authority: string;
@@ -226,23 +230,26 @@ export type LogicOperation =
     }
   | {
       type: "burn";
+      sourceNodeId?: string;
       mint: string;
       from: string;
       authority: string;
       amount: string;
       signerSeeds?: Seed[];
     }
-  | { type: "require"; condition: string; errorCode: string }
+  | { type: "require"; sourceNodeId?: string; condition: string; errorCode: string }
   | {
       type: "if-else";
+      sourceNodeId?: string;
       condition: string;
       thenBody: LogicOperation[];
       elseBody?: LogicOperation[];
     }
-  | { type: "emit-event"; event: string; fields: Record<string, string> }
-  | { type: "return-error"; errorCode: string }
+  | { type: "emit-event"; sourceNodeId?: string; event: string; fields: Record<string, string> }
+  | { type: "return-error"; sourceNodeId?: string; errorCode: string }
   | {
       type: "cpi";
+      sourceNodeId?: string;
       targetProgram: string;
       instruction: string;
       accounts: Array<{ from: string; to: string }>;
@@ -251,31 +258,35 @@ export type LogicOperation =
     }
   | {
       type: "math";
+      sourceNodeId?: string;
       operation: "add" | "sub" | "mul" | "div" | "mod";
       left: string;
       right: string;
       result: string;
       checked: boolean;
     }
-  | { type: "close-account"; account: string; destination: string; authority: string }
-  | { type: "custom-code"; code: string; inputs: string[]; outputs: string[] };
+  | { type: "close-account"; sourceNodeId?: string; account: string; destination: string; authority: string }
+  | { type: "custom-code"; sourceNodeId?: string; code: string; inputs: string[]; outputs: string[] };
 
 export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
   z.discriminatedUnion("type", [
     z.object({
       type: z.literal("set-field"),
+      sourceNodeId: z.string().optional(),
       account: z.string(),
       field: z.string(),
       value: z.string(),
     }),
     z.object({
       type: z.literal("transfer-sol"),
+      sourceNodeId: z.string().optional(),
       from: z.string(),
       to: z.string(),
       amount: z.string(),
     }),
     z.object({
       type: z.literal("transfer-token"),
+      sourceNodeId: z.string().optional(),
       from: z.string(),
       to: z.string(),
       authority: z.string(),
@@ -284,6 +295,7 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
     }),
     z.object({
       type: z.literal("mint-to"),
+      sourceNodeId: z.string().optional(),
       mint: z.string(),
       to: z.string(),
       authority: z.string(),
@@ -292,6 +304,7 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
     }),
     z.object({
       type: z.literal("burn"),
+      sourceNodeId: z.string().optional(),
       mint: z.string(),
       from: z.string(),
       authority: z.string(),
@@ -300,26 +313,31 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
     }),
     z.object({
       type: z.literal("require"),
+      sourceNodeId: z.string().optional(),
       condition: z.string(),
       errorCode: z.string(),
     }),
     z.object({
       type: z.literal("if-else"),
+      sourceNodeId: z.string().optional(),
       condition: z.string(),
       thenBody: z.array(LogicOperationSchema),
       elseBody: z.array(LogicOperationSchema).optional(),
     }),
     z.object({
       type: z.literal("emit-event"),
+      sourceNodeId: z.string().optional(),
       event: z.string(),
       fields: z.record(z.string()),
     }),
     z.object({
       type: z.literal("return-error"),
+      sourceNodeId: z.string().optional(),
       errorCode: z.string(),
     }),
     z.object({
       type: z.literal("cpi"),
+      sourceNodeId: z.string().optional(),
       targetProgram: z.string(),
       instruction: z.string(),
       accounts: z.array(z.object({ from: z.string(), to: z.string() })),
@@ -328,6 +346,7 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
     }),
     z.object({
       type: z.literal("math"),
+      sourceNodeId: z.string().optional(),
       operation: z.enum(["add", "sub", "mul", "div", "mod"]),
       left: z.string(),
       right: z.string(),
@@ -336,12 +355,14 @@ export const LogicOperationSchema: z.ZodType<LogicOperation> = z.lazy(() =>
     }),
     z.object({
       type: z.literal("close-account"),
+      sourceNodeId: z.string().optional(),
       account: z.string(),
       destination: z.string(),
       authority: z.string(),
     }),
     z.object({
       type: z.literal("custom-code"),
+      sourceNodeId: z.string().optional(),
       code: z.string(),
       inputs: z.array(z.string()),
       outputs: z.array(z.string()),
@@ -360,6 +381,7 @@ export type InstructionArg = z.infer<typeof InstructionArgSchema>;
 
 export const InstructionSchema = z.object({
   id: z.string().uuid(),
+  sourceNodeId: z.string().optional(),
   name: safeSnakeName,
   description: z.string().optional(),
   discriminator: z.array(z.number()).length(8).optional(),
@@ -375,6 +397,7 @@ export type AccessControl = Instruction["accessControl"];
 
 export const StateSchema = z.object({
   id: z.string().uuid(),
+  sourceNodeId: z.string().optional(),
   name: safePascalName,
   fields: z.array(FieldSchema),
   description: z.string().optional(),
@@ -387,6 +410,7 @@ export type State = z.infer<typeof StateSchema>;
 
 export const ErrorVariantSchema = z.object({
   id: z.string().uuid(),
+  sourceNodeId: z.string().optional(),
   name: safePascalName,
   code: z.number().int().nonnegative(),
   message: z.string(),
@@ -397,6 +421,7 @@ export type ErrorVariant = z.infer<typeof ErrorVariantSchema>;
 
 export const EventSchema = z.object({
   id: z.string().uuid(),
+  sourceNodeId: z.string().optional(),
   name: safePascalName,
   fields: z.array(FieldSchema),
   description: z.string().optional(),
@@ -407,6 +432,7 @@ export type IrEvent = z.infer<typeof EventSchema>;
 
 export const IntegrationSchema = z.object({
   id: z.string().uuid(),
+  sourceNodeId: z.string().optional(),
   pluginId: z.string(),
   integrationId: z.string(),
   config: z.record(z.unknown()),

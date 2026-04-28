@@ -86,6 +86,44 @@ describe("SOL-001: Missing Signer Check", () => {
     expect(finding!.location.accountName).toBe("authority");
   });
 
+  it("returns React Flow source node IDs for canvas navigation and fixes", () => {
+    const accountIrId = uuid();
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          sourceNodeId: "flow-withdraw",
+          name: "withdraw",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: accountIrId,
+              sourceNodeId: "flow-authority",
+              name: "authority",
+              accountType: "system-account",
+              constraints: [{ type: "mut" }],
+            },
+          ],
+          body: [
+            {
+              type: "transfer-sol",
+              sourceNodeId: "flow-transfer",
+              from: "authority",
+              to: "vault",
+              amount: "1000",
+            },
+          ],
+        },
+      ],
+    });
+
+    const report = runInstantAudit(ir);
+    const finding = report.findings.find((f) => f.ruleId === "SOL-001");
+
+    expect(finding?.location.nodeId).toBe("flow-authority");
+  });
+
   it("does NOT flag a signer account on SOL transfer", () => {
     const ir = baseIR({
       instructions: [
@@ -187,6 +225,7 @@ describe("SOL-010: Unchecked Arithmetic", () => {
       instructions: [
         {
           id: uuid(),
+          sourceNodeId: "flow-deposit",
           name: "deposit",
           accessControl: "none",
           args: [],
@@ -194,6 +233,7 @@ describe("SOL-010: Unchecked Arithmetic", () => {
           body: [
             {
               type: "math",
+              sourceNodeId: "flow-math",
               operation: "add",
               left: "vault.total",
               right: "amount",
@@ -211,6 +251,7 @@ describe("SOL-010: Unchecked Arithmetic", () => {
     expect(finding).toBeDefined();
     expect(finding!.severity).toBe("high");
     expect(finding!.location.instructionName).toBe("deposit");
+    expect(finding!.location.nodeId).toBe("flow-math");
   });
 
   it("does NOT flag checked arithmetic", () => {
@@ -251,6 +292,7 @@ describe("Deterministic stress plan", () => {
       instructions: [
         {
           id: uuid(),
+          sourceNodeId: "flow-deposit",
           name: "deposit",
           accessControl: "none",
           args: [{ name: "amount", type: "u64" }],
@@ -263,6 +305,7 @@ describe("Deterministic stress plan", () => {
             },
             {
               id: vaultId,
+              sourceNodeId: "flow-vault",
               name: "vault",
               accountType: "account",
               constraints: [
@@ -287,9 +330,10 @@ describe("Deterministic stress plan", () => {
             },
           ],
           body: [
-            { type: "require", condition: "amount > 0", errorCode: "InvalidAmount" },
+            { type: "require", sourceNodeId: "flow-require", condition: "amount > 0", errorCode: "InvalidAmount" },
             {
               type: "math",
+              sourceNodeId: "flow-math",
               operation: "add",
               left: "vault.total",
               right: "amount",
@@ -298,6 +342,7 @@ describe("Deterministic stress plan", () => {
             },
             {
               type: "cpi",
+              sourceNodeId: "flow-cpi",
               targetProgram: "token_program",
               instruction: "transfer",
               accounts: [{ from: "user_token", to: "source" }],
@@ -325,6 +370,7 @@ describe("Deterministic stress plan", () => {
     );
     expect(overflow?.severity).toBe("high");
     expect(overflow?.expected).toBe("reject");
+    expect(overflow?.nodeId).toBe("flow-math");
   });
 });
 

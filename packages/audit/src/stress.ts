@@ -52,6 +52,18 @@ const STRESS_CATEGORIES: AuditStressCategory[] = [
 
 const SEVERITIES: AuditSeverity[] = ["critical", "high", "medium", "low", "info"];
 
+function instructionNodeId(ix: Instruction): string {
+  return ix.sourceNodeId ?? ix.id;
+}
+
+function accountNodeId(acc: Account): string {
+  return acc.sourceNodeId ?? acc.id;
+}
+
+function operationNodeId(op: LogicOperation, ix: Instruction): string {
+  return op.sourceNodeId ?? instructionNodeId(ix);
+}
+
 export function generateDeterministicStressPlan(ir: ProgramIR): AuditStressTestCase[] {
   const cases: AuditStressTestCase[] = [];
   const seen = new Set<string>();
@@ -122,7 +134,7 @@ function addInputBoundaryCases(
         description: `Run ${ix.name} with ${arg.name} at the ${variant.replace("-", " ")} boundary.`,
         category: "input-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: instructionNodeId(ix),
         target: arg.name,
         severity: expected === "reject" ? "medium" : "info",
         inputs: { [arg.name]: toInputValue(value) },
@@ -153,7 +165,7 @@ function addArithmeticBoundaryCases(
         description: `Probe ${op.left} + ${op.right} at the maximum boundary.`,
         category: "arithmetic-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: op.result,
         severity,
         inputs: inputMap(op.left, leftBounds.max, op.right, "1"),
@@ -171,7 +183,7 @@ function addArithmeticBoundaryCases(
         description: `Probe ${op.left} - ${op.right} below the lower boundary.`,
         category: "arithmetic-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: op.result,
         severity,
         inputs: inputMap(op.left, leftBounds.min, op.right, "1"),
@@ -189,7 +201,7 @@ function addArithmeticBoundaryCases(
         description: `Probe ${op.left} * ${op.right} at the maximum boundary.`,
         category: "arithmetic-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: op.result,
         severity,
         inputs: inputMap(op.left, leftBounds.max, op.right, "2"),
@@ -207,7 +219,7 @@ function addArithmeticBoundaryCases(
         description: `Probe ${op.left} ${op.operation} ${op.right} with a zero divisor.`,
         category: "arithmetic-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: op.result,
         severity,
         inputs: inputMap(op.left, "1", op.right, "0"),
@@ -225,7 +237,7 @@ function addArithmeticBoundaryCases(
         description: `Require ${op.operation} to use checked arithmetic before production.`,
         category: "arithmetic-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: op.result,
         severity: "high",
         inputs: inputMap(op.left, leftBounds.max, op.right, rightBounds.max),
@@ -256,7 +268,7 @@ function addRequirementBoundaryCases(
         description: `Exercise ${condition} with ${parsed.symbol} ${point.label} the threshold.`,
         category: "require-boundary",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: condition,
         severity: point.expected === "pass" ? "info" : "medium",
         inputs: { [parsed.symbol]: toInputValue(point.value) },
@@ -398,7 +410,7 @@ function addCpiValidationCases(
       description: `Run ${ix.name} with ${op.targetProgram} replaced by a lookalike program.`,
       category: "cpi-validation",
       instructionName: ix.name,
-      nodeId: ix.id,
+      nodeId: operationNodeId(op, ix),
       target: op.targetProgram,
       severity: "critical",
       inputs: { [op.targetProgram]: "malicious_program_id" },
@@ -413,7 +425,7 @@ function addCpiValidationCases(
         description: `Run ${ix.name} with the CPI account mapping ${account.from} -> ${account.to} mutated.`,
         category: "cpi-validation",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: account.from,
         severity: "high",
         inputs: { [account.from]: `not_${account.to}` },
@@ -429,7 +441,7 @@ function addCpiValidationCases(
         description: `Run ${ix.name} with mutated CPI signer seeds.`,
         category: "cpi-validation",
         instructionName: ix.name,
-        nodeId: ix.id,
+        nodeId: operationNodeId(op, ix),
         target: op.targetProgram,
         severity: "high",
         inputs: { signerSeeds: "mutated_signer_seeds" },
@@ -459,7 +471,7 @@ function addAccountCase(
     description: `Run ${ix.name} with ${acc.name} set to ${options.variant.replace(/-/g, " ")}.`,
     category: options.category,
     instructionName: ix.name,
-    nodeId: acc.id,
+    nodeId: accountNodeId(acc),
     target: acc.name,
     severity: options.severity,
     inputs: options.inputs,

@@ -250,6 +250,7 @@ export const testRouter = router({
           results: results as unknown as any,
           summary: summary as unknown as any,
           logs: [
+            `Runner: ${runResult.runner}`,
             `Runtime: ${runResult.runtime}`,
             runResult.setupCommand ? `Setup: ${runResult.setupCommand}` : null,
             `Command: ${runResult.command}`,
@@ -292,6 +293,7 @@ export const testRouter = router({
         resultItems: results,
         logs: runResult.logs,
         runtime: runResult.runtime,
+        runner: runResult.runner,
         errors: runResult.errors,
         warnings: runResult.warnings,
       };

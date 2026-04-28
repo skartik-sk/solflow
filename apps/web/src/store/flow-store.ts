@@ -236,7 +236,18 @@ export const useFlowStore = create<FlowState>()(
         },
 
         // ─── Selection ────────────────────────────────────────
-        setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId }),
+        setSelectedNode: (nodeId) => {
+          const nodes = get().nodes.map((n) => ({
+            ...n,
+            selected: nodeId ? n.id === nodeId : false,
+          }));
+          set({
+            nodes,
+            selectedNodeId: nodeId,
+            selectedNodeIds: nodeId ? [nodeId] : [],
+            selectedEdgeId: null,
+          });
+        },
         setSelectedEdge: (edgeId) => set({ selectedEdgeId: edgeId }),
         setSelectedNodeIds: (ids) => set({ selectedNodeIds: ids }),
         selectAllNodes: () => {

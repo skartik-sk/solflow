@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { mkdir, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
-import { isAbsolute, join, resolve } from "path";
+import { dirname, isAbsolute, join, resolve } from "path";
 
 export type TestFramework = "ANCHOR" | "PINOCCHIO" | "QUASAR";
 export type GeneratedTestRuntime = "cargo-smoke" | "surfpool-simnet";
@@ -32,6 +32,7 @@ export interface LocalTestRunResult {
   command: string;
   setupCommand?: string;
   runtime: GeneratedTestRuntime;
+  runner: "compiler-docker" | "local";
   logs: string[];
   errors: string[];
   warnings: string[];
@@ -65,22 +66,29 @@ export async function runGeneratedProjectTests(input: {
   keepWorkDir?: boolean;
 }): Promise<LocalTestRunResult> {
   const startedAt = Date.now();
-  const workDir = await createTempProject(input.files);
+  const runner = await resolveTestRunner();
+  const workDir = await createTempProject(
+    input.files,
+    runner === "compiler-docker" ? getSharedBuildRoot() : tmpdir(),
+  );
   const command = buildFrameworkTestCommand(input.framework, input.programName, {
     runtime: input.runtime ?? getDefaultGeneratedTestRuntime(),
   });
-  const commandText = [command.cmd, ...command.args].join(" ");
+  const commandText = formatCommandForRunner(command, workDir, runner, input.framework);
   const setupCommandText = command.setupCommand
-    ? [command.setupCommand.cmd, ...command.setupCommand.args].join(" ")
+    ? formatCommandForRunner(command.setupCommand, workDir, runner, input.framework)
     : undefined;
+  const run = runner === "compiler-docker"
+    ? (step: FrameworkTestCommandStep, timeoutMs: number) =>
+        runCompilerContainerCommand(step, workDir, input.framework, timeoutMs)
+    : (step: FrameworkTestCommandStep, timeoutMs: number) =>
+        runCommand(step.cmd, step.args, resolve(workDir, step.cwd), timeoutMs);
 
   try {
     const setupLogs: string[] = [];
     if (command.setupCommand) {
-      const setupResult = await runCommand(
-        command.setupCommand.cmd,
-        command.setupCommand.args,
-        resolve(workDir, command.setupCommand.cwd),
+      const setupResult = await run(
+        command.setupCommand,
         Math.min(input.timeoutMs ?? 5 * 60_000, 60_000),
       );
       setupLogs.push(...setupResult.logs);
@@ -103,6 +111,7 @@ export async function runGeneratedProjectTests(input: {
           command: commandText,
           setupCommand: setupCommandText,
           runtime: command.runtime,
+          runner,
           logs: setupResult.logs,
           errors,
           warnings: parsed.warnings,
@@ -112,12 +121,7 @@ export async function runGeneratedProjectTests(input: {
       }
     }
 
-    const result = await runCommand(
-      command.cmd,
-      command.args,
-      resolve(workDir, command.cwd),
-      input.timeoutMs ?? 5 * 60_000,
-    );
+    const result = await run(command, input.timeoutMs ?? 5 * 60_000);
     const duration = Date.now() - startedAt;
     const logs = [...setupLogs, ...result.logs];
     const parsed = parseLogs(logs);
@@ -145,6 +149,7 @@ export async function runGeneratedProjectTests(input: {
       command: commandText,
       setupCommand: setupCommandText,
       runtime: command.runtime,
+      runner,
       logs,
       errors,
       warnings: parsed.warnings,
@@ -158,8 +163,8 @@ export async function runGeneratedProjectTests(input: {
   }
 }
 
-async function createTempProject(files: GeneratedTestFile[]): Promise<string> {
-  const dir = join(tmpdir(), `solflow-test-${randomBytes(8).toString("hex")}`);
+async function createTempProject(files: GeneratedTestFile[], rootDir: string): Promise<string> {
+  const dir = join(rootDir, `solflow-test-${randomBytes(8).toString("hex")}`);
   await mkdir(dir, { recursive: true });
 
   for (const file of files) {
@@ -167,11 +172,10 @@ async function createTempProject(files: GeneratedTestFile[]): Promise<string> {
       throw new Error(`Unsafe generated file path: ${file.path}`);
     }
     const fullPath = resolve(dir, file.path);
-    if (!fullPath.startsWith(dir)) {
+    if (fullPath !== dir && !fullPath.startsWith(`${dir}/`)) {
       throw new Error(`Generated file path escapes test workspace: ${file.path}`);
     }
-    const fileDir = fullPath.slice(0, fullPath.lastIndexOf("/"));
-    await mkdir(fileDir, { recursive: true });
+    await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, file.content, "utf8");
   }
 
@@ -198,6 +202,81 @@ function buildSurfpoolSetupCommand(framework: TestFramework): FrameworkTestComma
     args.push("--legacy-anchor-compatibility");
   }
   return { cmd: "surfpool", args, cwd: "." };
+}
+
+const COMPILER_CONTAINER = process.env.SOLFLOW_COMPILER_CONTAINER || "solflow-compiler";
+
+function getSharedBuildRoot(): string {
+  return process.env.SOLFLOW_BUILD_DIR || "/tmp/solflow-builds";
+}
+
+async function resolveTestRunner(): Promise<"compiler-docker" | "local"> {
+  const requested = process.env.SOLFLOW_TEST_RUNNER;
+  if (requested === "local") return "local";
+  if (requested === "compiler-docker" || (await isCompilerContainerAvailable())) {
+    return "compiler-docker";
+  }
+  return "local";
+}
+
+async function isCompilerContainerAvailable(): Promise<boolean> {
+  const result = await runCommand(
+    "docker",
+    ["inspect", "-f", "{{.State.Running}}", COMPILER_CONTAINER],
+    ".",
+    2_000,
+  );
+  return result.code === 0 && result.logs.some((line) => line.trim() === "true");
+}
+
+function formatCommandForRunner(
+  step: FrameworkTestCommandStep,
+  workDir: string,
+  runner: "compiler-docker" | "local",
+  framework: TestFramework,
+): string {
+  const command = [step.cmd, ...step.args].map(shellQuote).join(" ");
+  if (runner === "local") return command;
+  const cwd = resolve(workDir, step.cwd);
+  return `docker exec ${COMPILER_CONTAINER} /bin/sh -lc ${shellQuote(buildCompilerShellCommand(command, cwd, framework))}`;
+}
+
+function runCompilerContainerCommand(
+  step: FrameworkTestCommandStep,
+  workDir: string,
+  framework: TestFramework,
+  timeoutMs: number,
+) {
+  const cwd = resolve(workDir, step.cwd);
+  const command = [step.cmd, ...step.args].map(shellQuote).join(" ");
+  return runCommand(
+    "docker",
+    [
+      "exec",
+      "-u",
+      "root",
+      COMPILER_CONTAINER,
+      "/bin/sh",
+      "-lc",
+      buildCompilerShellCommand(command, cwd, framework),
+    ],
+    workDir,
+    timeoutMs,
+  );
+}
+
+function buildCompilerShellCommand(command: string, cwd: string, framework: TestFramework): string {
+  const targetDir = `/tmp/solflow-builds/_cache/test-${framework.toLowerCase()}-target`;
+  return [
+    'export PATH="/root/.cargo/bin:/root/.local/share/solana/install/active_release/bin:$PATH"',
+    `mkdir -p ${shellQuote(targetDir)}`,
+    `cd ${shellQuote(cwd)}`,
+    `CARGO_TARGET_DIR=${shellQuote(targetDir)} ${command}`,
+  ].join(" && ");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 function isBenignSurfpoolStartupFailure(logs: string[]): boolean {

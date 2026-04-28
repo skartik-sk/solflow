@@ -39,8 +39,12 @@ function deterministicUuid(seed: string): string {
 }
 
 // Map flow node IDs to stable UUIDs — deterministic, no cache needed.
-function toUuid(nodeId: string): string {
+export function flowNodeIdToIrId(nodeId: string): string {
   return deterministicUuid(nodeId);
+}
+
+function toUuid(nodeId: string): string {
+  return flowNodeIdToIrId(nodeId);
 }
 
 import type {
@@ -417,6 +421,7 @@ function buildAccountIR(
 
   return {
     id: toUuid(accNode.id),
+    sourceNodeId: accNode.id,
     name: (data.name as string) ?? "account",
     accountType:
       (data.accountType as Account["accountType"]) ?? "system-account",
@@ -443,7 +448,8 @@ function buildLogicBody(
     })
     .map((n) => {
       const data = n.data as Record<string, unknown>;
-      const op = buildLogicOpFromNodeData(data);
+      const rawOp = buildLogicOpFromNodeData(data);
+      const op = rawOp ? ({ ...rawOp, sourceNodeId: n.id } as LogicOperation) : null;
       if (op && op.type === "if-else") {
         // Collect child logic nodes connected to this if-else node
         const childLogicNodes = getConnectedNodes(n.id, "logic", allNodes, edges);
@@ -633,6 +639,7 @@ function buildInstructionIR(
 
   return {
     id: toUuid(ixNode.id),
+    sourceNodeId: ixNode.id,
     name: (data.name as string) ?? "instruction",
     description: data.description as string | undefined,
     discriminator: data.discriminator as number[] | undefined,
@@ -660,6 +667,7 @@ function collectStates(nodes: Node[]): State[] {
       }));
       return {
         id: toUuid(n.id),
+        sourceNodeId: n.id,
         name: (data.name as string) ?? "State",
         fields,
         description: data.description as string | undefined,
@@ -678,6 +686,7 @@ function collectErrors(nodes: Node[]): ErrorVariant[] {
       const data = n.data as Record<string, unknown>;
       return {
         id: toUuid(n.id),
+        sourceNodeId: n.id,
         name: (data.name as string) ?? "Error",
         code: (data.code as number) ?? 6000,
         message: (data.message as string) ?? "",
@@ -701,6 +710,7 @@ function collectEvents(nodes: Node[]): IrEvent[] {
       }));
       return {
         id: toUuid(n.id),
+        sourceNodeId: n.id,
         name: (data.name as string) ?? "Event",
         fields,
         description: data.description as string | undefined,
@@ -759,6 +769,7 @@ function collectIntegrations(nodes: Node[], edges: Edge[]): Integration[] {
 
       return {
         id: toUuid(n.id),
+        sourceNodeId: n.id,
         pluginId,
         integrationId,
         config,

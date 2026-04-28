@@ -2,7 +2,7 @@
 // IR-level static analysis rules — runs in-browser, instant.
 // Per docs/architecture/14-audit-system.md
 
-import type { ProgramIR, Account, LogicOperation } from "@solflow/ir";
+import type { ProgramIR, Account, Instruction, LogicOperation } from "@solflow/ir";
 import type { AuditRule, AuditFinding, NodePatch } from "../types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -44,6 +44,24 @@ function flattenOps(ops: LogicOperation[]): LogicOperation[] {
   return result;
 }
 
+function instructionNodeId(ix: Instruction): string {
+  return ix.sourceNodeId ?? ix.id;
+}
+
+function accountNodeId(acc: Account): string {
+  return acc.sourceNodeId ?? acc.id;
+}
+
+function operationNodeId(op: LogicOperation, ix: Instruction): string {
+  return op.sourceNodeId ?? instructionNodeId(ix);
+}
+
+function nodeLocation(ix: Instruction, acc?: Account): AuditFinding["location"] {
+  return acc
+    ? { instructionName: ix.name, accountName: acc.name, nodeId: accountNodeId(acc) }
+    : { instructionName: ix.name, nodeId: instructionNodeId(ix) };
+}
+
 // ─── Rules ───────────────────────────────────────────────────────────────────
 
 export const RULES: AuditRule[] = [
@@ -77,7 +95,7 @@ export const RULES: AuditRule[] = [
                 severity: "critical",
                 title: `Missing signer check on "${acc.name}"`,
                 description: `Account "${acc.name}" in instruction "${ix.name}" has mutable state changes but no signer constraint.`,
-                location: { instructionName: ix.name, accountName: acc.name },
+                location: nodeLocation(ix, acc),
                 recommendation:
                   "Add a signer constraint to the account performing privileged writes.",
                 cweId: "CWE-862",
@@ -94,7 +112,7 @@ export const RULES: AuditRule[] = [
                 severity: "critical",
                 title: `Missing signer on SOL transfer source "${op.from}"`,
                 description: `The source account "${op.from}" for a SOL transfer in "${ix.name}" is not a signer.`,
-                location: { instructionName: ix.name, accountName: op.from },
+                location: nodeLocation(ix, fromAcc),
                 recommendation:
                   "Ensure the SOL transfer source account has a signer constraint.",
                 cweId: "CWE-862",
@@ -118,12 +136,11 @@ export const RULES: AuditRule[] = [
       const acc = ix.accounts.find((a) => a.name === accName);
       if (!acc || !acc.id) return patches;
 
-      // The node ID for an account node is its uuid (acc.id).
-      // We patch `constraints` to include a signer entry.
+      // Patch the original account node when sourceNodeId is available.
       const alreadyHasSigner = acc.constraints.some((c) => c.type === "signer");
       if (!alreadyHasSigner) {
         patches.push({
-          nodeId: acc.id,
+          nodeId: accountNodeId(acc),
           data: {
             constraints: [...acc.constraints, { type: "signer" }],
           },
@@ -150,7 +167,7 @@ export const RULES: AuditRule[] = [
                 severity: "high",
                 title: `Missing owner check on unchecked account "${acc.name}"`,
                 description: `UncheckedAccount "${acc.name}" in "${ix.name}" has no owner validation. An attacker could pass a fake account.`,
-                location: { instructionName: ix.name, accountName: acc.name },
+                location: nodeLocation(ix, acc),
                 recommendation:
                   "Add an owner constraint or use a typed account instead of UncheckedAccount.",
                 cweId: "CWE-345",
@@ -186,7 +203,7 @@ export const RULES: AuditRule[] = [
               severity: "high",
               title: `Potential type cosplay on "${acc.name}"`,
               description: `Account "${acc.name}" references state type "${acc.stateType}" but has no owner constraint to prevent type cosplay.`,
-              location: { instructionName: ix.name, accountName: acc.name },
+              location: nodeLocation(ix, acc),
               recommendation:
                 "Add an owner constraint to verify the account is owned by this program.",
               cweId: "CWE-345",
@@ -217,7 +234,7 @@ export const RULES: AuditRule[] = [
               severity: "high",
               title: `Unchecked ${op.operation} in "${ix.name}"`,
               description: `Math operation "${op.operation}" is not using checked arithmetic. This can lead to overflow/underflow.`,
-              location: { instructionName: ix.name },
+              location: { ...nodeLocation(ix), nodeId: operationNodeId(op, ix) },
               recommendation:
                 'Enable "checked" on the math operation node to use checked_add/checked_sub/etc.',
               cweId: "CWE-190",
@@ -227,9 +244,8 @@ export const RULES: AuditRule[] = [
       }
       return findings;
     },
-    // Auto-fix: the finding title includes the instruction name but math ops don't have
-    // a dedicated node ID in the IR currently (they live inside an instruction body).
-    // The safest patch is to flip `checked` on every math op in the flagged instruction.
+    // Auto-fix: prefer the original math logic node; fall back to the instruction
+    // node for old IR payloads that do not carry sourceNodeId yet.
     autoFix: (ir: ProgramIR, finding: AuditFinding): NodePatch[] => {
       const patches: NodePatch[] = [];
       const ixName = finding.location.instructionName;
@@ -238,19 +254,19 @@ export const RULES: AuditRule[] = [
       const ix = ir.instructions.find((i) => i.name === ixName);
       if (!ix) return patches;
 
-      // Instruction nodes use `ix.id` as their React Flow node ID.
-      // We signal the front-end to enable checked=true on all math ops
-      // by patching the instruction node's `body` with updated ops.
       const updatedBody = ix.body.map((op) => {
         if (op.type === "math" && !op.checked) {
           return { ...op, checked: true };
         }
         return op;
       });
+      const targetsLogicNode =
+        !!finding.location.nodeId &&
+        flattenOps(ix.body).some((op) => op.sourceNodeId === finding.location.nodeId);
 
       patches.push({
-        nodeId: ix.id,
-        data: { body: updatedBody },
+        nodeId: finding.location.nodeId ?? instructionNodeId(ix),
+        data: targetsLogicNode ? { mathChecked: true } : { body: updatedBody },
       });
       return patches;
     },
@@ -286,7 +302,7 @@ export const RULES: AuditRule[] = [
                 severity: "medium",
                 title: `PDA seed collision between "${acc.name}" and "${existing}"`,
                 description: `Two PDA accounts share identical literal seeds "${pattern}". This could cause collisions.`,
-                location: { instructionName: ix.name, accountName: acc.name },
+                location: nodeLocation(ix, acc),
                 recommendation:
                   "Add user-specific seeds (e.g., user pubkey) to make PDAs unique per user.",
                 cweId: "CWE-330",
@@ -322,7 +338,7 @@ export const RULES: AuditRule[] = [
               severity: "medium",
               title: `PDA "${acc.name}" does not store/verify bump`,
               description: `The PDA "${acc.name}" in "${ix.name}" uses seeds but does not specify a bump field. Canonical bump should be stored and re-verified.`,
-              location: { instructionName: ix.name, accountName: acc.name },
+              location: nodeLocation(ix, acc),
               recommendation:
                 "Store the canonical bump in account data and use it in the seeds constraint (bump = account.bump).",
             });
@@ -358,7 +374,7 @@ export const RULES: AuditRule[] = [
                 severity: "high",
                 title: `Missing mint check on token account "${acc.name}"`,
                 description: `Token account "${acc.name}" in "${ix.name}" has no mint constraint. An attacker could pass a token account with a different mint.`,
-                location: { instructionName: ix.name, accountName: acc.name },
+                location: nodeLocation(ix, acc),
                 recommendation:
                   "Add a token-mint constraint to verify the token account belongs to the expected mint.",
                 cweId: "CWE-345",
@@ -398,10 +414,7 @@ export const RULES: AuditRule[] = [
                   severity: "high",
                   title: `Missing token authority check on "${authAcc.name}"`,
                   description: `Account "${authAcc.name}" is used as token authority in "${ix.name}" but has no authority constraint or signer check.`,
-                  location: {
-                    instructionName: ix.name,
-                    accountName: authAcc.name,
-                  },
+                  location: nodeLocation(ix, authAcc),
                   recommendation:
                     "Add a token-authority constraint or signer constraint to the authority account.",
                   cweId: "CWE-862",
@@ -446,10 +459,7 @@ export const RULES: AuditRule[] = [
                   severity: "critical",
                   title: `CPI to unverified program "${op.targetProgram}"`,
                   description: `Instruction "${ix.name}" performs a CPI to "${op.targetProgram}" without verifying the program address.`,
-                  location: {
-                    instructionName: ix.name,
-                    accountName: op.targetProgram,
-                  },
+                  location: nodeLocation(ix, targetAcc),
                   recommendation:
                     "Add an address constraint on the target program account to ensure only the expected program can be called.",
                   cweId: "CWE-346",
@@ -488,15 +498,19 @@ export const RULES: AuditRule[] = [
               afterOp.type === "set-field" &&
               cpiAccountNames.has(afterOp.account)
             ) {
+              const account = ix.accounts.find((a) => a.name === afterOp.account);
               findings.push({
                 ruleId: "SOL-041",
                 severity: "medium",
                 title: `Possible stale account data after CPI in "${ix.name}"`,
                 description: `Account "${afterOp.account}" is written after a CPI in "${ix.name}" without a reload. Data from before the CPI may be stale.`,
-                location: {
-                  instructionName: ix.name,
-                  accountName: afterOp.account,
-                },
+                location: account
+                  ? nodeLocation(ix, account)
+                  : {
+                      instructionName: ix.name,
+                      accountName: afterOp.account,
+                      nodeId: operationNodeId(afterOp, ix),
+                    },
                 recommendation:
                   "Reload account data after CPI calls by re-reading account state if needed.",
               });
@@ -557,7 +571,16 @@ export const RULES: AuditRule[] = [
               severity: "medium",
               title: `Missing input validation in "${ix.name}"`,
               description: `Instruction "${ix.name}" uses numeric arguments in math/transfer operations but has no require() validation.`,
-              location: { instructionName: ix.name },
+              location: {
+                ...nodeLocation(ix),
+                nodeId: flatOps.find(
+                  (op) =>
+                    op.type === "math" ||
+                    op.type === "transfer-sol" ||
+                    op.type === "transfer-token" ||
+                    op.type === "mint-to",
+                )?.sourceNodeId ?? instructionNodeId(ix),
+              },
               recommendation:
                 "Add require() checks (Logic > Require node) to validate argument bounds before use.",
               cweId: "CWE-20",
@@ -599,7 +622,7 @@ export const RULES: AuditRule[] = [
               severity: "low",
               title: `Account "${acc.name}" closed without zeroing data`,
               description: `Account "${acc.name}" in "${ix.name}" uses a close constraint but residual data is not explicitly zeroed. This may leak information.`,
-              location: { instructionName: ix.name, accountName: acc.name },
+              location: nodeLocation(ix, acc),
               recommendation:
                 "Use Anchor's close constraint which zeros data automatically, or add explicit zeroing in a custom code block.",
             });
@@ -636,7 +659,7 @@ export const RULES: AuditRule[] = [
                 severity: "medium",
                 title: `Potential unbounded iteration in "${ix.name}"`,
                 description: `Custom code block in "${ix.name}" contains a loop. If the collection size is unbounded, it may exceed the compute budget.`,
-                location: { instructionName: ix.name },
+                location: { ...nodeLocation(ix), nodeId: operationNodeId(op, ix) },
                 recommendation:
                   "Add a maximum size bound to collections and verify the loop will not exceed compute limits (~200k CUs per instruction).",
               });
@@ -670,7 +693,7 @@ export const RULES: AuditRule[] = [
               severity: "low",
               title: `Realloc of ${reallocConstraint.space} bytes on "${acc.name}" may fail`,
               description: `Account "${acc.name}" in "${ix.name}" requests a realloc of ${reallocConstraint.space} bytes, which exceeds the 10KB per-instruction realloc limit.`,
-              location: { instructionName: ix.name, accountName: acc.name },
+              location: nodeLocation(ix, acc),
               recommendation:
                 "Realloc in increments ≤ 10,240 bytes across multiple instructions, or reconsider the account structure.",
             });

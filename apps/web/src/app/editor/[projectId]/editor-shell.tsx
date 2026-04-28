@@ -341,9 +341,19 @@ export function EditorShell({
                   report={auditReport}
                   projectId={projectId}
                   onRunInstantAudit={runInstantAudit}
-                  onGoToNode={(nodeId) => {
-                    useFlowStore.getState().setSelectedNode(nodeId);
-                    focusNode(nodeId);
+                  onGoToNode={async (nodeId) => {
+                    const store = useFlowStore.getState();
+                    let targetId = store.nodes.find((node) => node.id === nodeId)?.id;
+                    if (!targetId) {
+                      const { flowNodeIdToIrId } = await import("@solflow/ir");
+                      targetId = store.nodes.find((node) => flowNodeIdToIrId(node.id) === nodeId)?.id;
+                    }
+                    if (!targetId) {
+                      toast.error("That audit target is no longer on the canvas");
+                      return;
+                    }
+                    useFlowStore.getState().setSelectedNode(targetId);
+                    requestAnimationFrame(() => focusNode(targetId));
                   }}
                   onFix={async (finding) => {
                     const { getRuleById } = await import("@solflow/audit");
