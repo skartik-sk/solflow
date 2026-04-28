@@ -107,6 +107,216 @@ const CLOUD_TEMPLATES = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Landing template: DCA Trader
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    title: "DCA Trader",
+    description: "Dollar-cost average into any token on a schedule.",
+    longDescription:
+      "A production-ready DCA blueprint that checks market conditions, branches on a configured price guard, executes a Jupiter swap from a Cloud wallet, and posts the execution summary to your operations channel.",
+    category: "DEFI",
+    tags: ["jupiter", "cron", "dca", "trader", "automation"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:cron",
+          position: { x: 50, y: 220 },
+          data: { cronExpression: "0 */6 * * *", timezone: "UTC" },
+        },
+        {
+          id: "n2",
+          type: "action:price-fetch",
+          position: { x: 290, y: 220 },
+          data: {
+            token: "So11111111111111111111111111111111111111112",
+            source: "dexscreener",
+          },
+        },
+        {
+          id: "n3",
+          type: "logic:if-else",
+          position: { x: 530, y: 220 },
+          data: { field: "price", operator: "lt", value: "180" },
+        },
+        {
+          id: "n4",
+          type: "action:jupiter-swap",
+          position: { x: 770, y: 140 },
+          data: {
+            inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            outputMint: "So11111111111111111111111111111111111111112",
+            amount: "25000000",
+            slippageBps: 50,
+            walletId: "",
+            credentialId: "",
+          },
+        },
+        {
+          id: "n5",
+          type: "output:webhook",
+          position: { x: 1010, y: 140 },
+          data: {
+            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: '{"text":"DCA Trader executed at {{ $now }}. SOL price: {{ $json.price }}"}',
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
+        { id: "e4", source: "n4", target: "n5" },
+      ],
+    ),
+    settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Landing template: Liquidation Guard
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    title: "Liquidation Guard",
+    description: "Monitor lending positions and auto-deleverage before risk spikes.",
+    longDescription:
+      "A liquidation-risk workflow that polls market data, checks a health-factor threshold, routes risky positions into a defensive Jupiter swap branch, and posts an alert to your incident channel.",
+    category: "DEFI",
+    tags: ["marginfi", "alert", "liquidation", "risk", "deleverage"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:cron",
+          position: { x: 50, y: 230 },
+          data: { cronExpression: "*/10 * * * *", timezone: "UTC" },
+        },
+        {
+          id: "n2",
+          type: "action:price-fetch",
+          position: { x: 290, y: 230 },
+          data: {
+            token: "So11111111111111111111111111111111111111112",
+            source: "birdeye",
+          },
+        },
+        {
+          id: "n3",
+          type: "logic:if-else",
+          position: { x: 530, y: 230 },
+          data: { field: "healthFactor", operator: "lt", value: "1.25" },
+        },
+        {
+          id: "n4",
+          type: "action:jupiter-swap",
+          position: { x: 770, y: 150 },
+          data: {
+            inputMint: "So11111111111111111111111111111111111111112",
+            outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            amount: "{{ $json.deleverageLamports }}",
+            slippageBps: 75,
+            walletId: "",
+            credentialId: "",
+          },
+        },
+        {
+          id: "n5",
+          type: "output:webhook",
+          position: { x: 1010, y: 150 },
+          data: {
+            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: '{"text":"Liquidation Guard triggered. Health factor: {{ $json.healthFactor }}"}',
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
+        { id: "e4", source: "n4", target: "n5" },
+      ],
+    ),
+    settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Landing template: Yield Harvester
+  // ═══════════════════════════════════════════════════════════════════════════
+  {
+    title: "Yield Harvester",
+    description: "Auto-compound rewards across DeFi protocols.",
+    longDescription:
+      "A yield-ops workflow that wakes on a schedule, checks a reward or APY threshold, swaps harvested rewards through Jupiter, and posts a compounding summary for Raydium, Kamino, or other strategy dashboards.",
+    category: "DEFI",
+    tags: ["raydium", "kamino", "yield", "harvest", "compound"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:cron",
+          position: { x: 50, y: 230 },
+          data: { cronExpression: "0 */8 * * *", timezone: "UTC" },
+        },
+        {
+          id: "n2",
+          type: "action:price-fetch",
+          position: { x: 290, y: 230 },
+          data: {
+            token: "So11111111111111111111111111111111111111112",
+            source: "dexscreener",
+          },
+        },
+        {
+          id: "n3",
+          type: "logic:if-else",
+          position: { x: 530, y: 230 },
+          data: { field: "claimableRewardsUsd", operator: "gt", value: "25" },
+        },
+        {
+          id: "n4",
+          type: "action:jupiter-swap",
+          position: { x: 770, y: 150 },
+          data: {
+            inputMint: "{{ $json.rewardMint }}",
+            outputMint: "So11111111111111111111111111111111111111112",
+            amount: "{{ $json.rewardAmount }}",
+            slippageBps: 50,
+            walletId: "",
+            credentialId: "",
+          },
+        },
+        {
+          id: "n5",
+          type: "output:webhook",
+          position: { x: 1010, y: 150 },
+          data: {
+            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: '{"text":"Yield Harvester compounded rewards at {{ $now }}"}',
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
+        { id: "e4", source: "n4", target: "n5" },
+      ],
+    ),
+    settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // 3. PORTFOLIO MONITOR
   // ═══════════════════════════════════════════════════════════════════════════
   {
