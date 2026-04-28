@@ -242,6 +242,16 @@ class TriggerManager {
       (n) => n.type === "trigger:webhook"
     );
 
+    const webhookAllowlist = getWebhookAllowlist(workflow.settings);
+    if (webhookAllowlist.length > 0 && !isWebhookRequestAllowed(headers, webhookAllowlist)) {
+      logWebhookEvent("allowlist_rejected", {
+        workflowId: workflow.id,
+        path,
+        method,
+      });
+      return { status: 403, body: { error: "Webhook source is not allowed" } };
+    }
+
     // Validate HTTP method
     if (webhookNode) {
       const expectedMethod = (webhookNode.data.httpMethod as string) || "POST";
@@ -400,6 +410,29 @@ class TriggerManager {
     this.activeCronJobs.clear();
     console.log("[trigger-manager] Shutdown complete");
   }
+}
+
+function getWebhookAllowlist(settings: unknown): string[] {
+  const safety = (settings as { safety?: { webhookAllowlist?: unknown } } | null)?.safety;
+  if (!Array.isArray(safety?.webhookAllowlist)) return [];
+  return safety.webhookAllowlist
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function isWebhookRequestAllowed(
+  headers: Record<string, string>,
+  allowlist: string[],
+): boolean {
+  const forwardedFor = headers["x-forwarded-for"]?.split(",")[0]?.trim().toLowerCase();
+  const realIp = headers["x-real-ip"]?.trim().toLowerCase();
+  const origin = headers.origin?.trim().toLowerCase();
+  const referer = headers.referer?.trim().toLowerCase();
+  const candidates = [forwardedFor, realIp, origin, referer].filter(Boolean);
+  return candidates.some((candidate) =>
+    allowlist.some((allowed) => candidate === allowed || candidate?.includes(allowed)),
+  );
 }
 
 // ─── Singleton ──────────────────────────────────────────────────────────────

@@ -42,6 +42,9 @@ export interface AuditFinding {
     instructionName?: string;
     accountName?: string;
     nodeId?: string; // React Flow node ID for "Go to Node"
+    file?: string;
+    line?: number;
+    column?: number;
   };
   recommendation: string;
   cweId?: string;
@@ -68,6 +71,42 @@ export interface AuditStressSummary {
   total: number;
   bySeverity: Record<AuditSeverity, number>;
   byCategory: Record<AuditStressCategory, number>;
+}
+
+// ─── Fix Suggestions / Exports / Generated Tests ───────────────────────────
+
+export interface AuditFixSuggestion {
+  findingKey: string;
+  ruleId: string;
+  title: string;
+  summary: string;
+  graphAction?: string;
+  codeAction?: string;
+  confidence: "high" | "medium" | "low";
+  nodeId?: string;
+}
+
+export type AuditExportFormat = "json" | "summary" | "markdown" | "sarif";
+
+export type AuditTestFramework =
+  | "anchor"
+  | "pinocchio"
+  | "quasar"
+  | "litesvm"
+  | "mollusk";
+
+export interface GeneratedAuditTestFile {
+  path: string;
+  content: string;
+  language: "typescript" | "rust" | "json" | "markdown" | "yaml";
+  framework: AuditTestFramework;
+  testCount: number;
+}
+
+export interface GenerateAuditTestOptions {
+  framework: AuditTestFramework;
+  programName?: string;
+  includeReadme?: boolean;
 }
 
 // ─── NodePatch ───────────────────────────────────────────────────────────────
@@ -110,4 +149,5 @@ export interface AuditReport {
   };
   stressTests: AuditStressTestCase[];
   stressSummary: AuditStressSummary;
+  fixSuggestions?: AuditFixSuggestion[];
 }

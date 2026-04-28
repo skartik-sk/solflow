@@ -5,15 +5,27 @@ import { TRPCProvider } from "@/components/providers/TRPCProvider";
 import { ClientWalletProvider } from "@/components/providers/ClientWalletProvider";
 import { MonitoringProvider } from "@/components/providers/MonitoringProvider";
 import { FloatingBrowser } from "@/components/FloatingBrowser";
+import {
+  DEFAULT_OG_IMAGE_ALT,
+  DEFAULT_OG_IMAGE_HEIGHT,
+  DEFAULT_OG_IMAGE_TYPE,
+  DEFAULT_OG_IMAGE_URL,
+  DEFAULT_OG_IMAGE_WIDTH,
+  SITE_DESCRIPTION,
+  SITE_NAME,
+  SITE_ORIGIN,
+  SITE_TITLE,
+  SITE_URL,
+  SOCIAL_DESCRIPTION,
+} from "@/lib/social-metadata";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://solstudio.fun"),
+  metadataBase: new URL(SITE_ORIGIN),
   title: {
-    default: "SolStudio — Visual Solana Contract Builder",
+    default: SITE_TITLE,
     template: "%s | SolStudio",
   },
-  description:
-    "Build production-ready Solana smart contracts visually. Drag, drop, connect nodes and generate Anchor, Pinocchio, or Quasar Rust code in real-time.",
+  description: SITE_DESCRIPTION,
   keywords: [
     "Solana",
     "smart contracts",
@@ -25,6 +37,9 @@ export const metadata: Metadata = {
     "blockchain",
   ],
   authors: [{ name: "SolStudio" }],
+  alternates: {
+    canonical: SITE_URL,
+  },
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     shortcut: "/favicon.svg",
@@ -32,18 +47,28 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    title: "SolStudio — Visual Solana Contract Builder",
-    description:
-      "Build production-ready Solana smart contracts visually. No Rust required.",
-    siteName: "SolStudio",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "SolStudio" }],
+    url: SITE_URL,
+    title: SITE_TITLE,
+    description: SOCIAL_DESCRIPTION,
+    siteName: SITE_NAME,
+    images: [
+      {
+        url: DEFAULT_OG_IMAGE_URL,
+        secureUrl: DEFAULT_OG_IMAGE_URL,
+        width: DEFAULT_OG_IMAGE_WIDTH,
+        height: DEFAULT_OG_IMAGE_HEIGHT,
+        alt: DEFAULT_OG_IMAGE_ALT,
+        type: DEFAULT_OG_IMAGE_TYPE,
+      },
+    ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "SolStudio — Visual Solana Contract Builder",
-    description:
-      "Build production-ready Solana smart contracts visually. No Rust required.",
-    images: ["/og.png"],
+    site: "@solstudio",
+    creator: "@solstudio",
+    title: SITE_TITLE,
+    description: SOCIAL_DESCRIPTION,
+    images: [{ url: DEFAULT_OG_IMAGE_URL, alt: DEFAULT_OG_IMAGE_ALT }],
   },
 };
 

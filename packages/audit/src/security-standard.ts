@@ -8,7 +8,7 @@ export const SOLANA_SECURITY_STANDARD_RULES: SolanaSecurityStandardRule[] = [
   {
     id: "SW001",
     title: "Missing signer or pubkey-only authority validation",
-    auditRuleIds: ["SOL-001", "SOL-031"],
+    auditRuleIds: ["SOL-001"],
   },
   {
     id: "SW002",
@@ -23,7 +23,7 @@ export const SOLANA_SECURITY_STANDARD_RULES: SolanaSecurityStandardRule[] = [
   {
     id: "SW004",
     title: "Non-canonical PDA derivation risk",
-    auditRuleIds: ["SOL-004", "SOL-020", "SOL-021", "SOL-022"],
+    auditRuleIds: ["SOL-004"],
   },
   {
     id: "SW005",
@@ -103,7 +103,7 @@ export const SOLANA_SECURITY_STANDARD_RULES: SolanaSecurityStandardRule[] = [
   {
     id: "SW020",
     title: "AccountInfo as CPI target program",
-    auditRuleIds: ["SOL-040", "SOL-042"],
+    auditRuleIds: ["SOL-042"],
   },
 ];
 

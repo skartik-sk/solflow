@@ -7,6 +7,7 @@ import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
 import { assertSafeOutboundUrl } from "../security/outbound-url";
+import { assertWalletSafety } from "../security/safety";
 
 const DEFAULT_JUPITER_API_BASE = "https://api.jup.ag/swap/v1";
 
@@ -230,6 +231,18 @@ export const jupiterSwapDef: CloudNodeDefinition = {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new Error("amount must be a positive number in smallest units");
     }
+
+    assertWalletSafety({
+      safety: ctx.safety,
+      action: "Jupiter swap",
+      amountLamports:
+        inputMint === "So11111111111111111111111111111111111111112"
+          ? BigInt(Math.trunc(amount))
+          : undefined,
+      tokenMints: [inputMint, outputMint],
+      slippageBps,
+      simulationAvailable: !!ctx.wallet.simulate,
+    });
 
     const userPublicKey = await ctx.wallet.getPublicKey(walletId);
     const jupiterConfig = await resolveJupiterConfig(ctx);

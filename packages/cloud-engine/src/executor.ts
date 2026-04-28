@@ -196,6 +196,7 @@ export class WorkflowExecutor {
       nodeId,
       wallet: this.walletOps,
       credentials: this.credentialOps,
+      safety: def.settings.safety,
       logger,
       signal,
     };

@@ -5,10 +5,10 @@ import {
   Layers,
   Search,
   Star,
-  Download,
   GitFork,
   Workflow,
-  Menu,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 
 export const metadata = { title: "Marketplace | SolStudio" };
@@ -29,6 +29,13 @@ type ListingSummary = {
   rating: number | null;
   featured: boolean;
   author: { id: string; name: string | null; image: string | null };
+  project: {
+    framework: string;
+    generatedCode: unknown;
+    compilations: Array<{ status: string }>;
+    auditReports: Array<{ score: number | null }>;
+    testRuns: Array<{ status: string }>;
+  };
 };
 
 const CATEGORIES = [
@@ -91,6 +98,27 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
           rating: true,
           featured: true,
           author: { select: { id: true, name: true, image: true } },
+          project: {
+            select: {
+              framework: true,
+              generatedCode: true,
+              compilations: {
+                orderBy: { startedAt: "desc" },
+                take: 1,
+                select: { status: true },
+              },
+              auditReports: {
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { score: true },
+              },
+              testRuns: {
+                orderBy: { startedAt: "desc" },
+                take: 1,
+                select: { status: true },
+              },
+            },
+          },
         },
         orderBy: [{ featured: "desc" }, { downloads: "desc" }],
         take: pageSize,
@@ -355,6 +383,8 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
           </div>
         )}
 
+        <TemplateStatusBadges listing={listing} />
+
         {/* Footer Stats */}
         <div className="mt-auto flex items-center justify-between pt-3 border-t border-border mt-3">
           <div className="flex items-center gap-3 text-[10px] font-medium text-muted-foreground">
@@ -378,5 +408,47 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
         </div>
       </div>
     </Link>
+  );
+}
+
+function TemplateStatusBadges({ listing }: { listing: ListingSummary }) {
+  const compileStatus = listing.project.compilations[0]?.status
+    ?? (listing.project.generatedCode ? "GENERATED" : "PENDING");
+  const auditScore = listing.project.auditReports[0]?.score;
+  const testStatus = listing.project.testRuns[0]?.status ?? "PENDING";
+
+  return (
+    <div className="mt-2 grid grid-cols-3 gap-1.5">
+      <StatusPill label="Build" value={compileStatus} ok={compileStatus === "SUCCESS" || compileStatus === "GENERATED"} />
+      <StatusPill label="Audit" value={auditScore == null ? "Pending" : `${auditScore}/100`} ok={auditScore != null && auditScore >= 80} />
+      <StatusPill label="Test" value={testStatus} ok={testStatus === "PASSED"} />
+    </div>
+  );
+}
+
+function StatusPill({
+  label,
+  value,
+  ok,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+}) {
+  const failed = /FAILED|ERROR/i.test(value);
+  return (
+    <span
+      className={`inline-flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-1 text-[9px] font-semibold ${
+        ok
+          ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-400"
+          : failed
+            ? "border-red-500/20 bg-red-500/10 text-red-400"
+            : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+      }`}
+      title={`${label}: ${value}`}
+    >
+      {ok ? <CheckCircle2 className="h-2.5 w-2.5 shrink-0" /> : failed ? <XCircle className="h-2.5 w-2.5 shrink-0" /> : null}
+      <span className="truncate">{label}</span>
+    </span>
   );
 }

@@ -30,6 +30,7 @@ export function EditorToolbar() {
   const isDirty = useWorkflowStore((s) => s.isDirty);
   const nodes = useWorkflowStore((s) => s.nodes);
   const edges = useWorkflowStore((s) => s.edges);
+  const workflowSettings = useWorkflowStore((s) => s.workflowSettings);
 
   const undo = useUndo();
   const redo = useRedo();
@@ -111,6 +112,7 @@ export function EditorToolbar() {
     await saveWorkflow.mutateAsync({
       id: workflowId,
       definition: { nodes: serializedNodes, edges: serializedEdges },
+      settings: workflowSettings,
     });
   };
 
@@ -144,6 +146,7 @@ export function EditorToolbar() {
       await utils.client.workflow.update.mutate({
         id: workflowId,
         definition: { nodes: serializedNodes, edges: serializedEdges },
+        settings: workflowSettings,
       });
 
       // Trigger execution via tRPC

@@ -16,6 +16,11 @@ npm install -g @solstudio/cli
 solstudio init .
 solstudio parse . --format summary
 solstudio audit .
+solstudio audit . --format sarif --output solstudio-audit.sarif
+solstudio audit . --generate-tests ./solstudio-generated-tests
+solstudio test .
+solstudio doctor .
+solstudio patch . --output solstudio.patch
 solstudio view .
 ```
 
@@ -46,6 +51,15 @@ solstudio parse . --format json
 solstudio parse . --format summary
 solstudio audit . --format summary
 solstudio audit . --format json
+solstudio audit . --format markdown --output audit.md
+solstudio audit . --format sarif --output solstudio-audit.sarif
+solstudio audit . --generate-tests ./solstudio-generated-tests
+solstudio test .
+solstudio test . --json
+solstudio doctor .
+solstudio ci
+solstudio ci --write
+solstudio patch . --output solstudio.patch
 solstudio idl ./target/idl/my_program.json
 solstudio view .
 solstudio view . --host 127.0.0.1 --port 6139

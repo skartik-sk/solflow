@@ -6,6 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "../trpc";
 import { sanitizeFlowForMarketplace } from "@/lib/marketplace/sanitize";
 import type { ProgramIR } from "@solflow/ir";
+import { runInstantAudit } from "@solflow/audit";
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
 
 const CATEGORY_ENUM = z.enum([
@@ -103,7 +104,7 @@ export const marketplaceRouter = router({
       z.object({
         projectId: z.string(),
         title: z.string().min(1).max(100),
-        description: z.string().max(1000),
+        description: z.string().min(20).max(1000),
         longDescription: z.string().max(5000).optional(),
         category: CATEGORY_ENUM,
         tags: z.array(z.string().max(30)).max(10).default([]),
@@ -117,7 +118,26 @@ export const marketplaceRouter = router({
       // Fetch the project to get flow data + IR
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, userId: ctx.session.user.id! },
-        select: { id: true, flowData: true, irData: true },
+        select: {
+          id: true,
+          flowData: true,
+          irData: true,
+          compilations: {
+            orderBy: { startedAt: "desc" },
+            take: 1,
+            select: { status: true },
+          },
+          testRuns: {
+            orderBy: { startedAt: "desc" },
+            take: 1,
+            select: { status: true },
+          },
+          auditReports: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { score: true },
+          },
+        },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       if (!project.flowData || !project.irData) {
@@ -132,13 +152,44 @@ export const marketplaceRouter = router({
         project.flowData as any,
         project.irData as ProgramIR,
       );
-
-      // Upsert listing (allows re-publishing an existing listing)
       const existing = await ctx.prisma.marketplaceListing.findUnique({
         where: { projectId: input.projectId },
         select: { id: true },
       });
+      const recentListingCount = existing
+        ? 0
+        : await ctx.prisma.marketplaceListing.count({
+            where: {
+              authorId: ctx.session.user.id!,
+              createdAt: { gte: new Date(Date.now() - 10 * 60 * 1000) },
+            },
+          });
+      const normalizedTags = normalizeMarketplaceTags(input.tags);
+      const prepublish = runMarketplacePrepublishChecks({
+        title: input.title,
+        description: input.description,
+        longDescription: input.longDescription,
+        pricingModel: input.pricingModel,
+        priceSOL: input.priceSOL,
+        tags: normalizedTags,
+        sanitizedFlow,
+        sanitizedIR,
+        recentListingCount,
+      });
+      if (prepublish.issues.length > 0) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Pre-publish checks failed: ${prepublish.issues.join("; ")}`,
+        });
+      }
 
+      const certification = evaluateTemplateCertification(project, sanitizedIR);
+      const listingTags = applyCertificationTag(
+        normalizedTags,
+        certification.certified,
+      );
+
+      // Upsert listing (allows re-publishing an existing listing)
       if (existing) {
         const updated = await ctx.prisma.marketplaceListing.update({
           where: { id: existing.id },
@@ -147,7 +198,7 @@ export const marketplaceRouter = router({
             description: input.description,
             longDescription: input.longDescription,
             category: input.category,
-            tags: input.tags,
+            tags: listingTags,
             pricingModel: input.pricingModel,
             priceSOL: input.priceSOL,
             templateFlowData: sanitizedFlow as object,
@@ -156,7 +207,7 @@ export const marketplaceRouter = router({
           },
           select: { id: true },
         });
-        return { id: updated.id };
+        return { id: updated.id, certification };
       }
 
       const listing = await ctx.prisma.marketplaceListing.create({
@@ -167,7 +218,7 @@ export const marketplaceRouter = router({
           description: input.description,
           longDescription: input.longDescription,
           category: input.category,
-          tags: input.tags,
+          tags: listingTags,
           pricingModel: input.pricingModel,
           priceSOL: input.priceSOL,
           templateFlowData: sanitizedFlow as object,
@@ -176,7 +227,7 @@ export const marketplaceRouter = router({
         },
         select: { id: true },
       });
-      return { id: listing.id };
+      return { id: listing.id, certification };
     }),
 
   // ── fork: create a new project from a template ──────────────────
@@ -422,3 +473,102 @@ const SOLANA_RPC =
 
 /** Treasury wallet that receives SOL payments */
 const TREASURY_WALLET = process.env.SOLFLOW_TREASURY_WALLET || undefined;
+
+interface MarketplacePrepublishInput {
+  title: string;
+  description: string;
+  longDescription?: string;
+  pricingModel: "FREE" | "PAID" | "PAY_WHAT_YOU_WANT";
+  priceSOL?: number;
+  tags: string[];
+  sanitizedFlow: unknown;
+  sanitizedIR: ProgramIR;
+  recentListingCount: number;
+}
+
+function normalizeMarketplaceTags(tags: string[]): string[] {
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => tag.trim().toLowerCase())
+        .filter(Boolean)
+        .filter((tag) => tag !== "solstudio-certified"),
+    ),
+  ).slice(0, 10);
+}
+
+function runMarketplacePrepublishChecks(input: MarketplacePrepublishInput): {
+  issues: string[];
+} {
+  const issues: string[] = [];
+  if (input.title.trim().length < 4) {
+    issues.push("title is too short");
+  }
+  if (input.description.trim().length < 20) {
+    issues.push("description is too short");
+  }
+  if (input.pricingModel === "PAID" && !input.priceSOL) {
+    issues.push("paid templates need a SOL price");
+  }
+  if (input.recentListingCount >= 3) {
+    issues.push("too many templates submitted in the last 10 minutes");
+  }
+  const secretHit = findSecretLikeValue({
+    title: input.title,
+    description: input.description,
+    longDescription: input.longDescription,
+    flow: input.sanitizedFlow,
+    ir: input.sanitizedIR,
+  });
+  if (secretHit) {
+    issues.push(`possible secret found (${secretHit})`);
+  }
+  return { issues };
+}
+
+function evaluateTemplateCertification(
+  project: {
+    compilations: Array<{ status: string }>;
+    testRuns: Array<{ status: string }>;
+    auditReports: Array<{ score: number | null }>;
+  },
+  sanitizedIR: ProgramIR,
+): {
+  certified: boolean;
+  auditScore: number;
+  compileStatus: string;
+  testStatus: string;
+} {
+  const freshAudit = runInstantAudit(sanitizedIR);
+  const auditScore = project.auditReports[0]?.score ?? freshAudit.score;
+  const compileStatus = project.compilations[0]?.status ?? "MISSING";
+  const testStatus = project.testRuns[0]?.status ?? "MISSING";
+  return {
+    certified:
+      compileStatus === "SUCCESS" &&
+      testStatus === "PASSED" &&
+      auditScore >= 80 &&
+      freshAudit.summary.critical === 0 &&
+      freshAudit.summary.high === 0,
+    auditScore,
+    compileStatus,
+    testStatus,
+  };
+}
+
+function applyCertificationTag(tags: string[], certified: boolean): string[] {
+  const base = tags.filter((tag) => tag !== "solstudio-certified");
+  if (!certified) return base;
+  return [...base.slice(0, 9), "solstudio-certified"];
+}
+
+function findSecretLikeValue(value: unknown): string | null {
+  const text = JSON.stringify(value) ?? "";
+  const patterns: Array<[string, RegExp]> = [
+    ["private key", /\b(private[_-]?key|secret[_-]?key|mnemonic|seed phrase)\b\s*[:=]/i],
+    ["solana keypair", /\[[\s\d,]{80,}\]/],
+    ["api token", /\b(sk|pk|api)[_-]?(live|test)?[_-]?[a-z0-9]{24,}\b/i],
+    ["jwt", /\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/],
+  ];
+  return patterns.find(([, pattern]) => pattern.test(text))?.[0] ?? null;
+}

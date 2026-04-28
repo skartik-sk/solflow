@@ -106,6 +106,7 @@ export default function EditorPage() {
       hydrateNodes(definition.nodes),
       hydrateEdges(definition.edges),
       workflow.status,
+      workflow.settings,
     );
   }, [workflow, setWorkflow]);
 

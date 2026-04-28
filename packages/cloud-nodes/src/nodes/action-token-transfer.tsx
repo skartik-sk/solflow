@@ -11,6 +11,7 @@ import {
 import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
+import { assertWalletSafety } from "../security/safety";
 
 const NATIVE_SOL_MINT = "So11111111111111111111111111111111111111112";
 
@@ -130,11 +131,20 @@ export const tokenTransferDef: CloudNodeDefinition = {
     const sourcePublicKey = new PublicKey(await ctx.wallet.getPublicKey(walletId));
     const destinationPublicKey = new PublicKey(to);
     const transaction = new Transaction();
+    const nativeSol = isNativeSol(token);
+
+    assertWalletSafety({
+      safety: ctx.safety,
+      action: "Token transfer",
+      amountLamports: nativeSol ? amount : undefined,
+      tokenMints: nativeSol ? [NATIVE_SOL_MINT] : [token],
+      simulationAvailable: !!ctx.wallet.simulate,
+    });
 
     let transferType: "sol" | "spl";
     let tokenMint: string | undefined;
 
-    if (isNativeSol(token)) {
+    if (nativeSol) {
       transferType = "sol";
       transaction.add(SystemProgram.transfer({
         fromPubkey: sourcePublicKey,

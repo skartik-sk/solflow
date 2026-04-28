@@ -52,6 +52,11 @@ interface BuildState {
   testLogs: BuildLogLine[];
   testRunId: string | null;
   testSummary: { passed: number; failed: number; total: number } | null;
+  testRunner: string | null;
+  testRuntime: GeneratedTestRuntime | null;
+  testCommand: string | null;
+  testSetupCommand: string | null;
+  testDuration: number | null;
 
   // ─── Deployment ───────────────────────────────────────────────
   deployStatus: DeployStatus;
@@ -109,6 +114,11 @@ const INITIAL: Omit<
   testLogs: [],
   testRunId: null,
   testSummary: null,
+  testRunner: null,
+  testRuntime: null,
+  testCommand: null,
+  testSetupCommand: null,
+  testDuration: null,
   deployStatus: "idle",
   deployPhase: null,
   deployErrors: [],
@@ -210,6 +220,11 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       testResults: [],
       testLogs: [],
       testSummary: null,
+      testRunner: null,
+      testRuntime: runtime,
+      testCommand: null,
+      testSetupCommand: null,
+      testDuration: null,
     });
 
     try {
@@ -229,6 +244,13 @@ export const useBuildStore = create<BuildState>((set, get) => ({
           testResults: resp.resultItems,
           testSummary: resp.results,
           testStatus: resp.results.failed === 0 ? "passed" : "failed",
+          testRunner: typeof resp.runner === "string" ? resp.runner : null,
+          testRuntime: resp.runtime ?? runtime,
+          testCommand: typeof resp.command === "string" ? resp.command : null,
+          testSetupCommand:
+            typeof resp.setupCommand === "string" ? resp.setupCommand : null,
+          testDuration:
+            typeof resp.duration === "number" ? resp.duration : null,
           testLogs: [
             ...(Array.isArray(resp.logs)
               ? resp.logs.map((line: string) => ({

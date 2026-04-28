@@ -74,15 +74,17 @@ export const auditRouter = router({
       let localScore = 100;
       let stressTests: AuditStressTestCase[] = [];
       let stressSummary: AuditStressSummary | undefined;
+      let localFixSuggestions: import("@solflow/audit").AuditFixSuggestion[] = [];
 
       if (project.irData) {
-        const { runInstantAudit } = await import("@solflow/audit");
+        const { attachFixSuggestions, runInstantAudit } = await import("@solflow/audit");
         const ir = project.irData as ProgramIR;
         const report = runInstantAudit(ir);
         localFindings = report.findings;
         localScore = report.score;
         stressTests = report.stressTests;
         stressSummary = report.stressSummary;
+        localFixSuggestions = report.fixSuggestions ?? attachFixSuggestions(report.findings);
       }
 
       // ── 2. Call external audit API (if configured) ────────────────────────
@@ -159,6 +161,7 @@ export const auditRouter = router({
         summary,
         stressTests,
         stressSummary,
+        fixSuggestions: localFixSuggestions,
         externalCount: externalFindings.length,
         hasExternalApi: !!auditApiUrl,
       };

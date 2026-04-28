@@ -2,6 +2,7 @@
 // Marketplace template detail — shows listing info, reviews, flow preview, and fork button.
 
 import React from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@solflow/db";
@@ -14,11 +15,19 @@ import {
   ArrowLeft,
   Tag,
   User,
+  CheckCircle2,
+  AlertTriangle,
 } from "lucide-react";
 import { ForkButton } from "./fork-button";
 import { DownloadButtons } from "./download-buttons";
 import { FlowPreview } from "./flow-preview";
 import type { Node, Edge } from "@xyflow/react";
+import {
+  DEFAULT_OG_IMAGE_TYPE,
+  DEFAULT_OG_IMAGE_URL,
+  SITE_NAME,
+  absoluteUrl,
+} from "@/lib/social-metadata";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +49,12 @@ interface ListingDetail {
   featured: boolean;
   publishedAt: Date | null;
   templateFlowData: unknown;
+  project: {
+    framework: string;
+    auditReports: Array<{ score: number | null; createdAt: Date }>;
+    compilations: Array<{ status: string; duration: number | null; completedAt: Date | null }>;
+    testRuns: Array<{ status: string; duration: number | null; completedAt: Date | null }>;
+  };
   author: { id: string; name: string | null; image: string | null };
   reviews: Array<{
     id: string;
@@ -54,7 +69,7 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
-export async function generateMetadata({ params }: PageProps) {
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
   const listing = await prisma.marketplaceListing.findFirst({
     where: { id, status: "PUBLISHED" },
@@ -73,22 +88,39 @@ export async function generateMetadata({ params }: PageProps) {
 
   const title = `${listing.title} | SolStudio Marketplace`;
   const description = listing.description;
-  const image = listing.thumbnailUrl ?? null;
+  const url = absoluteUrl(`/marketplace/${id}`);
+  const image = listing.thumbnailUrl
+    ? absoluteUrl(listing.thumbnailUrl)
+    : DEFAULT_OG_IMAGE_URL;
 
   return {
     title,
     description,
+    alternates: { canonical: url },
     openGraph: {
       title,
       description,
       type: "website",
-      ...(image && { images: [{ url: image, width: 1200, height: 630 }] }),
+      url,
+      siteName: SITE_NAME,
+      images: [
+        {
+          url: image,
+          secureUrl: image,
+          width: 1200,
+          height: 630,
+          alt: title,
+          ...(image === DEFAULT_OG_IMAGE_URL && {
+            type: DEFAULT_OG_IMAGE_TYPE,
+          }),
+        },
+      ],
     },
     twitter: {
-      card: image ? "summary_large_image" : "summary",
+      card: "summary_large_image",
       title,
       description,
-      ...(image && { images: [image] }),
+      images: [{ url: image, alt: title }],
     },
     keywords: [
       listing.category,
@@ -118,6 +150,26 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
         },
         orderBy: { createdAt: "desc" },
         take: 20,
+      },
+      project: {
+        select: {
+          framework: true,
+          auditReports: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { score: true, createdAt: true },
+          },
+          compilations: {
+            orderBy: { startedAt: "desc" },
+            take: 1,
+            select: { status: true, duration: true, completedAt: true },
+          },
+          testRuns: {
+            orderBy: { startedAt: "desc" },
+            take: 1,
+            select: { status: true, duration: true, completedAt: true },
+          },
+        },
       },
     },
   })) as ListingDetail | null;
@@ -156,6 +208,9 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
   const previewNodes: Node[] = fd?.nodes ?? [];
   const previewEdges: Edge[] = fd?.edges ?? [];
   const hasFlowPreview = previewNodes.length > 0;
+  const latestAudit = listing.project.auditReports[0];
+  const latestCompile = listing.project.compilations[0];
+  const latestTest = listing.project.testRuns[0];
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -236,6 +291,34 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                 </div>
               </div>
             )}
+
+            <div>
+              <h2 className="mb-3 text-base font-semibold">Working Status</h2>
+              <div className="grid gap-3 md:grid-cols-3">
+                <TemplateStatusCard
+                  label="Compile"
+                  value={latestCompile?.status ?? "Not run"}
+                  ok={latestCompile?.status === "SUCCESS"}
+                  detail={formatDuration(latestCompile?.duration)}
+                />
+                <TemplateStatusCard
+                  label="Audit"
+                  value={
+                    typeof latestAudit?.score === "number"
+                      ? `${latestAudit.score}/100`
+                      : "Not run"
+                  }
+                  ok={typeof latestAudit?.score === "number" && latestAudit.score >= 80}
+                  detail={latestAudit ? "Latest report" : "Run after fork"}
+                />
+                <TemplateStatusCard
+                  label="Test"
+                  value={latestTest?.status ?? "Not run"}
+                  ok={latestTest?.status === "PASSED"}
+                  detail={formatDuration(latestTest?.duration)}
+                />
+              </div>
+            </div>
 
             {/* Reviews */}
             <div>
@@ -371,6 +454,10 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                 Details
               </h3>
               <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Framework</span>
+                <span>{listing.project.framework}</span>
+              </div>
+              <div className="flex justify-between text-xs">
                 <span className="text-muted-foreground">Category</span>
                 <span>{listing.category}</span>
               </div>
@@ -387,9 +474,50 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                 </div>
               )}
             </div>
+
+            <div className="rounded-xl border border-border bg-card p-4 text-xs text-muted-foreground">
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-foreground">
+                Deploy path
+              </h3>
+              Fork the template, compile it in the editor, run Audit and Test,
+              then deploy with your selected Solana network and wallet.
+            </div>
           </aside>
         </div>
       </main>
     </div>
   );
+}
+
+function TemplateStatusCard({
+  label,
+  value,
+  ok,
+  detail,
+}: {
+  label: string;
+  value: string;
+  ok: boolean;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-muted-foreground">{label}</span>
+        {ok ? (
+          <CheckCircle2 className="h-4 w-4 text-green-400" aria-hidden="true" />
+        ) : (
+          <AlertTriangle className="h-4 w-4 text-yellow-400" aria-hidden="true" />
+        )}
+      </div>
+      <div className="mt-2 text-sm font-semibold">{value}</div>
+      {detail && <div className="mt-1 text-[11px] text-muted-foreground">{detail}</div>}
+    </div>
+  );
+}
+
+function formatDuration(duration: number | null | undefined): string {
+  if (!duration) return "Run after fork";
+  if (duration < 1000) return `${duration}ms`;
+  return `${(duration / 1000).toFixed(1)}s`;
 }

@@ -1,8 +1,8 @@
 // Audit command — parse a Solana project and run local static + deterministic stress checks.
 
 import { Command } from "commander";
-import { resolve, extname } from "path";
-import { existsSync, statSync, writeFileSync } from "fs";
+import { resolve, extname, join, dirname } from "path";
+import { existsSync, mkdirSync, statSync, writeFileSync } from "fs";
 import {
   parseFile,
   parseProgram,
@@ -11,14 +11,19 @@ import {
 } from "@solflow/rust-parser";
 import { flowToIR, type ProgramIR } from "@solflow/ir";
 import {
+  formatAuditReport,
+  generateAuditTestFiles,
   runInstantAudit,
   type AuditReport,
-  type AuditSeverity,
+  type AuditExportFormat,
+  type AuditTestFramework,
 } from "@solflow/audit";
 
 interface AuditCommandOptions {
   output?: string;
-  format: "summary" | "json";
+  format: AuditExportFormat;
+  generateTests?: string;
+  testFramework?: AuditTestFramework;
   includeTests?: boolean;
   includeExamples?: boolean;
   includeBenches?: boolean;
@@ -32,21 +37,25 @@ interface AuditCommandResult {
   report: AuditReport;
 }
 
-const SEVERITY_ORDER: AuditSeverity[] = [
-  "critical",
-  "high",
-  "medium",
-  "low",
-  "info",
-];
-
 export const auditCommand = new Command("audit")
   .description(
     "Run static audit and deterministic stress checks for a Solana project",
   )
   .argument("[path]", "Path to the project directory or .rs file", ".")
   .option("-o, --output <file>", "Write output to file instead of stdout")
-  .option("-f, --format <format>", "Output format: summary, json", "summary")
+  .option(
+    "-f, --format <format>",
+    "Output format: summary, json, markdown, sarif",
+    "summary",
+  )
+  .option(
+    "--generate-tests <dir>",
+    "Generate deterministic audit test files into a directory",
+  )
+  .option(
+    "--test-framework <framework>",
+    "Generated test framework: anchor, pinocchio, quasar, litesvm, mollusk",
+  )
   .option("--include-tests", "Include tests/ directories in parser coverage")
   .option(
     "--include-examples",
@@ -62,31 +71,50 @@ export const auditCommand = new Command("audit")
   )
   .option("--include-hidden", "Include hidden directories in parser coverage")
   .action(async (pathArg: string, options: AuditCommandOptions) => {
-    if (!["summary", "json"].includes(options.format)) {
-      console.error("Invalid format. Use one of: summary, json");
+    if (!["summary", "json", "markdown", "sarif"].includes(options.format)) {
+      console.error("Invalid format. Use one of: summary, json, markdown, sarif");
+      process.exit(2);
+    }
+    if (
+      options.testFramework &&
+      !["anchor", "pinocchio", "quasar", "litesvm", "mollusk"].includes(
+        options.testFramework,
+      )
+    ) {
+      console.error(
+        "Invalid test framework. Use one of: anchor, pinocchio, quasar, litesvm, mollusk",
+      );
       process.exit(2);
     }
 
     try {
       const result = runAuditForPath(pathArg, options);
-      const output =
-        options.format === "json"
-          ? JSON.stringify(
-              {
-                report: result.report,
-                parseStats: result.parsed.stats,
-                parserReport: result.parsed.report,
-              },
-              null,
-              2,
-            )
-          : formatAuditSummary(result);
+      const output = formatAuditReport(result.report, options.format, {
+        framework: result.parsed.report.framework,
+        projectPath: resolve(pathArg),
+        parseStats: result.parsed.stats,
+        parserReport: result.parsed.report,
+      });
 
       if (options.output) {
         writeFileSync(options.output, output);
         console.log(`Output written to ${options.output}`);
       } else {
         console.log(output);
+      }
+
+      if (options.generateTests) {
+        const framework =
+          options.testFramework ?? auditTestFrameworkFromParser(result.parsed.report.framework);
+        const written = writeGeneratedAuditTests(
+          options.generateTests,
+          result.report,
+          framework,
+          result.ir.program.name,
+        );
+        console.log(
+          `Generated ${written.length} audit test file(s) in ${resolve(options.generateTests)}`,
+        );
       }
 
       if (result.report.findings.length > 0) {
@@ -131,6 +159,27 @@ export function runAuditForPath(
   return { parsed, ir, report };
 }
 
+export function writeGeneratedAuditTests(
+  outputDir: string,
+  report: AuditReport,
+  framework: AuditTestFramework,
+  programName?: string,
+) {
+  const files = generateAuditTestFiles(report, {
+    framework,
+    programName,
+    includeReadme: true,
+  });
+  const root = resolve(outputDir);
+  mkdirSync(root, { recursive: true });
+  for (const file of files) {
+    const dest = join(root, file.path);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, file.content);
+  }
+  return files;
+}
+
 function coverageOptions(
   options: Pick<
     AuditCommandOptions,
@@ -151,52 +200,8 @@ function coverageOptions(
   return Object.values(coverage).some(Boolean) ? coverage : undefined;
 }
 
-function formatAuditSummary(result: AuditCommandResult): string {
-  const lines: string[] = [];
-  const { report, parsed } = result;
-
-  lines.push(`Score        : ${report.score}/100`);
-  lines.push(`Findings     : ${report.findings.length}`);
-  lines.push(
-    `Severity     : ${SEVERITY_ORDER.map((severity) => `${severity}=${report.summary[severity]}`).join(", ")}`,
-  );
-  lines.push(`Stress cases : ${report.stressSummary.total}`);
-  lines.push(`Framework    : ${parsed.report.framework}`);
-  lines.push(
-    `Files        : ${parsed.report.filesParsed} parsed, ${parsed.report.filesSkipped} skipped`,
-  );
-
-  const topFindings = report.findings.slice(0, 8);
-  if (topFindings.length > 0) {
-    lines.push("");
-    lines.push("Top findings:");
-    for (const finding of topFindings) {
-      const location = finding.location.instructionName
-        ? ` (${finding.location.instructionName}${finding.location.accountName ? ` > ${finding.location.accountName}` : ""})`
-        : "";
-      lines.push(
-        `  - [${finding.severity}] ${finding.ruleId}: ${finding.title}${location}`,
-      );
-    }
-  }
-
-  const highSignalStress = report.stressTests
-    .filter((test) => test.severity !== "info")
-    .slice(0, 10);
-  if (highSignalStress.length > 0) {
-    lines.push("");
-    lines.push("Deterministic stress:");
-    for (const test of highSignalStress) {
-      lines.push(
-        `  - [${test.severity}] ${test.instructionName}: ${test.title} -> ${test.expected}`,
-      );
-    }
-  }
-
-  if (report.findings.length === 0 && report.stressSummary.total === 0) {
-    lines.push("");
-    lines.push("No findings or deterministic stress cases were generated.");
-  }
-
-  return lines.join("\n");
+function auditTestFrameworkFromParser(framework: string): AuditTestFramework {
+  const normalized = framework.toLowerCase();
+  if (normalized === "pinocchio" || normalized === "quasar") return normalized;
+  return "anchor";
 }

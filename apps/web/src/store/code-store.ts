@@ -30,17 +30,26 @@ export interface GeneratedProject {
   warnings: CodegenWarning[];
 }
 
+export interface CodeFocusRequest {
+  nodeId?: string;
+  token?: string;
+  line?: number;
+  nonce: number;
+}
+
 interface CodeState {
   generatedCode: GeneratedProject | null;
   irJson: ProgramIR | null;
   errors: CodegenError[];
   warnings: CodegenWarning[];
   activeFile: string | null;   // Path of the file currently shown in Monaco
+  focusRequest: CodeFocusRequest | null;
 
   // Actions
   setGeneratedCode: (code: GeneratedProject, ir: ProgramIR) => void;
   setError: (error: Error) => void;
   setActiveFile: (path: string) => void;
+  focusCodeTarget: (target: Omit<CodeFocusRequest, "nonce">) => void;
   clear: () => void;
 }
 
@@ -50,6 +59,7 @@ export const useCodeStore = create<CodeState>((set) => ({
   errors: [],
   warnings: [],
   activeFile: null,
+  focusRequest: null,
 
   setGeneratedCode: (code, ir) =>
     set({
@@ -58,15 +68,25 @@ export const useCodeStore = create<CodeState>((set) => ({
       errors: code.errors,
       warnings: code.warnings,
       activeFile: code.files[0]?.path ?? null,
+      focusRequest: null,
     }),
 
   setError: (error) =>
     set({
       errors: [{ message: error.message, type: "codegen" as const }],
       generatedCode: null,
+      focusRequest: null,
     }),
 
   setActiveFile: (path) => set({ activeFile: path }),
+
+  focusCodeTarget: (target) =>
+    set({
+      focusRequest: {
+        ...target,
+        nonce: Date.now(),
+      },
+    }),
 
   clear: () =>
     set({
@@ -75,5 +95,6 @@ export const useCodeStore = create<CodeState>((set) => ({
       errors: [],
       warnings: [],
       activeFile: null,
+      focusRequest: null,
     }),
 }));

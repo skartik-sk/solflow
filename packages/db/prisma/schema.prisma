@@ -64,6 +64,7 @@ model User {
   accounts     Account[]
   sessions     Session[]
   projects     Project[]
+  projectShares ProjectShare[]
   deployments  Deployment[]
   marketplaceListings  MarketplaceListing[]
   marketplacePurchases MarketplacePurchase[]
@@ -121,6 +122,7 @@ model Project {
   compilations Compilation[]
   auditReports AuditReport[]
   testRuns     TestRun[]
+  shares       ProjectShare[]
 
   listing    MarketplaceListing?
   forkedFrom String?
@@ -128,6 +130,27 @@ model Project {
   @@index([userId])
   @@index([status])
   @@index([framework])
+}
+
+model ProjectShare {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  flowData    Json
+  irData      Json?
+  auditSummary Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  revokedAt   DateTime?
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([revokedAt])
 }
 
 enum Framework {

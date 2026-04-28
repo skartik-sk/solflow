@@ -5,6 +5,7 @@ import { tmpdir } from "os";
 import { parseProgram, parseFile } from "@solflow/rust-parser";
 import { idlToFlow } from "@solflow/idl-import";
 import { auditCommand, runAuditForPath } from "../commands/audit";
+import { createUnifiedDiff, patchCommand } from "../commands/patch";
 
 const FIXTURES_DIR = join(__dirname, "fixtures");
 const MINI_ANCHOR = join(FIXTURES_DIR, "mini-anchor");
@@ -115,6 +116,26 @@ describe("audit command", () => {
     expect(result.report.summary).toBeDefined();
     expect(result.report.stressTests.length).toBeGreaterThan(0);
     expect(result.report.stressSummary.total).toBe(result.report.stressTests.length);
+  });
+});
+
+// ─── patch command logic ───────────────────────────────────────────
+
+describe("patch command", () => {
+  it("is registered with the expected command name", () => {
+    expect(patchCommand.name()).toBe("patch");
+  });
+
+  it("creates a dry-run unified diff without writing source files", () => {
+    const diff = createUnifiedDiff(
+      "src/lib.rs",
+      "pub fn old() {}\n",
+      "pub fn new() {}\n",
+    );
+
+    expect(diff).toContain("diff --git a/src/lib.rs b/src/lib.rs");
+    expect(diff).toContain("-pub fn old() {}");
+    expect(diff).toContain("+pub fn new() {}");
   });
 });
 

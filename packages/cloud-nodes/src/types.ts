@@ -93,6 +93,16 @@ export interface WalletOperations {
   getBalance(walletId: string): Promise<number>;
 }
 
+export interface CloudSafetyControls {
+  simulationRequired?: boolean;
+  manualApprovalRequired?: boolean;
+  walletAutomationAllowed?: boolean;
+  spendLimitLamports?: number;
+  maxSlippageBps?: number;
+  allowedMints?: string[];
+  webhookAllowlist?: string[];
+}
+
 export interface CredentialRecord {
   id: string;
   label: string;
@@ -121,6 +131,7 @@ export interface NodeExecutionContext {
   nodeId: string;
   wallet: WalletOperations;
   credentials?: CredentialOperations;
+  safety?: CloudSafetyControls;
   logger: NodeLogger;
   signal: AbortSignal;
 }
@@ -145,6 +156,7 @@ export interface NodeWebhookContext {
     query: Record<string, string>;
   };
   params: Record<string, unknown>;
+  safety?: CloudSafetyControls;
   logger: NodeLogger;
 }
 

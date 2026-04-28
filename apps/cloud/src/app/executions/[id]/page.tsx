@@ -14,6 +14,8 @@ import {
   Timer,
   CircleSlash,
   RotateCw,
+  ShieldCheck,
+  GitCompare,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -50,6 +52,12 @@ const NODE_STATUS_CONFIG: Record<
     bg: "bg-amber-500/10",
     border: "border-amber-500/30",
   },
+  WAITING: {
+    icon: ShieldCheck,
+    color: "text-amber-300",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/30",
+  },
   TIMED_OUT: {
     icon: Timer,
     color: "text-orange-400",
@@ -81,6 +89,41 @@ function formatTime(date: Date | string | null | undefined): string {
   return new Date(date).toLocaleTimeString();
 }
 
+function getReplaySourceId(triggerData: unknown): string | null {
+  if (!triggerData || typeof triggerData !== "object") return null;
+  const data = triggerData as Record<string, unknown>;
+  const replayOf = data.replayOf ?? data.approvalOf;
+  return typeof replayOf === "string" ? replayOf : null;
+}
+
+function hasWalletApprovalRequest(
+  execution: { errorMessage?: string | null } | null | undefined,
+  nodeResults: any[],
+): boolean {
+  const messages = [
+    execution?.errorMessage,
+    ...nodeResults.map((result) => result?.error),
+  ].filter((message): message is string => typeof message === "string");
+  return messages.some((message) =>
+    message.toLowerCase().includes("manual approval"),
+  );
+}
+
+function stableJson(value: unknown): string {
+  return JSON.stringify(sortJson(value), null, 2);
+}
+
+function sortJson(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!value || typeof value !== "object") return value ?? null;
+  return Object.keys(value as Record<string, unknown>)
+    .sort()
+    .reduce<Record<string, unknown>>((acc, key) => {
+      acc[key] = sortJson((value as Record<string, unknown>)[key]);
+      return acc;
+    }, {});
+}
+
 export default function ExecutionDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -89,8 +132,15 @@ export default function ExecutionDetailPage() {
   const { data: execution, isLoading } = trpc.execution.get.useQuery({
     id: executionId,
   });
+  const replaySourceId = getReplaySourceId(execution?.triggerData);
+  const { data: replaySource } = trpc.execution.get.useQuery(
+    { id: replaySourceId ?? "" },
+    { enabled: Boolean(replaySourceId) },
+  );
 
   const reRun = trpc.execution.run.useMutation();
+  const replayExecution = trpc.execution.replay.useMutation();
+  const approveReplay = trpc.execution.approveReplay.useMutation();
   const utils = trpc.useUtils();
 
   const handleReRun = async () => {
@@ -105,7 +155,30 @@ export default function ExecutionDetailPage() {
     }
   };
 
+  const handleReplay = async () => {
+    try {
+      const newExec = await replayExecution.mutateAsync({ executionId });
+      toast.success("Replay started from saved inputs");
+      router.push(`/executions/${newExec.id}`);
+      utils.execution.list.invalidate();
+    } catch {
+      toast.error("Failed to replay execution");
+    }
+  };
+
+  const handleApproveReplay = async () => {
+    try {
+      const newExec = await approveReplay.mutateAsync({ executionId });
+      toast.success("Approved replay queued");
+      router.push(`/executions/${newExec.id}`);
+      utils.execution.list.invalidate();
+    } catch {
+      toast.error("Failed to approve replay");
+    }
+  };
+
   const nodeResults = (execution?.nodeResults ?? []) as any[];
+  const needsWalletApproval = hasWalletApprovalRequest(execution, nodeResults);
 
   const overallStatus = execution?.status ?? "UNKNOWN";
   const overallCfg =
@@ -169,6 +242,24 @@ export default function ExecutionDetailPage() {
                   <RotateCw size={11} className={reRun.isPending ? "animate-spin" : ""} />
                   Re-run
                 </button>
+                <button
+                  onClick={handleReplay}
+                  disabled={replayExecution.isPending}
+                  className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+                >
+                  <RotateCw size={11} className={replayExecution.isPending ? "animate-spin" : ""} />
+                  Replay
+                </button>
+                {needsWalletApproval && (
+                  <button
+                    onClick={handleApproveReplay}
+                    disabled={approveReplay.isPending}
+                    className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/40 px-3 text-xs font-medium text-amber-300 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+                  >
+                    <ShieldCheck size={11} className={approveReplay.isPending ? "animate-pulse" : ""} />
+                    Approve replay
+                  </button>
+                )}
                 {execution.workflowId && (
                   <Link
                     href={`/editor/${execution.workflowId}`}
@@ -214,6 +305,26 @@ export default function ExecutionDetailPage() {
               </div>
             )}
 
+            {needsWalletApproval && (
+              <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                <p className="text-xs font-semibold text-amber-300 mb-1">
+                  Wallet action waiting for approval
+                </p>
+                <p className="text-xs leading-relaxed text-amber-100/70">
+                  This workflow tried to sign a transfer or swap without the automation permission. Approve a replay for this run, or enable wallet automation in workflow safety settings when spend, mint, and slippage limits are strict enough.
+                </p>
+              </div>
+            )}
+
+            {replaySourceId && (
+              <ReplayDiffPanel
+                currentResults={nodeResults}
+                sourceResults={(replaySource?.nodeResults ?? []) as any[]}
+                sourceId={replaySourceId}
+                isLoading={!replaySource}
+              />
+            )}
+
             {/* Node timeline */}
             <div>
               <h2 className="text-sm font-semibold mb-3">Node Execution Timeline</h2>
@@ -252,6 +363,100 @@ export default function ExecutionDetailPage() {
           </>
         )}
     </AppShell>
+  );
+}
+
+function ReplayDiffPanel({
+  currentResults,
+  sourceResults,
+  sourceId,
+  isLoading,
+}: {
+  currentResults: any[];
+  sourceResults: any[];
+  sourceId: string;
+  isLoading: boolean;
+}) {
+  const sourceByNode = new Map(sourceResults.map((result) => [result.nodeId, result]));
+  const rows = currentResults.map((current) => {
+    const source = sourceByNode.get(current.nodeId);
+    return {
+      nodeId: current.nodeId,
+      nodeType: current.nodeType,
+      statusChanged: source?.status !== current.status,
+      durationDelta:
+        typeof source?.duration === "number" && typeof current.duration === "number"
+          ? current.duration - source.duration
+          : null,
+      outputChanged: stableJson(source?.outputSnapshot) !== stableJson(current.outputSnapshot),
+      errorChanged: (source?.error ?? null) !== (current.error ?? null),
+      currentStatus: current.status,
+      sourceStatus: source?.status ?? "missing",
+    };
+  });
+
+  return (
+    <div className="mb-6 rounded-xl border border-border bg-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <GitCompare className="h-4 w-4 text-primary" />
+          <div>
+            <p className="text-sm font-semibold">Replay diff</p>
+            <p className="text-[11px] text-muted-foreground">
+              Compared with {sourceId.slice(0, 12)}...
+            </p>
+          </div>
+        </div>
+        {isLoading && (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {rows.length === 0 ? (
+          <div className="rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground">
+            No replay node results yet.
+          </div>
+        ) : (
+          rows.map((row) => (
+            <div
+              key={row.nodeId}
+              className="rounded-lg border border-border bg-background/50 p-3"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-xs font-semibold">{row.nodeType}</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">
+                    {row.nodeId.slice(0, 12)}...
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    row.statusChanged
+                      ? "bg-amber-500/10 text-amber-300"
+                      : "bg-emerald-500/10 text-emerald-300"
+                  }`}
+                >
+                  {row.sourceStatus} → {row.currentStatus}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                <span>
+                  duration{" "}
+                  {row.durationDelta == null
+                    ? "—"
+                    : `${row.durationDelta >= 0 ? "+" : ""}${row.durationDelta}ms`}
+                </span>
+                {row.outputChanged && <span className="text-cyan-300">output changed</span>}
+                {row.errorChanged && <span className="text-red-300">error changed</span>}
+                {!row.outputChanged && !row.errorChanged && !row.statusChanged && (
+                  <span>same result</span>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 

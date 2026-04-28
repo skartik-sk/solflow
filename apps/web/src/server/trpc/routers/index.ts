@@ -10,6 +10,7 @@ import { marketplaceRouter } from "./marketplace";
 import { userRouter } from "./user";
 import { snapshotRouter } from "./snapshot";
 import { sdkRouter } from "./sdk";
+import { shareRouter } from "./share";
 
 export const appRouter = router({
   project: projectRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   user: userRouter,
   snapshot: snapshotRouter,
   sdk: sdkRouter,
+  share: shareRouter,
 });
 
 export type AppRouter = typeof appRouter;

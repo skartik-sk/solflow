@@ -1108,7 +1108,8 @@ describe("SW001-SW020 security standard mapping", () => {
     const report = runInstantAudit(ir);
     const finding = report.findings.find((f) => f.ruleId === "SOL-001");
     expect(finding?.standardIds).toContain("SW001");
-    expect(getStandardIdsForAuditRule("SOL-040")).toEqual(["SW003", "SW020"]);
+    expect(getStandardIdsForAuditRule("SOL-040")).toEqual(["SW003"]);
+    expect(getStandardIdsForAuditRule("SOL-042")).toEqual(["SW020"]);
     expect(getStandardIdsForAuditRule("SOL-073")).toEqual(["SW019"]);
   });
 });

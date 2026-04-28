@@ -33,7 +33,7 @@ export function ForkButton({
   const fork = trpc.marketplace.fork.useMutation({
     onSuccess: (data) => {
       toast.success("Template forked! Opening editor…");
-      router.push(`/editor/${data.projectId}`);
+      router.push(`/editor/${data.projectId}?templateForked=1`);
     },
     onError: (err) => {
       if (err.data?.code === "UNAUTHORIZED") {

@@ -63,7 +63,60 @@ function normalizeWorkflowSettings(raw: unknown): WorkflowSettings {
     },
     defaultWalletId: typeof settings.defaultWalletId === "string" ? settings.defaultWalletId : undefined,
     onError,
+    safety: normalizeSafetyControls(settings.safety),
   };
+}
+
+function normalizeSafetyControls(raw: unknown): WorkflowSettings["safety"] {
+  const defaults: NonNullable<WorkflowSettings["safety"]> = {
+    simulationRequired: true,
+    manualApprovalRequired: true,
+    walletAutomationAllowed: false,
+    maxSlippageBps: 100,
+    allowedMints: undefined,
+    webhookAllowlist: undefined,
+  };
+  if (!raw || typeof raw !== "object") return defaults;
+  const safety = raw as Record<string, unknown>;
+  return {
+    ...defaults,
+    simulationRequired: safety.simulationRequired !== false,
+    manualApprovalRequired: safety.manualApprovalRequired !== false,
+    walletAutomationAllowed: safety.walletAutomationAllowed === true,
+    spendLimitLamports: finiteNumber(safety.spendLimitLamports),
+    maxSlippageBps: finiteNumber(safety.maxSlippageBps) ?? defaults.maxSlippageBps,
+    allowedMints: stringList(safety.allowedMints),
+    webhookAllowlist: stringList(safety.webhookAllowlist),
+  };
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  const num = Number(value);
+  return Number.isFinite(num) && num >= 0 ? num : undefined;
+}
+
+function stringList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return items.length > 0 ? items : undefined;
+}
+
+function mapNodeExecutionStatus(
+  status: string,
+  error?: string,
+): "COMPLETED" | "FAILED" | "SKIPPED" | "WAITING" {
+  if (status === "success") return "COMPLETED";
+  if (
+    status === "waiting" ||
+    error?.toLowerCase().includes("manual approval")
+  ) {
+    return "WAITING";
+  }
+  if (status === "error") return "FAILED";
+  return "SKIPPED";
 }
 
 // ─── Queue ────────────────────────────────────────────────────────────────────
@@ -221,7 +274,12 @@ export function startExecutionWorker(): void {
         throw new Error(`Workflow ${workflowId} not found`);
       }
 
-      const definition = workflow.definition as {
+      const execution = await prisma.workflowExecution.findUnique({
+        where: { id: executionId },
+        select: { definitionSnapshot: true, triggerData: true },
+      });
+
+      const definition = (execution?.definitionSnapshot ?? workflow.definition) as {
         nodes: Array<{ id: string; type: string; data: Record<string, unknown>; position: { x: number; y: number } }>;
         edges: Array<{ id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }>;
       };
@@ -237,13 +295,26 @@ export function startExecutionWorker(): void {
 
       const executor = new WorkflowExecutor(cloudNodeRegistry, walletOps, credentialOps);
 
+      const settings = normalizeWorkflowSettings(workflow.settings);
+      const triggerData =
+        execution?.triggerData && typeof execution.triggerData === "object"
+          ? execution.triggerData as Record<string, unknown>
+          : {};
+      if (triggerData.walletAutomationApproved === true) {
+        settings.safety = {
+          ...settings.safety,
+          manualApprovalRequired: false,
+          walletAutomationAllowed: true,
+        };
+      }
+
       const result = await executor.execute(
         {
           id: workflowId,
           version: 1,
           nodes: definition.nodes,
           edges: definition.edges,
-          settings: normalizeWorkflowSettings(workflow.settings),
+          settings,
         },
         executionId,
       );
@@ -284,7 +355,7 @@ export function startExecutionWorker(): void {
             executionId,
             nodeId,
             nodeType: nodeResult.nodeType,
-            status: nodeResult.status === "success" ? "COMPLETED" : nodeResult.status === "error" ? "FAILED" : "SKIPPED",
+            status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
             inputSnapshot: nodeResult.inputSnapshot as any,
             outputSnapshot: nodeResult.outputSnapshot as any,
             duration: nodeResult.duration,

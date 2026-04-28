@@ -1,3 +1,5 @@
+import type { CloudSafetyControls } from "@solflow/cloud-nodes";
+
 export interface WorkflowDefinition {
   id: string;
   version: number;
@@ -26,6 +28,7 @@ export interface WorkflowSettings {
   retryPolicy: { maxAttempts: number; delayMs: number };
   defaultWalletId?: string;
   onError: "stop" | "continue" | "branch";
+  safety?: CloudSafetyControls;
 }
 
 export type ExecutionStatus =

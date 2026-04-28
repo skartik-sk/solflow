@@ -7,7 +7,7 @@ import { X, Settings, Trash2, Copy } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { trpc } from "@/lib/trpc/client";
-import type { CloudFlowNodeData, NodeProperty } from "@solflow/cloud-nodes";
+import type { CloudFlowNodeData, CloudSafetyControls, NodeProperty } from "@solflow/cloud-nodes";
 import { getIconByName, CATEGORY_LABELS } from "@solflow/cloud-nodes";
 
 // ─── Field helpers ────────────────────────────────────────────────────────────
@@ -28,6 +28,25 @@ const inputClass =
 
 const selectClass =
   "w-full rounded-md border border-border bg-input px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+
+const LAMPORTS_PER_SOL = 1_000_000_000;
+
+function formatList(value: string[] | undefined): string {
+  return (value ?? []).join("\n");
+}
+
+function parseList(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function optionalNumber(value: string): number | undefined {
+  if (value.trim() === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 // ─── Dynamic Property Form ────────────────────────────────────────────────────
 
@@ -177,7 +196,9 @@ export function CloudPropertiesPanel() {
   const { propertiesOpen, toggleProperties } = useEditorUIStore();
   const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
   const nodes = useWorkflowStore((s) => s.nodes);
+  const workflowSettings = useWorkflowStore((s) => s.workflowSettings);
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
+  const updateWorkflowSafety = useWorkflowStore((s) => s.updateWorkflowSafety);
   const removeNode = useWorkflowStore((s) => s.removeNode);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
@@ -215,12 +236,10 @@ export function CloudPropertiesPanel() {
       {/* Body */}
       <div className="flex-1 overflow-y-auto p-3">
         {!selectedNode || !data ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <Settings className="h-8 w-8 text-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground">
-              Select a node to edit its properties
-            </p>
-          </div>
+          <WorkflowSafetySettings
+            safety={workflowSettings.safety ?? {}}
+            onChange={updateWorkflowSafety}
+          />
         ) : (
           <div className="space-y-3">
             {/* Category badge */}
@@ -312,6 +331,131 @@ export function CloudPropertiesPanel() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function WorkflowSafetySettings({
+  safety,
+  onChange,
+}: {
+  safety: CloudSafetyControls;
+  onChange: (safety: Partial<CloudSafetyControls>) => void;
+}) {
+  const spendLimitSol =
+    typeof safety.spendLimitLamports === "number" && Number.isFinite(safety.spendLimitLamports)
+      ? String(safety.spendLimitLamports / LAMPORTS_PER_SOL)
+      : "";
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border bg-background/60 p-3">
+        <div className="mb-2 flex items-center gap-2">
+          <Settings className="h-4 w-4 text-primary" />
+          <p className="text-xs font-semibold">Workflow Safety</p>
+        </div>
+        <p className="text-[10px] leading-relaxed text-muted-foreground">
+          These controls are saved with the workflow and enforced before wallet actions or webhook execution.
+        </p>
+      </div>
+
+      <FieldRow label="Simulation required">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={safety.simulationRequired !== false}
+            onChange={(event) => onChange({ simulationRequired: event.target.checked })}
+            className="rounded"
+          />
+          <span className="text-xs">Require simulation before signing</span>
+        </label>
+      </FieldRow>
+
+      <FieldRow label="Manual approval">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={safety.manualApprovalRequired !== false}
+            onChange={(event) => onChange({ manualApprovalRequired: event.target.checked })}
+            className="rounded"
+          />
+          <span className="text-xs">Pause wallet actions for review</span>
+        </label>
+      </FieldRow>
+
+      <FieldRow label="Wallet automation">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={safety.walletAutomationAllowed === true}
+            onChange={(event) =>
+              onChange({
+                walletAutomationAllowed: event.target.checked,
+                manualApprovalRequired: event.target.checked
+                  ? false
+                  : safety.manualApprovalRequired !== false,
+              })
+            }
+            className="rounded"
+          />
+          <span className="text-xs">Allow signing without per-run approval</span>
+        </label>
+        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground/60">
+          Leave this off unless the workflow has tight spend, mint, and slippage limits.
+        </p>
+      </FieldRow>
+
+      <FieldRow label="Spend limit (SOL)">
+        <input
+          className={inputClass}
+          type="number"
+          min="0"
+          step="0.001"
+          value={spendLimitSol}
+          onChange={(event) => {
+            const parsed = optionalNumber(event.target.value);
+            onChange({
+              spendLimitLamports:
+                parsed === undefined ? undefined : Math.floor(parsed * LAMPORTS_PER_SOL),
+            });
+          }}
+          placeholder="No native SOL limit"
+        />
+      </FieldRow>
+
+      <FieldRow label="Max slippage (bps)">
+        <input
+          className={inputClass}
+          type="number"
+          min="0"
+          max="10000"
+          value={safety.maxSlippageBps ?? ""}
+          onChange={(event) => onChange({ maxSlippageBps: optionalNumber(event.target.value) })}
+          placeholder="100"
+        />
+      </FieldRow>
+
+      <FieldRow label="Allowed mints">
+        <textarea
+          className={`${inputClass} resize-y font-mono text-[11px]`}
+          rows={4}
+          value={formatList(safety.allowedMints)}
+          onChange={(event) => onChange({ allowedMints: parseList(event.target.value) })}
+          placeholder="One mint per line"
+          spellCheck={false}
+        />
+      </FieldRow>
+
+      <FieldRow label="Webhook allowlist">
+        <textarea
+          className={`${inputClass} resize-y font-mono text-[11px]`}
+          rows={4}
+          value={formatList(safety.webhookAllowlist)}
+          onChange={(event) => onChange({ webhookAllowlist: parseList(event.target.value) })}
+          placeholder="IP, host, or origin per line"
+          spellCheck={false}
+        />
+      </FieldRow>
     </div>
   );
 }

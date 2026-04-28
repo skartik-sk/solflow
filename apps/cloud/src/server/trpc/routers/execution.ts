@@ -92,6 +92,95 @@ export const executionRouter = router({
       return execution;
     }),
 
+  replay: protectedProcedure
+    .input(z.object({ executionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const original = await ctx.prisma.workflowExecution.findFirst({
+        where: {
+          id: input.executionId,
+          workflow: { userId: ctx.session.user.id },
+        },
+        select: {
+          id: true,
+          workflowId: true,
+          triggerType: true,
+          triggerData: true,
+          definitionSnapshot: true,
+        },
+      });
+      if (!original) throw new Error("Execution not found");
+
+      const execution = await ctx.prisma.workflowExecution.create({
+        data: {
+          workflowId: original.workflowId,
+          status: "QUEUED",
+          triggerType: "replay",
+          triggerData: {
+            replayOf: original.id,
+            originalTriggerType: original.triggerType,
+            originalTriggerData: original.triggerData,
+          } as any,
+          definitionSnapshot: original.definitionSnapshot as any,
+        },
+      });
+
+      if (shouldApiStartEmbeddedWorkers()) {
+        startExecutionWorker();
+      }
+      await queueExecution(execution.id, original.workflowId);
+
+      return execution;
+    }),
+
+  approveReplay: protectedProcedure
+    .input(z.object({ executionId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const rl = manualExecutionRateLimit(ctx.session.user.id ?? "anonymous");
+      if (!rl.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Execution rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+        });
+      }
+
+      const original = await ctx.prisma.workflowExecution.findFirst({
+        where: {
+          id: input.executionId,
+          workflow: { userId: ctx.session.user.id },
+        },
+        select: {
+          id: true,
+          workflowId: true,
+          triggerType: true,
+          triggerData: true,
+          definitionSnapshot: true,
+        },
+      });
+      if (!original) throw new Error("Execution not found");
+
+      const execution = await ctx.prisma.workflowExecution.create({
+        data: {
+          workflowId: original.workflowId,
+          status: "QUEUED",
+          triggerType: "approval",
+          triggerData: {
+            approvalOf: original.id,
+            walletAutomationApproved: true,
+            originalTriggerType: original.triggerType,
+            originalTriggerData: original.triggerData,
+          } as any,
+          definitionSnapshot: original.definitionSnapshot as any,
+        },
+      });
+
+      if (shouldApiStartEmbeddedWorkers()) {
+        startExecutionWorker();
+      }
+      await queueExecution(execution.id, original.workflowId);
+
+      return execution;
+    }),
+
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {

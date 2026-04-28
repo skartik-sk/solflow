@@ -279,6 +279,19 @@ export default function CloudTemplatesPage() {
                     ))}
                   </div>
 
+                  <div className="mt-4 grid grid-cols-3 gap-1.5">
+                    {["Editable", "Safety", "Replay"].map((label) => (
+                      <span
+                        key={label}
+                        className="inline-flex min-w-0 items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-1 text-[9px] font-semibold text-emerald-300"
+                        title={label}
+                      >
+                        <CheckCircle2 className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+                        <span className="truncate">{label}</span>
+                      </span>
+                    ))}
+                  </div>
+
                   <div className="mt-auto flex items-center justify-between pt-5">
                     <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
                       <Clock className="h-3 w-3" aria-hidden="true" />

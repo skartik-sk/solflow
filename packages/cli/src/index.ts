@@ -7,6 +7,10 @@ import { idlCommand } from "./commands/idl";
 import { viewCommand } from "./commands/view";
 import { initCommand } from "./commands/init";
 import { auditCommand } from "./commands/audit";
+import { testCommand } from "./commands/test";
+import { doctorCommand } from "./commands/doctor";
+import { ciCommand } from "./commands/ci";
+import { patchCommand } from "./commands/patch";
 
 const program = new Command();
 
@@ -20,5 +24,9 @@ program.addCommand(idlCommand);
 program.addCommand(viewCommand);
 program.addCommand(initCommand);
 program.addCommand(auditCommand);
+program.addCommand(testCommand);
+program.addCommand(doctorCommand);
+program.addCommand(ciCommand);
+program.addCommand(patchCommand);
 
 program.parse();

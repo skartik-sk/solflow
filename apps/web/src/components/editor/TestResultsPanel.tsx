@@ -87,6 +87,11 @@ export function TestResultsPanel() {
   const testStatus = useBuildStore((s) => s.testStatus);
   const testResults = useBuildStore((s) => s.testResults);
   const testSummary = useBuildStore((s) => s.testSummary);
+  const testRunner = useBuildStore((s) => s.testRunner);
+  const testRuntime = useBuildStore((s) => s.testRuntime);
+  const testCommand = useBuildStore((s) => s.testCommand);
+  const testSetupCommand = useBuildStore((s) => s.testSetupCommand);
+  const testDuration = useBuildStore((s) => s.testDuration);
   const startTest = useBuildStore((s) => s.startTest);
 
   const irJson = useCodeStore((s) => s.irJson);
@@ -192,6 +197,19 @@ export function TestResultsPanel() {
     await navigator.clipboard.writeText(lines.join("\n"));
     toast.success("Test results copied");
   }, [testResults]);
+
+  const copyRepro = useCallback(async () => {
+    const lines = [
+      testSetupCommand,
+      testCommand,
+    ].filter(Boolean);
+    if (lines.length === 0) {
+      toast.error("No repro command available yet");
+      return;
+    }
+    await navigator.clipboard.writeText(lines.join("\n"));
+    toast.success("Repro command copied");
+  }, [testCommand, testSetupCommand]);
 
   // ─── empty IR ───────────────────────────────────────────────────
   if (instructions.length === 0 && testResults.length === 0) {
@@ -483,7 +501,7 @@ export function TestResultsPanel() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Summary bar */}
           {(testStatus !== "idle" || testResults.length > 0) && (
-            <div className="flex shrink-0 items-center gap-4 border-b border-border px-4 py-2 text-xs">
+            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs">
               <span
                 className={
                   allPassed
@@ -508,12 +526,42 @@ export function TestResultsPanel() {
                   <span className="text-muted-foreground">{total} total</span>
                 </>
               )}
+              {testRunner && (
+                <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  runner: {testRunner}
+                </span>
+              )}
+              {testRuntime && (
+                <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                  runtime: {testRuntime}
+                </span>
+              )}
+              {typeof testDuration === "number" && (
+                <span className="text-muted-foreground">
+                  {testDuration}ms
+                </span>
+              )}
+              {(testCommand || testSetupCommand) && (
+                <button
+                  onClick={copyRepro}
+                  className="ml-auto rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  Copy Repro
+                </button>
+              )}
               {testStatus === "running" && (
-                <span className="ml-auto flex items-center gap-1.5 text-muted-foreground">
+                <span className="flex items-center gap-1.5 text-muted-foreground">
                   <span className="h-1.5 w-1.5 rounded-full bg-yellow-400 animate-pulse" />
                   Running tests…
                 </span>
               )}
+            </div>
+          )}
+
+          {(testCommand || testSetupCommand) && (
+            <div className="shrink-0 space-y-1 border-b border-border/40 bg-background/40 px-4 py-2 font-mono text-[10px] text-muted-foreground">
+              {testSetupCommand && <div>setup: {testSetupCommand}</div>}
+              {testCommand && <div>command: {testCommand}</div>}
             </div>
           )}
 

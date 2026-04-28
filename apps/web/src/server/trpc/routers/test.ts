@@ -294,6 +294,10 @@ export const testRouter = router({
         logs: runResult.logs,
         runtime: runResult.runtime,
         runner: runResult.runner,
+        command: runResult.command,
+        setupCommand: runResult.setupCommand,
+        duration: runResult.duration,
+        workDir: runResult.workDir,
         errors: runResult.errors,
         warnings: runResult.warnings,
       };

@@ -27,7 +27,7 @@ import { TransactionBuilderPanel } from "@/components/editor/TransactionBuilderP
 import { ErrorBoundary } from "@/components/editor/ErrorBoundary";
 import type { Node, Edge } from "@xyflow/react";
 import { toast } from "sonner";
-import type { AuditReport } from "@solflow/audit";
+import type { AuditExportFormat, AuditReport } from "@solflow/audit";
 
 // React Flow can't be SSR'd — load it dynamically with no SSR.
 const FlowCanvas = dynamic(
@@ -62,6 +62,7 @@ export function EditorShell({
     bottomPanelTab,
     toggleBottomPanel,
     setBottomPanelTab,
+    openBottomPanelTab,
   } = useUIStore();
 
   // ─── Audit state ──────────────────────────────────────────────────
@@ -222,6 +223,20 @@ export function EditorShell({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("templateForked") !== "1") return;
+    openBottomPanelTab("code");
+    toast.success("Template forked. Compile, Audit, and Test are ready from the bottom panel.");
+    params.delete("templateForked");
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}`,
+    );
+  }, [openBottomPanelTab]);
+
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
       {/* ─── Top bar ─────────────────────────────────────────────── */}
@@ -340,6 +355,7 @@ export function EditorShell({
                 <AuditPanel
                   report={auditReport}
                   projectId={projectId}
+                  framework={framework}
                   onRunInstantAudit={runInstantAudit}
                   onGoToNode={async (nodeId) => {
                     const store = useFlowStore.getState();
@@ -354,6 +370,15 @@ export function EditorShell({
                     }
                     useFlowStore.getState().setSelectedNode(targetId);
                     requestAnimationFrame(() => focusNode(targetId));
+                  }}
+                  onGoToCode={({ nodeId, token }) => {
+                    const codeStore = useCodeStore.getState();
+                    if (!codeStore.generatedCode?.files.length) {
+                      toast.error("Generate code first, then jump to the source section");
+                      return;
+                    }
+                    codeStore.focusCodeTarget({ nodeId, token });
+                    openBottomPanelTab("code");
                   }}
                   onFix={async (finding) => {
                     const { getRuleById } = await import("@solflow/audit");
@@ -461,14 +486,18 @@ const SEVERITY_COLORS: Record<
 function AuditPanel({
   report,
   projectId,
+  framework,
   onGoToNode,
+  onGoToCode,
   onFix,
   onFullAuditResult,
   onRunInstantAudit,
 }: {
   report: AuditReport | null;
   projectId: string;
+  framework: "anchor" | "pinocchio" | "quasar";
   onGoToNode?: (nodeId: string) => void;
+  onGoToCode?: (target: { nodeId?: string; token?: string }) => void;
   onFix?: (finding: import("@solflow/audit").AuditFinding) => void;
   onFullAuditResult?: (report: AuditReport) => void;
   onRunInstantAudit?: () => void;
@@ -523,6 +552,7 @@ function AuditPanel({
               "cpi-validation": 0,
             },
           },
+          fixSuggestions: result.fixSuggestions ?? [],
         });
       }
       const { toast: toastFn } = await import("sonner");
@@ -538,6 +568,36 @@ function AuditPanel({
       setFullAuditLoading(false);
     }
   }, [projectId, onFullAuditResult]);
+
+  const exportReport = React.useCallback(
+    async (format: Extract<AuditExportFormat, "markdown" | "sarif" | "json">) => {
+      if (!report) return;
+      const { formatAuditReport } = await import("@solflow/audit");
+      const ext = format === "markdown" ? "md" : format;
+      const content = formatAuditReport(report, format, {
+        projectName: projectId,
+        framework,
+      });
+      downloadTextFile(`solstudio-audit.${ext}`, content);
+      toast.success(`Audit ${format} exported`);
+    },
+    [framework, projectId, report],
+  );
+
+  const generateTests = React.useCallback(async () => {
+    if (!report) return;
+    const { generateAuditTestFiles } = await import("@solflow/audit");
+    const ir = useCodeStore.getState().irJson;
+    const files = generateAuditTestFiles(report, {
+      framework,
+      programName: ir?.program?.name,
+      includeReadme: true,
+    });
+    for (const file of files) {
+      downloadTextFile(file.path.replace(/\//g, "__"), file.content);
+    }
+    toast.success(`Generated ${files.length} audit test file(s)`);
+  }, [framework, report]);
 
   if (!report) {
     return (
@@ -627,6 +687,24 @@ function AuditPanel({
         >
           {fullAuditLoading ? "Running…" : "Run Full Audit"}
         </button>
+        <button
+          onClick={generateTests}
+          className="rounded border border-cyan-500/40 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/10"
+        >
+          Generate Tests
+        </button>
+        <button
+          onClick={() => exportReport("markdown")}
+          className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          Export MD
+        </button>
+        <button
+          onClick={() => exportReport("sarif")}
+          className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+        >
+          SARIF
+        </button>
       </div>
 
       {/* Findings list */}
@@ -694,6 +772,19 @@ function AuditPanel({
                           Go to Node
                         </button>
                       )}
+                      {onGoToCode && (
+                        <button
+                          onClick={() =>
+                            onGoToCode({
+                              nodeId: test.nodeId,
+                              token: test.instructionName,
+                            })
+                          }
+                          className="mt-1 ml-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                        >
+                          Go to Code
+                        </button>
+                      )}
                     </div>
                   );
                 })}
@@ -755,13 +846,44 @@ function AuditPanel({
                         Go to Node
                       </button>
                     )}
+                    {onGoToCode && (
+                      <button
+                        onClick={() =>
+                          onGoToCode({
+                            nodeId: finding.location.nodeId,
+                            token:
+                              finding.location.instructionName ??
+                              finding.location.accountName ??
+                              finding.title,
+                          })
+                        }
+                        className="mt-1 ml-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                      >
+                        Go to Code
+                      </button>
+                    )}
                     {onFix && (
                       <button
                         onClick={() => onFix(finding)}
                         className="mt-1 ml-1 rounded border border-green-500/40 px-2 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10"
                       >
-                        Auto-fix
+                        Apply Fix
                       </button>
+                    )}
+                    {report.fixSuggestions?.find(
+                      (fix) =>
+                        fix.ruleId === finding.ruleId &&
+                        fix.nodeId === finding.location.nodeId,
+                    ) && (
+                      <p className="mt-1 text-[10px] text-green-300/80">
+                        {
+                          report.fixSuggestions.find(
+                            (fix) =>
+                              fix.ruleId === finding.ruleId &&
+                              fix.nodeId === finding.location.nodeId,
+                          )?.graphAction
+                        }
+                      </p>
                     )}
                   </div>
                 </div>
@@ -783,4 +905,14 @@ function CanvasPlaceholder() {
       </div>
     </div>
   );
+}
+
+function downloadTextFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }

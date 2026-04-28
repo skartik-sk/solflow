@@ -24,6 +24,7 @@ import {
   Wallet,
   Settings,
   Globe,
+  Share2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -78,6 +79,7 @@ export function EditorTopBar() {
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(projectName);
   const [isExporting, setIsExporting] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [, startSave] = useTransition();
@@ -110,7 +112,7 @@ export function EditorTopBar() {
     setIsExporting(true);
     try {
       const res = await fetch(
-        `/api/download/${projectId}?include=program,irJson`,
+        `/api/download/${projectId}?include=program,sdk,idl,tests,irJson`,
       );
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
@@ -130,6 +132,26 @@ export function EditorTopBar() {
       toast.error((err as Error).message);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleShare = async () => {
+    if (!projectId) {
+      toast.error("No project to share");
+      return;
+    }
+    setIsSharing(true);
+    try {
+      if (isDirty) await save();
+      const { getVanillaClient } = await import("@/lib/trpc/client");
+      const client = getVanillaClient();
+      const result = await client.share.create.mutate({ projectId });
+      await navigator.clipboard.writeText(result.url);
+      toast.success("Read-only share link copied");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Share failed");
+    } finally {
+      setIsSharing(false);
     }
   };
 
@@ -411,7 +433,7 @@ export function EditorTopBar() {
         <button
           onClick={handleExport}
           disabled={isExporting || !projectId}
-          title="Export as .zip"
+          title="Export program, SDK, IDLs, tests, and IR as .zip"
           className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
         >
           {isExporting ? (
@@ -420,6 +442,21 @@ export function EditorTopBar() {
             <Upload size={12} />
           )}
           Export
+        </button>
+
+        {/* Public read-only share */}
+        <button
+          onClick={handleShare}
+          disabled={isSharing || !projectId}
+          title="Create read-only public share link"
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          {isSharing ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Share2 size={12} />
+          )}
+          Share
         </button>
 
         {/* Import IDL */}

@@ -7,10 +7,10 @@
 // - Language detection: .rs → "rust", .toml → "toml", .ts → "typescript", .json → "json"
 // - Compare toggle: shows side-by-side Anchor vs Pinocchio view
 
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useCodeStore } from "@/store/code-store";
-import type { GeneratedFile } from "@/store/code-store";
+import type { CodeFocusRequest, GeneratedFile } from "@/store/code-store";
 import { CodeCompareView } from "./CodeCompareView";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -61,11 +61,81 @@ function shortName(path: string): string {
   return path.split("/").pop() ?? path;
 }
 
+interface CodeFocusTarget {
+  path: string;
+  line: number;
+  matched: string;
+}
+
+function findCodeFocusTarget(
+  files: GeneratedFile[],
+  request: CodeFocusRequest,
+): CodeFocusTarget | null {
+  if (request.line && files[0]) {
+    return { path: files[0].path, line: Math.max(1, request.line), matched: "line" };
+  }
+
+  const rawTokens = [
+    request.token,
+    request.nodeId,
+    request.token ? toSnakeCase(request.token) : undefined,
+    request.token ? toPascalCase(request.token) : undefined,
+  ].filter((value): value is string => Boolean(value?.trim()));
+
+  const tokens = Array.from(new Set(rawTokens));
+  if (tokens.length === 0) return null;
+
+  const rankedPatterns = tokens.flatMap((token) => [
+    `pub fn ${token}`,
+    `fn ${token}`,
+    `pub struct ${token}`,
+    `struct ${token}`,
+    `impl ${token}`,
+    `mod ${token}`,
+    token,
+  ]);
+
+  for (const pattern of rankedPatterns) {
+    const lowerPattern = pattern.toLowerCase();
+    for (const file of files) {
+      const lines = file.content.split(/\r?\n/);
+      const lineIndex = lines.findIndex((line) =>
+        line.toLowerCase().includes(lowerPattern),
+      );
+      if (lineIndex >= 0) {
+        return { path: file.path, line: lineIndex + 1, matched: pattern };
+      }
+    }
+  }
+
+  return null;
+}
+
+function toSnakeCase(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function toPascalCase(value: string): string {
+  return value
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join("");
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CodePreview() {
-  const { generatedCode, activeFile, errors, setActiveFile } = useCodeStore();
+  const { generatedCode, activeFile, errors, focusRequest, setActiveFile } = useCodeStore();
   const [compareMode, setCompareMode] = useState(false);
+  const [focusTarget, setFocusTarget] = useState<CodeFocusTarget | null>(null);
+  const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
+  const decorationsRef = useRef<string[]>([]);
 
   const files = generatedCode?.files ?? [];
   const currentFile = files.find((f) => f.path === activeFile) ?? files[0] ?? null;
@@ -74,6 +144,48 @@ export function CodePreview() {
     (path: string) => setActiveFile(path),
     [setActiveFile]
   );
+
+  const revealFocusTarget = useCallback(() => {
+    if (!focusTarget || !currentFile || focusTarget.path !== currentFile.path) return;
+    const editor = editorRef.current;
+    const monaco = monacoRef.current;
+    if (!editor || !monaco) return;
+
+    const model = editor.getModel?.();
+    const maxColumn =
+      model?.getLineMaxColumn?.(focusTarget.line) ??
+      Math.max(1, currentFile.content.split(/\r?\n/)[focusTarget.line - 1]?.length ?? 1);
+
+    editor.revealLineInCenter(focusTarget.line);
+    editor.setPosition({ lineNumber: focusTarget.line, column: 1 });
+    decorationsRef.current = editor.deltaDecorations(decorationsRef.current, [
+      {
+        range: new monaco.Range(focusTarget.line, 1, focusTarget.line, maxColumn),
+        options: {
+          isWholeLine: true,
+          className: "solstudio-code-focus-line",
+          marginClassName: "solstudio-code-focus-margin",
+        },
+      },
+    ]);
+  }, [currentFile, focusTarget]);
+
+  useEffect(() => {
+    if (!focusRequest || files.length === 0) return;
+    const target = findCodeFocusTarget(files, focusRequest);
+    if (!target) {
+      setFocusTarget(null);
+      return;
+    }
+    setFocusTarget(target);
+    if (target.path !== activeFile) {
+      setActiveFile(target.path);
+    }
+  }, [activeFile, files, focusRequest, setActiveFile]);
+
+  useEffect(() => {
+    revealFocusTarget();
+  }, [revealFocusTarget]);
 
   // ── Empty / error state ──────────────────────────────────────────
   if (!generatedCode && errors.length === 0) {
@@ -160,8 +272,13 @@ export function CodePreview() {
 
       {/* Path breadcrumb */}
       {currentFile && (
-        <div className="shrink-0 border-b border-border bg-card px-3 py-1 font-mono text-xs text-muted-foreground">
-          {currentFile.path}
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 py-1 font-mono text-xs text-muted-foreground">
+          <span>{currentFile.path}</span>
+          {focusTarget?.path === currentFile.path && (
+            <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">
+              audit focus: line {focusTarget.line}
+            </span>
+          )}
         </div>
       )}
 
@@ -173,6 +290,11 @@ export function CodePreview() {
             value={currentFile.content}
             language={detectLanguage(currentFile)}
             theme="vs-dark"
+            onMount={(editor, monaco) => {
+              editorRef.current = editor;
+              monacoRef.current = monaco;
+              requestAnimationFrame(revealFocusTarget);
+            }}
             options={{
               readOnly: true,
               minimap: { enabled: false },
@@ -220,6 +342,14 @@ export function CodePreview() {
           ))}
         </div>
       )}
+      <style jsx global>{`
+        .solstudio-code-focus-line {
+          background: rgba(34, 211, 238, 0.14);
+        }
+        .solstudio-code-focus-margin {
+          background: rgba(34, 211, 238, 0.7);
+        }
+      `}</style>
     </div>
   );
 }

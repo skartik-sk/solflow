@@ -16,7 +16,7 @@ import {
   type Connection,
 } from "@xyflow/react";
 import { isValidCloudConnection } from "@solflow/cloud-nodes";
-import type { CloudFlowNodeData } from "@solflow/cloud-nodes";
+import type { CloudFlowNodeData, CloudSafetyControls } from "@solflow/cloud-nodes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,7 @@ interface WorkflowState {
   workflowId: string | null;
   workflowName: string;
   workflowStatus: string;
+  workflowSettings: WorkflowSettings;
   nodes: Node[];
   edges: Edge[];
   selectedNodeId: string | null;
@@ -42,11 +43,26 @@ interface WorkflowState {
   setSelectedNode: (nodeId: string | null) => void;
   setSelectedNodeIds: (ids: string[]) => void;
 
-  setWorkflow: (id: string, name: string, nodes: Node[], edges: Edge[], status?: string) => void;
+  setWorkflow: (
+    id: string,
+    name: string,
+    nodes: Node[],
+    edges: Edge[],
+    status?: string,
+    settings?: unknown,
+  ) => void;
   clearWorkflow: () => void;
   setWorkflowStatus: (status: string) => void;
+  updateWorkflowSafety: (safety: Partial<CloudSafetyControls>) => void;
   markDirty: () => void;
   isDirty: boolean;
+}
+
+export interface WorkflowSettings {
+  timeout?: number;
+  retryPolicy?: { maxAttempts?: number; delayMs?: number };
+  onError?: "stop" | "continue";
+  safety?: CloudSafetyControls;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -99,6 +115,41 @@ function structuralEqual(
   return true;
 }
 
+const DEFAULT_WORKFLOW_SETTINGS: WorkflowSettings = {
+  timeout: 300,
+  retryPolicy: { maxAttempts: 1, delayMs: 0 },
+  onError: "stop",
+  safety: {
+    simulationRequired: true,
+    manualApprovalRequired: true,
+    walletAutomationAllowed: false,
+    maxSlippageBps: 100,
+    allowedMints: [],
+    webhookAllowlist: [],
+  },
+};
+
+function normalizeWorkflowSettings(settings: unknown): WorkflowSettings {
+  const raw = settings && typeof settings === "object"
+    ? (settings as WorkflowSettings)
+    : {};
+  const rawSafety = raw.safety && typeof raw.safety === "object" ? raw.safety : {};
+  return {
+    ...DEFAULT_WORKFLOW_SETTINGS,
+    ...raw,
+    safety: {
+      ...DEFAULT_WORKFLOW_SETTINGS.safety,
+      ...rawSafety,
+      allowedMints: Array.isArray(rawSafety.allowedMints)
+        ? rawSafety.allowedMints.filter((mint): mint is string => typeof mint === "string")
+        : [],
+      webhookAllowlist: Array.isArray(rawSafety.webhookAllowlist)
+        ? rawSafety.webhookAllowlist.filter((entry): entry is string => typeof entry === "string")
+        : [],
+    },
+  };
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -107,6 +158,7 @@ export const useWorkflowStore = create<WorkflowState>()(
       workflowId: null,
       workflowName: "Untitled Workflow",
       workflowStatus: "DRAFT",
+      workflowSettings: DEFAULT_WORKFLOW_SETTINGS,
       nodes: [],
       edges: [],
       selectedNodeId: null,
@@ -227,11 +279,12 @@ export const useWorkflowStore = create<WorkflowState>()(
       setSelectedNode: (nodeId) => set({ selectedNodeId: nodeId }),
       setSelectedNodeIds: (ids) => set({ selectedNodeIds: ids }),
 
-      setWorkflow: (id, name, nodes, edges, status) => {
+      setWorkflow: (id, name, nodes, edges, status, settings) => {
         set({
           workflowId: id,
           workflowName: name,
           workflowStatus: status ?? "DRAFT",
+          workflowSettings: normalizeWorkflowSettings(settings),
           nodes,
           edges,
           selectedNodeId: null,
@@ -246,11 +299,26 @@ export const useWorkflowStore = create<WorkflowState>()(
           edges: [],
           selectedNodeId: null,
           selectedNodeIds: [],
+          workflowSettings: DEFAULT_WORKFLOW_SETTINGS,
           isDirty: false,
         });
       },
 
       setWorkflowStatus: (status) => set({ workflowStatus: status }),
+
+      updateWorkflowSafety: (safety) => {
+        set((state) => ({
+          workflowSettings: {
+            ...state.workflowSettings,
+            safety: {
+              ...DEFAULT_WORKFLOW_SETTINGS.safety,
+              ...state.workflowSettings.safety,
+              ...safety,
+            },
+          },
+        }));
+        get().markDirty();
+      },
 
       markDirty: () => set({ isDirty: true }),
     }),

@@ -1,7 +1,7 @@
-// GET /api/download/:projectId?include=program,sdk,irJson,idl
+// GET /api/download/:projectId?include=program,sdk,irJson,idl,tests
 //
 // Generates a .zip archive of the project's generated Rust source files and
-// optional extras (IR JSON, IDL placeholder). Returns it as a file download.
+// optional extras (IR JSON, IDLs, SDK, audit tests). Returns it as a file download.
 //
 // Per docs/architecture/17-api-design.md — REST endpoint for file downloads.
 
@@ -11,6 +11,15 @@ import { prisma } from "@solflow/db";
 import type { ProgramIR } from "@solflow/ir";
 import { flowToIR } from "@solflow/ir";
 import { generateCode } from "@solflow/codegen";
+import {
+  generateSDK,
+  irToAnchorIDL,
+  irToCodamaIDL,
+} from "@solflow/sdk-gen";
+import {
+  generateAuditTestFiles,
+  runInstantAudit,
+} from "@solflow/audit";
 import type { Node, Edge } from "@xyflow/react";
 import { strToU8, zipSync } from "fflate";
 
@@ -33,7 +42,8 @@ export async function GET(
 
   // ── Parse query params ────────────────────────────────────────────
   const url = new URL(req.url);
-  const includeParam = url.searchParams.get("include") ?? "program";
+  const includeParam =
+    url.searchParams.get("include") ?? "program,sdk,irJson,idl,tests";
   const includes = new Set(includeParam.split(",").map((s) => s.trim()));
 
   // ── Fetch project ─────────────────────────────────────────────────
@@ -100,22 +110,49 @@ export async function GET(
     zipEntries["ir.json"] = strToU8(JSON.stringify(ir, null, 2));
   }
 
-  // IDL placeholder (Anchor IDL format — will be real IDL once compile service lands)
+  // IDLs
   if (includes.has("idl")) {
-    const idlPlaceholder = {
-      version: ir.program.version,
-      name: ir.program.name,
-      instructions: ir.instructions.map((ix) => ({
-        name: ix.name,
-        accounts: ix.accounts.map((a) => ({
-          name: a.name,
-          isMut: a.constraints.some((c) => c.type === "mut"),
-          isSigner: a.constraints.some((c) => c.type === "signer"),
-        })),
-        args: ix.args.map((arg) => ({ name: arg.name, type: arg.type })),
-      })),
-    };
-    zipEntries["idl.json"] = strToU8(JSON.stringify(idlPlaceholder, null, 2));
+    zipEntries["idl/anchor.json"] = strToU8(
+      `${JSON.stringify(irToAnchorIDL(ir), null, 2)}\n`,
+    );
+    zipEntries["idl/codama.json"] = strToU8(
+      `${JSON.stringify(irToCodamaIDL(ir), null, 2)}\n`,
+    );
+  }
+
+  // TypeScript SDK
+  if (includes.has("sdk")) {
+    const sdk = await generateSDK(ir);
+    for (const file of sdk.files) {
+      zipEntries[`sdk/${file.path}`] = strToU8(file.content);
+    }
+    zipEntries["sdk/idl.codama.json"] = strToU8(`${sdk.idlJson}\n`);
+  }
+
+  // Deterministic audit tests
+  if (includes.has("tests")) {
+    const report = runInstantAudit(ir);
+    const testFiles = generateAuditTestFiles(report, {
+      framework,
+      programName: ir.program.name,
+      includeReadme: true,
+    });
+    for (const file of testFiles) {
+      zipEntries[file.path] = strToU8(file.content);
+    }
+  }
+
+  zipEntries["SOLSTUDIO_EXPORT.md"] = strToU8(
+    `# ${ir.program.name}\n\nExported from SolStudio.\n\nIncluded sections:\n\n${Array.from(includes)
+      .map((item) => `- ${item}`)
+      .join("\n")}\n\nSuggested first checks:\n\n\`\`\`bash\ncargo test\n\`\`\`\n\nFor Anchor projects, run:\n\n\`\`\`bash\nanchor test --skip-local-validator\n\`\`\`\n`,
+  );
+
+  if (Object.keys(zipEntries).length === 0) {
+    return NextResponse.json(
+      { error: "No export sections selected" },
+      { status: 400 },
+    );
   }
 
   // ── Produce zip ───────────────────────────────────────────────────
