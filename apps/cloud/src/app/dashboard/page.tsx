@@ -9,24 +9,55 @@ import {
   Workflow,
   Plus,
   Activity,
+  BarChart3,
+  CheckCircle2,
   Wallet,
   Clock,
-  ArrowRight,
-  Zap,
-  Shield,
   Bot,
-  TrendingUp,
   Loader2,
+  XCircle,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
-import { getIconByName } from "@solflow/cloud-nodes";
 import { AppShell } from "@/components/layout/AppShell";
+
+const PROTOCOL_PACKS = [
+  { name: "Jupiter", detail: "Swap quotes and execution", color: "#10b981" },
+  { name: "Pyth", detail: "Oracle price feeds", color: "#f59e0b" },
+  { name: "Helius", detail: "DAS and JSON-RPC", color: "#6366f1" },
+  { name: "Metaplex", detail: "NFT asset metadata", color: "#ec4899" },
+  { name: "SPL Token", detail: "Token account reads", color: "#22c55e" },
+  { name: "Squads", detail: "Approval handoff", color: "#eab308" },
+];
+
+function statusClass(status: string): string {
+  if (status === "COMPLETED") return "bg-emerald-500/10 text-emerald-300";
+  if (status === "FAILED" || status === "TIMED_OUT") return "bg-red-500/10 text-red-300";
+  if (status === "RUNNING") return "bg-blue-500/10 text-blue-300";
+  return "bg-muted text-muted-foreground";
+}
+
+function formatTime(value: string | Date | null | undefined): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleString();
+}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { data: templates, isLoading: templatesLoading } =
     trpc.template.list.useQuery({ limit: 6 });
+  const { data: workflows } = trpc.workflow.list.useQuery();
+  const { data: executionData } = trpc.execution.list.useQuery({ limit: 8 });
   const forkTemplate = trpc.template.fork.useMutation();
+  const recentExecutions = executionData?.items ?? [];
+  const activeWorkflows = (workflows ?? []).filter((workflow: any) => workflow.status === "ACTIVE");
+  const completedRuns = recentExecutions.filter((execution: any) => execution.status === "COMPLETED").length;
+  const successRate = recentExecutions.length > 0
+    ? Math.round((completedRuns / recentExecutions.length) * 100)
+    : 0;
+  const nextRun = activeWorkflows
+    .map((workflow: any) => workflow.nextRunAt)
+    .filter(Boolean)
+    .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime())[0];
 
   const handleUseTemplate = async (templateId: string, title: string) => {
     const workflow = await forkTemplate.mutateAsync({
@@ -47,7 +78,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Link
             href="/editor/new"
             className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 transition-all group"
@@ -58,6 +89,19 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-semibold">New Workflow</p>
               <p className="text-xs text-muted-foreground">Start from scratch</p>
+            </div>
+          </Link>
+
+          <Link
+            href="/assistant"
+            className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-violet-500/40 hover:shadow-lg hover:shadow-violet-500/5 transition-all group"
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-300 group-hover:bg-violet-500/20 transition-colors">
+              <Bot size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">AI Assistant</p>
+              <p className="text-xs text-muted-foreground">Generate a workflow</p>
             </div>
           </Link>
 
@@ -86,6 +130,63 @@ export default function DashboardPage() {
               <p className="text-xs text-muted-foreground">Manage cloud wallets</p>
             </div>
           </Link>
+        </div>
+
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Run History
+          </h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+            <DashboardMetric icon={<Workflow size={15} />} label="Active workflows" value={`${activeWorkflows.length}`} />
+            <DashboardMetric icon={<Activity size={15} />} label="Recent runs" value={`${recentExecutions.length}`} />
+            <DashboardMetric icon={<BarChart3 size={15} />} label="Success rate" value={recentExecutions.length ? `${successRate}%` : "-"} />
+            <DashboardMetric icon={<Clock size={15} />} label="Next run" value={formatTime(nextRun)} />
+          </div>
+          {recentExecutions.length > 0 && (
+            <div className="mt-3 rounded-xl border border-border bg-card">
+              {recentExecutions.slice(0, 5).map((execution: any) => (
+                <Link
+                  key={execution.id}
+                  href={`/executions/${execution.id}`}
+                  className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3 text-sm last:border-b-0 hover:bg-accent/40"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    {execution.status === "COMPLETED" ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+                    ) : execution.status === "FAILED" || execution.status === "TIMED_OUT" ? (
+                      <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+                    ) : (
+                      <Activity className="h-4 w-4 shrink-0 text-blue-400" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{execution.workflow?.name ?? "Workflow"}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatTime(execution.startedAt ?? execution.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-medium ${statusClass(execution.status)}`}>
+                    {execution.status}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+            Protocol Packs
+          </h2>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            {PROTOCOL_PACKS.map((pack) => (
+              <div key={pack.name} className="rounded-xl border border-border bg-card p-3">
+                <div className="mb-2 h-2 w-8 rounded-full" style={{ backgroundColor: pack.color }} />
+                <p className="text-sm font-semibold">{pack.name}</p>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{pack.detail}</p>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Getting Started */}
@@ -218,5 +319,25 @@ export default function DashboardPage() {
           )}
         </div>
     </AppShell>
+  );
+}
+
+function DashboardMetric({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="mb-2 flex items-center gap-2 text-muted-foreground">
+        {icon}
+        <span className="text-[10px] font-semibold uppercase tracking-wider">{label}</span>
+      </div>
+      <p className="truncate text-lg font-bold">{value}</p>
+    </div>
   );
 }

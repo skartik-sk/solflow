@@ -30,6 +30,11 @@ const ALL_NODE_TYPES = [
   "action:jupiter-swap",
   "action:token-transfer",
   "action:ai-agent",
+  "action:oracle-price",
+  "action:helius-rpc",
+  "action:token-account-query",
+  "action:metaplex-asset",
+  "action:squads-proposal",
   "transform:filter",
   "logic:if-else",
   "logic:wait",
@@ -44,8 +49,8 @@ describe("All nodes registered", () => {
     expect(def!.type).toBe(type);
   });
 
-  it("has exactly 11 nodes", () => {
-    expect(cloudNodeRegistry.getAll()).toHaveLength(11);
+  it("has exactly 16 nodes", () => {
+    expect(cloudNodeRegistry.getAll()).toHaveLength(16);
   });
 });
 
@@ -543,6 +548,175 @@ describe("Execute functions", () => {
       method: "GET",
     }))).rejects.toThrow("private or local network");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("action:oracle-price fetches and normalizes Pyth price data", async () => {
+    const def = cloudNodeRegistry.get("action:oracle-price")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        parsed: [
+          {
+            id: "feed-1",
+            price: {
+              price: "20250000000",
+              conf: "1200",
+              expo: -8,
+              publish_time: 1710000000,
+            },
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      provider: "pyth",
+      feedId: "feed-1",
+    }));
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      "https://hermes.pyth.network/v2/updates/price/latest",
+    );
+    expect((result[0].json as any).oracle).toMatchObject({
+      provider: "pyth",
+      feedId: "feed-1",
+      price: 202.5,
+      rawPrice: "20250000000",
+      confidence: "1200",
+      exponent: -8,
+    });
+  });
+
+  it("action:helius-rpc calls JSON-RPC with a selected Helius credential", async () => {
+    const def = cloudNodeRegistry.get("action:helius-rpc")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ jsonrpc: "2.0", result: { id: "asset-1" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-helius",
+      label: "Helius",
+      type: "helius",
+      data: { apiKey: "helius-key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        method: "getAsset",
+        params: [{ id: "asset-1" }],
+        credentialId: "cred-helius",
+      }),
+      credentials: { get: getCredential },
+    });
+
+    expect(getCredential).toHaveBeenCalledWith("cred-helius", ["helius"]);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://mainnet.helius-rpc.com/?api-key=helius-key",
+    );
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      method: "getAsset",
+      params: [{ id: "asset-1" }],
+    });
+    expect((result[0].json as any).helius).toEqual({
+      method: "getAsset",
+      result: { id: "asset-1" },
+    });
+  });
+
+  it("action:token-account-query filters token accounts by mint", async () => {
+    const def = cloudNodeRegistry.get("action:token-account-query")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        jsonrpc: "2.0",
+        result: {
+          value: [
+            {
+              pubkey: "match",
+              account: { data: { parsed: { info: { mint: "MintA" } } } },
+            },
+            {
+              pubkey: "skip",
+              account: { data: { parsed: { info: { mint: "MintB" } } } },
+            },
+          ],
+        },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      owner: "Owner111111111111111111111111111111111111111",
+      mint: "MintA",
+      tokenProgram: "spl",
+      rpcUrl: "https://rpc.example.com",
+    }));
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.method).toBe("getParsedTokenAccountsByOwner");
+    expect(body.params[1]).toEqual({
+      programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    });
+    expect((result[0].json as any).tokenAccounts.count).toBe(1);
+    expect((result[0].json as any).tokenAccounts.accounts[0].pubkey).toBe("match");
+  });
+
+  it("action:squads-proposal posts proposal payloads with credential headers", async () => {
+    const def = cloudNodeRegistry.get("action:squads-proposal")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ proposalId: "proposal-1" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-squads",
+      label: "Squads",
+      type: "squads",
+      data: { apiKey: "squads-key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        apiUrl: "https://example.com/squads/proposals",
+        multisig: "Squads1111111111111111111111111111111111111",
+        title: "Review treasury report",
+        description: "Generated by SolStudio",
+        payload: { tokenAccounts: "{{ $json.tokenAccounts }}" },
+        credentialId: "cred-squads",
+      }),
+      inputs: [[{ json: { tokenAccounts: { count: 2 } } }]],
+      credentials: { get: getCredential },
+    });
+
+    expect(getCredential).toHaveBeenCalledWith("cred-squads", ["squads", "webhook"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/squads/proposals",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-API-Key": "squads-key" }),
+      }),
+    );
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toMatchObject({
+      multisig: "Squads1111111111111111111111111111111111111",
+      title: "Review treasury report",
+      inputs: [{ tokenAccounts: { count: 2 } }],
+    });
+    expect((result[0].json as any).squadsProposal).toEqual({
+      proposalId: "proposal-1",
+    });
   });
 
   it("action:token-transfer builds and sends a SOL transfer", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertWalletSafety } from "./safety";
+import { assessCloudSafetyPolicy, assertWalletSafety } from "./safety";
 
 describe("assertWalletSafety", () => {
   it("requires explicit automation permission for wallet signing", () => {
@@ -27,6 +27,39 @@ describe("assertWalletSafety", () => {
           manualApprovalRequired: false,
           walletAutomationAllowed: true,
           spendLimitLamports: 2_000,
+          maxSlippageBps: 50,
+          allowedMints: ["So11111111111111111111111111111111111111112"],
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  it("blocks weak automated wallet policy before signing", () => {
+    expect(() =>
+      assertWalletSafety({
+        action: "Jupiter swap",
+        simulationAvailable: true,
+        slippageBps: 50,
+        safety: {
+          simulationRequired: true,
+          manualApprovalRequired: false,
+          walletAutomationAllowed: true,
+        },
+      }),
+    ).toThrow(/Cloud policy/i);
+  });
+
+  it("allows one-time approved replays without persistent automation limits", () => {
+    expect(() =>
+      assertWalletSafety({
+        action: "Token transfer",
+        simulationAvailable: true,
+        amountLamports: BigInt(1000),
+        safety: {
+          simulationRequired: true,
+          manualApprovalRequired: false,
+          walletAutomationAllowed: true,
+          oneTimeApproval: true,
         },
       }),
     ).not.toThrow();
@@ -40,9 +73,27 @@ describe("assertWalletSafety", () => {
         amountLamports: BigInt(3000),
         safety: {
           walletAutomationAllowed: true,
+          manualApprovalRequired: false,
+          simulationRequired: true,
           spendLimitLamports: 2_000,
+          maxSlippageBps: 50,
+          allowedMints: ["So11111111111111111111111111111111111111112"],
         },
       }),
     ).toThrow(/spend limit/i);
+  });
+});
+
+describe("assessCloudSafetyPolicy", () => {
+  it("reports ready automation only when strict controls are present", () => {
+    expect(
+      assessCloudSafetyPolicy({
+        simulationRequired: true,
+        manualApprovalRequired: false,
+        walletAutomationAllowed: true,
+        maxSlippageBps: 50,
+        allowedMints: ["So11111111111111111111111111111111111111112"],
+      }).level,
+    ).toBe("ready");
   });
 });

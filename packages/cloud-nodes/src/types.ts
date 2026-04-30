@@ -101,6 +101,7 @@ export interface CloudSafetyControls {
   maxSlippageBps?: number;
   allowedMints?: string[];
   webhookAllowlist?: string[];
+  oneTimeApproval?: boolean;
 }
 
 export interface CredentialRecord {

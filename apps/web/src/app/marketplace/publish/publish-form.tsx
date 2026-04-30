@@ -55,7 +55,11 @@ export function PublishForm({ projects }: Props) {
 
   const publish = trpc.marketplace.publish.useMutation({
     onSuccess: (data) => {
-      toast.success("Submitted for review! We'll notify you once it's live.");
+      toast.success(
+        data.certification?.certified
+          ? "Submitted for review with SolStudio certification ready."
+          : `Submitted for review. Certification missing: ${data.certification?.missing?.join(", ") || "checks"}.`,
+      );
       router.push(`/marketplace/my-listings`);
     },
     onError: (err) => {
@@ -186,7 +190,7 @@ export function PublishForm({ projects }: Props) {
           onChange={(e) => setLongDescription(e.target.value)}
           maxLength={5000}
           rows={6}
-          placeholder="Detailed description, use-cases, architecture notes, instructions for forkers…"
+          placeholder="Detailed description, use-cases, architecture notes, and deploy instructions. Certified templates need compile, audit, tests, export package, and deploy notes."
           className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/50 resize-none"
         />
         <p className="text-right text-xs text-muted-foreground">

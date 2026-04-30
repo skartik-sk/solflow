@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
+import { evaluateCloudTemplateCertification } from "@/lib/cloud-workflow-features";
 
 type CloudTemplate = {
   id: string;
@@ -26,6 +27,7 @@ type CloudTemplate = {
   category: string;
   tags: string[];
   nodeTypes: string[];
+  settings?: Record<string, unknown>;
   downloads: number;
   featured: boolean;
 };
@@ -241,6 +243,7 @@ export default function CloudTemplatesPage() {
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             {filteredTemplates.map((template) => {
               const isUsing = forkTemplate.isPending && forkTemplate.variables?.templateId === template.id;
+              const certification = evaluateCloudTemplateCertification(template);
               return (
                 <article
                   key={template.id}
@@ -279,15 +282,19 @@ export default function CloudTemplatesPage() {
                     ))}
                   </div>
 
-                  <div className="mt-4 grid grid-cols-3 gap-1.5">
-                    {["Editable", "Safety", "Replay"].map((label) => (
+                  <div className="mt-4 grid grid-cols-2 gap-1.5">
+                    {certification.badges.map((badge) => (
                       <span
-                        key={label}
-                        className="inline-flex min-w-0 items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-1 text-[9px] font-semibold text-emerald-300"
-                        title={label}
+                        key={badge.label}
+                        className={`inline-flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-1 text-[9px] font-semibold ${
+                          badge.passed
+                            ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                            : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                        }`}
+                        title={badge.detail}
                       >
                         <CheckCircle2 className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-                        <span className="truncate">{label}</span>
+                        <span className="truncate">{badge.label}</span>
                       </span>
                     ))}
                   </div>

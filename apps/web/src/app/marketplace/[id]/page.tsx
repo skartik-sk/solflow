@@ -17,6 +17,7 @@ import {
   User,
   CheckCircle2,
   AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
 import { ForkButton } from "./fork-button";
 import { DownloadButtons } from "./download-buttons";
@@ -28,6 +29,11 @@ import {
   SITE_NAME,
   absoluteUrl,
 } from "@/lib/social-metadata";
+import {
+  evaluateMarketplaceCertification,
+  hasDeployInstructionsText,
+  isCertifiedTag,
+} from "@/lib/marketplace/certification";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +57,7 @@ interface ListingDetail {
   templateFlowData: unknown;
   project: {
     framework: string;
+    generatedCode: unknown;
     auditReports: Array<{ score: number | null; createdAt: Date }>;
     compilations: Array<{ status: string; duration: number | null; completedAt: Date | null }>;
     testRuns: Array<{ status: string; duration: number | null; completedAt: Date | null }>;
@@ -154,6 +161,7 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
       project: {
         select: {
           framework: true,
+          generatedCode: true,
           auditReports: {
             orderBy: { createdAt: "desc" },
             take: 1,
@@ -211,6 +219,13 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
   const latestAudit = listing.project.auditReports[0];
   const latestCompile = listing.project.compilations[0];
   const latestTest = listing.project.testRuns[0];
+  const certification = evaluateMarketplaceCertification({
+    compileStatus: latestCompile?.status ?? null,
+    testStatus: latestTest?.status ?? null,
+    auditScore: latestAudit?.score ?? null,
+    hasDeployInstructions: hasDeployInstructionsText(listing.longDescription),
+    hasCodePackage: Boolean(listing.project.generatedCode || listing.project.framework),
+  });
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -246,6 +261,12 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                     Featured
                   </span>
                 )}
+                {certification.certified && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-300">
+                    <ShieldCheck className="h-3 w-3" />
+                    SolStudio certified
+                  </span>
+                )}
               </div>
               <h1 className="text-2xl font-bold tracking-tight">
                 {listing.title}
@@ -257,7 +278,7 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
               {/* Tags */}
               {listing.tags.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-1.5">
-                  {listing.tags.map((tag) => (
+                  {listing.tags.filter((tag) => !isCertifiedTag(tag)).map((tag) => (
                     <span
                       key={tag}
                       className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs text-muted-foreground"
@@ -317,6 +338,37 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
                   ok={latestTest?.status === "PASSED"}
                   detail={formatDuration(latestTest?.duration)}
                 />
+              </div>
+              <div className="mt-3 rounded-lg border border-border bg-card p-3">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold">Certification checklist</p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                      certification.certified
+                        ? "bg-emerald-500/10 text-emerald-300"
+                        : "bg-amber-500/10 text-amber-300"
+                    }`}
+                  >
+                    {certification.certified ? "Badge eligible" : "Needs work"}
+                  </span>
+                </div>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {certification.checks.map((check) => (
+                    <div key={check.id} className="flex items-center justify-between gap-3 rounded-md bg-background/60 px-2 py-1.5">
+                      <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                        {check.ok ? (
+                          <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                        ) : (
+                          <AlertTriangle className="h-3 w-3 text-amber-400" />
+                        )}
+                        {check.label}
+                      </span>
+                      <span className="truncate text-right text-[10px] font-medium text-foreground">
+                        {check.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 

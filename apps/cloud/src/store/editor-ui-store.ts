@@ -5,7 +5,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type BottomPanelTab = "executions" | "logs" | "output";
+export type BottomPanelTab = "executions" | "simulation" | "logs" | "output";
 
 interface EditorUIState {
   paletteOpen: boolean;

@@ -6,6 +6,10 @@ import { getTriggerManager } from "../../trigger-manager";
 import { startCronWorker } from "../../trigger-manager/cron-worker";
 import { shouldApiStartEmbeddedWorkers } from "../../runtime-mode";
 import {
+  buildAssistantWorkflowDraft,
+  createSimulationReport,
+} from "@/lib/cloud-workflow-features";
+import {
   workflowPublicSelect,
   workflowVersionPublicSelect,
 } from "../public-selects";
@@ -120,6 +124,48 @@ export const workflowRouter = router({
         },
         select: workflowPublicSelect,
       });
+    }),
+
+  createFromAssistant: protectedProcedure
+    .input(
+      z.object({
+        prompt: z.string().min(3).max(1000),
+        name: z.string().min(1).max(100).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const draft = buildAssistantWorkflowDraft(input.prompt);
+      return ctx.prisma.workflow.create({
+        data: {
+          user: { connect: { id: ctx.session.user.id } },
+          name: input.name ?? draft.name,
+          description: draft.description,
+          definition: draft.definition as any,
+          settings: draft.settings as any,
+          tags: draft.tags,
+        },
+        select: workflowPublicSelect,
+      });
+    }),
+
+  simulate: protectedProcedure
+    .input(
+      z.object({
+        workflowId: z.string().optional(),
+        definition: z.object({ nodes: z.array(z.any()), edges: z.array(z.any()) }),
+        settings: z.any().optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.workflowId) {
+        const workflow = await ctx.prisma.workflow.findFirst({
+          where: { id: input.workflowId, userId: ctx.session.user.id },
+          select: { id: true },
+        });
+        if (!workflow) throw new Error("Workflow not found");
+      }
+
+      return createSimulationReport(input.definition, input.settings);
     }),
 
   update: protectedProcedure

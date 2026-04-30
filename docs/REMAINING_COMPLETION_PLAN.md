@@ -38,6 +38,9 @@ Cloud workflows.
 - Plugin marketplace registration now enforces manifest id/version/namespace
   validation, dependency shape checks, and a trust policy for first-party,
   verified, community, and untrusted plugins.
+- Plugin SDK now includes browser/Node WebCrypto provenance helpers:
+  canonical manifest hashing, SHA-256 digest generation, ECDSA P-256 signature
+  verification against trusted publisher keys, and tamper-detection tests.
 - Standalone DeFi provider adapters now validate input/response shapes, include
   request timeouts, preserve upstream error bodies, and fail before signing on
   malformed Jupiter swap responses.
@@ -477,6 +480,9 @@ Follow-up hardening:
   code across all three frameworks.
 - Add plugin property-schema validation before codegen.
 - Compile generated plugin examples.
+- Wire third-party plugin install flows to `verifyPluginSignature()` before
+  registration; registry-level validation and SDK verification helpers are now
+  available.
 
 ## Phase 4 - IDE Production Completion
 

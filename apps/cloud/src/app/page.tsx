@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
@@ -39,6 +39,7 @@ function Label({ children }: { children: React.ReactNode }) {
 
 type NodeId = "trigger" | "fetch" | "split" | "swap" | "webhook";
 type Pos = { x: number; y: number };
+type DragState = { id: NodeId; pointerId: number; offsetX: number; offsetY: number };
 
 const CANVAS_W = 640;
 const CANVAS_H = 360;
@@ -93,6 +94,21 @@ function buildPath(s: Pos, sSide: string, e: Pos, eSide: string): string {
   return `M${s.x},${s.y} C${s.x},${s.y + (e.y - s.y) / 2} ${e.x},${e.y - (e.y - s.y) / 2} ${e.x},${e.y}`;
 }
 
+function canvasPoint(event: React.PointerEvent, canvas: HTMLElement): Pos {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: ((event.clientX - rect.left) / rect.width) * CANVAS_W,
+    y: ((event.clientY - rect.top) / rect.height) * CANVAS_H,
+  };
+}
+
+function clampPosition(pos: Pos, size: { w: number; h: number }): Pos {
+  return {
+    x: Math.max(0, Math.min(CANVAS_W - size.w, pos.x)),
+    y: Math.max(0, Math.min(CANVAS_H - size.h, pos.y)),
+  };
+}
+
 /* ─── Status ticker ─────────────────────────────────────────────── */
 
 const STATUS_LINES = [
@@ -117,6 +133,8 @@ export default function CloudLandingPage() {
   const [activeLine, setActiveLine] = useState(0);
   const [activeNode, setActiveNode] = useState<NodeId | null>(null);
   const [cycleIndex, setCycleIndex] = useState(0);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const dragStateRef = useRef<DragState | null>(null);
 
   // Auto-cycle status log
   useEffect(() => {
@@ -145,6 +163,47 @@ export default function CloudLandingPage() {
 
   const updatePos = useCallback((id: NodeId, x: number, y: number) => {
     setPositions(prev => ({ ...prev, [id]: { x, y } }));
+  }, []);
+
+  const handleNodePointerDown = useCallback((id: NodeId, event: React.PointerEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    const point = canvasPoint(event, canvas);
+    dragStateRef.current = {
+      id,
+      pointerId: event.pointerId,
+      offsetX: point.x - positions[id].x,
+      offsetY: point.y - positions[id].y,
+    };
+    setHoverNode(id);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [positions]);
+
+  const handleNodePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    const canvas = canvasRef.current;
+    if (!dragState || dragState.pointerId !== event.pointerId || !canvas) return;
+
+    const point = canvasPoint(event, canvas);
+    const next = clampPosition(
+      {
+        x: point.x - dragState.offsetX,
+        y: point.y - dragState.offsetY,
+      },
+      NODE_DEFS[dragState.id],
+    );
+    updatePos(dragState.id, next.x, next.y);
+  }, [updatePos]);
+
+  const handleNodePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStateRef.current?.pointerId !== event.pointerId) return;
+    dragStateRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
   }, []);
 
   const relevantNode = hoverNode ?? activeNode;
@@ -247,7 +306,7 @@ export default function CloudLandingPage() {
 
               <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px]">
                 {/* Canvas */}
-                <div id="cloud-canvas" className="relative border-r border-border/40 bg-background/30 overflow-hidden select-none" style={{ height: 360 }}>
+                <div ref={canvasRef} id="cloud-canvas" className="relative border-r border-border/40 bg-background/30 overflow-hidden select-none" style={{ height: 360 }}>
                   {/* Dot grid */}
                   <div className="absolute inset-0 opacity-25" style={{
                     backgroundImage: "radial-gradient(circle, oklch(0.32 0.01 240) 0.5px, transparent 0.5px)",
@@ -296,24 +355,15 @@ export default function CloudLandingPage() {
                         initial={{ opacity: 0, scale: 0.92 }}
                         animate={{ opacity: 1, scale: 1 }}
                         transition={{ duration: 0.35, delay: 0.3 + i * 0.08 }}
-                        drag
-                        dragMomentum={false}
-                        dragElastic={0}
-                        onDrag={(_, info) => {
-                          const container = document.getElementById("cloud-canvas");
-                          if (!container) return;
-                          const rect = container.getBoundingClientRect();
-                          const scale = (CANVAS_W / rect.width) * 0.3;
-                          const newX = pos.x + info.delta.x * scale;
-                          const newY = pos.y + info.delta.y * scale;
-                          updatePos(id,
-                            Math.max(0, Math.min(CANVAS_W - n.w, newX)),
-                            Math.max(0, Math.min(CANVAS_H - n.h, newY)),
-                          );
+                        onPointerDown={(event) => handleNodePointerDown(id, event)}
+                        onPointerMove={handleNodePointerMove}
+                        onPointerUp={handleNodePointerUp}
+                        onPointerCancel={handleNodePointerUp}
+                        onPointerEnter={() => setHoverNode(id)}
+                        onPointerLeave={() => {
+                          if (!dragStateRef.current) setHoverNode(null);
                         }}
-                        onMouseEnter={() => setHoverNode(id)}
-                        onMouseLeave={() => setHoverNode(null)}
-                        className="absolute rounded-lg border bg-card/90 shadow-md backdrop-blur-sm cursor-grab active:cursor-grabbing transition-shadow duration-150"
+                        className="absolute touch-none rounded-lg border bg-card/90 shadow-md backdrop-blur-sm cursor-grab active:cursor-grabbing transition-shadow duration-150"
                         style={{
                           left: `${pctX}%`,
                           top: `${pctY}%`,
@@ -493,10 +543,17 @@ export default function CloudLandingPage() {
               <h2 className="text-xl md:text-2xl font-bold tracking-tight text-foreground mb-2">Powering real Solana workflows.</h2>
               <p className="text-sm text-muted-foreground max-w-sm mx-auto">Built-in nodes for the protocols and services you actually use.</p>
             </motion.div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
                 { name: "Jupiter", tag: "Swap", color: "#10b981", desc: "Token swaps and quotes" },
                 { name: "Birdeye", tag: "Price", color: "#06b6d4", desc: "Real-time price feeds" },
+                { name: "Pyth", tag: "Oracle", color: "#f59e0b", desc: "Hermes price feed reads" },
+                { name: "Switchboard", tag: "Oracle", color: "#a855f7", desc: "Configurable feed APIs" },
+                { name: "Helius", tag: "RPC", color: "#6366f1", desc: "DAS and account data" },
+                { name: "Metaplex", tag: "NFT", color: "#ec4899", desc: "Asset metadata via DAS" },
+                { name: "SPL Token", tag: "Token", color: "#22c55e", desc: "Token account queries" },
+                { name: "Token-2022", tag: "Token", color: "#84cc16", desc: "Token extension accounts" },
+                { name: "Squads", tag: "Ops", color: "#eab308", desc: "Approval proposal handoff" },
                 { name: "OpenAI", tag: "AI", color: "#10a37f", desc: "Analyze and classify data" },
                 { name: "Webhooks", tag: "I/O", color: "#ef4444", desc: "Receive and send events" },
               ].map((p) => (

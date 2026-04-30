@@ -8,7 +8,7 @@ import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { trpc } from "@/lib/trpc/client";
 import type { CloudFlowNodeData, CloudSafetyControls, NodeProperty } from "@solflow/cloud-nodes";
-import { getIconByName, CATEGORY_LABELS } from "@solflow/cloud-nodes";
+import { assessCloudSafetyPolicy, getIconByName, CATEGORY_LABELS } from "@solflow/cloud-nodes";
 
 // ─── Field helpers ────────────────────────────────────────────────────────────
 
@@ -342,6 +342,7 @@ function WorkflowSafetySettings({
   safety: CloudSafetyControls;
   onChange: (safety: Partial<CloudSafetyControls>) => void;
 }) {
+  const assessment = assessCloudSafetyPolicy(safety);
   const spendLimitSol =
     typeof safety.spendLimitLamports === "number" && Number.isFinite(safety.spendLimitLamports)
       ? String(safety.spendLimitLamports / LAMPORTS_PER_SOL)
@@ -357,6 +358,32 @@ function WorkflowSafetySettings({
         <p className="text-[10px] leading-relaxed text-muted-foreground">
           These controls are saved with the workflow and enforced before wallet actions or webhook execution.
         </p>
+      </div>
+
+      <div
+        className={`rounded-lg border p-3 ${
+          assessment.level === "ready"
+            ? "border-emerald-500/25 bg-emerald-500/10"
+            : assessment.level === "weak"
+              ? "border-amber-500/25 bg-amber-500/10"
+              : "border-blue-500/20 bg-blue-500/10"
+        }`}
+      >
+        <p className="text-xs font-semibold">
+          {assessment.level === "ready"
+            ? "Automation policy ready"
+            : assessment.level === "weak"
+              ? "Automation policy needs limits"
+              : "Manual approval mode"}
+        </p>
+        <div className="mt-1 space-y-1 text-[10px] leading-relaxed text-muted-foreground">
+          {[...assessment.issues, ...assessment.warnings].slice(0, 4).map((item) => (
+            <p key={item}>- {item}</p>
+          ))}
+          {assessment.level === "ready" && (
+            <p>Wallet actions can run automatically under the saved limits.</p>
+          )}
+        </div>
       </div>
 
       <FieldRow label="Simulation required">

@@ -3,7 +3,7 @@
 // ExecutionPanel — bottom panel showing execution logs and node output.
 
 import React from "react";
-import { X, Terminal, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, Copy, ShieldCheck } from "lucide-react";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { useExecutionStore } from "@/store/execution-store";
 
@@ -20,6 +20,8 @@ export function ExecutionPanel() {
   const toggleBottomPanel = useEditorUIStore((s) => s.toggleBottomPanel);
 
   const status = useExecutionStore((s) => s.status);
+  const executionId = useExecutionStore((s) => s.executionId);
+  const simulationReport = useExecutionStore((s) => s.simulationReport);
   const logs = useExecutionStore((s) => s.logs);
   const nodeResults = useExecutionStore((s) => s.nodeResults);
 
@@ -30,7 +32,7 @@ export function ExecutionPanel() {
       {/* Tab bar */}
       <div className="flex items-center justify-between border-b border-border px-2">
         <div className="flex items-center gap-1">
-          {(["executions", "logs", "output"] as const).map((tab) => (
+          {(["executions", "simulation", "logs", "output"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setBottomPanelTab(tab)}
@@ -56,12 +58,24 @@ export function ExecutionPanel() {
             <span className="ml-2 text-[10px] text-red-400">Failed</span>
           )}
         </div>
-        <button
-          onClick={toggleBottomPanel}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <ChevronDown size={13} />
-        </button>
+        <div className="flex items-center gap-2">
+          {executionId && (
+            <button
+              onClick={() => navigator.clipboard.writeText(`solstudio cloud execution ${executionId}`)}
+              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+              title="Copy execution repro command"
+            >
+              <Copy size={11} />
+              Repro
+            </button>
+          )}
+          <button
+            onClick={toggleBottomPanel}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown size={13} />
+          </button>
+        </div>
       </div>
 
       {/* Content */}
@@ -94,31 +108,121 @@ export function ExecutionPanel() {
               Array.from(nodeResults.values()).map((result) => (
                 <div
                   key={result.nodeId}
-                  className="flex items-center justify-between rounded-md border border-border px-2 py-1"
+                  className="rounded-md border border-border px-2 py-1.5"
                 >
-                  <span className="truncate max-w-[200px]">{result.nodeId.slice(0, 8)}...</span>
-                  <span
-                    className={`text-[10px] font-medium ${
-                      result.status === "success"
-                        ? "text-emerald-400"
-                        : result.status === "error"
-                          ? "text-red-400"
-                        : result.status === "running"
-                          ? "text-blue-400"
-                          : result.status === "skipped"
-                            ? "text-zinc-400"
-                            : "text-muted-foreground"
-                    }`}
-                  >
-                    {result.status}
-                  </span>
-                  {result.completedAt && result.startedAt && (
-                    <span className="text-[10px] text-muted-foreground/50">
-                      {result.completedAt - result.startedAt}ms
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="block truncate max-w-[260px]">
+                        {result.nodeType ?? result.nodeId}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/50">
+                        {result.nodeId.slice(0, 10)}...
+                        {typeof result.duration === "number" ? ` · ${result.duration}ms` : ""}
+                        {result.logs?.length ? ` · ${result.logs.length} logs` : ""}
+                      </span>
+                    </div>
+                    <span className={`text-[10px] font-medium ${statusColor(result.status)}`}>
+                      {result.status}
                     </span>
+                  </div>
+                  {result.error && (
+                    <p className="mt-1 truncate text-[10px] text-red-300/80">
+                      {result.error}
+                    </p>
                   )}
                 </div>
               ))
+            )}
+          </div>
+        )}
+
+        {bottomPanelTab === "simulation" && (
+          <div className="space-y-2 font-sans">
+            {!simulationReport ? (
+              <p className="font-mono text-muted-foreground/50">
+                No simulation yet. Click Simulate or Run to preflight the workflow.
+              </p>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                  <SimulationMetric label="Risk" value={simulationReport.riskLevel} tone={simulationReport.riskLevel} />
+                  <SimulationMetric label="Fee" value={`${simulationReport.estimatedFeeSol} SOL`} />
+                  <SimulationMetric label="Nodes" value={`${simulationReport.nodeCount}`} />
+                  <SimulationMetric label="Wallet actions" value={`${simulationReport.walletActions}`} />
+                  <SimulationMetric label="External calls" value={`${simulationReport.externalCalls}`} />
+                </div>
+
+                {simulationReport.route.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-background p-2 text-[11px]">
+                    {simulationReport.route.map((step, index) => (
+                      <React.Fragment key={`${step}-${index}`}>
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+                          {step}
+                        </span>
+                        {index < simulationReport.route.length - 1 && (
+                          <ArrowRight className="h-3 w-3 text-muted-foreground/50" />
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                )}
+
+                {(simulationReport.blockers.length > 0 || simulationReport.warnings.length > 0) && (
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {simulationReport.blockers.length > 0 && (
+                      <SimulationNotice
+                        icon={<AlertTriangle className="h-3.5 w-3.5" />}
+                        title="Blocked"
+                        tone="high"
+                        items={simulationReport.blockers}
+                      />
+                    )}
+                    {simulationReport.warnings.length > 0 && (
+                      <SimulationNotice
+                        icon={<ShieldCheck className="h-3.5 w-3.5" />}
+                        title="Warnings"
+                        tone="medium"
+                        items={simulationReport.warnings}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {simulationReport.walletDeltas.length > 0 && (
+                  <div className="rounded-md border border-border bg-background p-2">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Wallet delta
+                    </p>
+                    <div className="space-y-1">
+                      {simulationReport.walletDeltas.map((delta, index) => (
+                        <div key={index} className="grid grid-cols-[120px_120px_1fr] gap-2 text-[11px]">
+                          <span className="truncate font-mono text-muted-foreground">{delta.asset}</span>
+                          <span className={delta.change.startsWith("-") ? "text-red-300" : "text-emerald-300"}>
+                            {delta.change}
+                          </span>
+                          <span className="text-muted-foreground">{delta.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {simulationReport.transactionPlan.length > 0 && (
+                  <div className="rounded-md border border-border bg-background p-2">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Planned effects
+                    </p>
+                    <div className="space-y-1">
+                      {simulationReport.transactionPlan.map((item) => (
+                        <div key={`${item.nodeId}-${item.type}`} className="text-[11px]">
+                          <span className="font-medium text-foreground">{item.label}</span>
+                          <span className="text-muted-foreground"> - {item.effect}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -146,4 +250,69 @@ export function ExecutionPanel() {
       </div>
     </div>
   );
+}
+
+function SimulationMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "low" | "medium" | "high";
+}) {
+  const toneClass =
+    tone === "high"
+      ? "text-red-300"
+      : tone === "medium"
+        ? "text-amber-300"
+        : tone === "low"
+          ? "text-emerald-300"
+          : "text-foreground";
+  return (
+    <div className="rounded-md border border-border bg-background p-2">
+      <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+        {label}
+      </p>
+      <p className={`mt-0.5 truncate text-xs font-semibold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+function SimulationNotice({
+  icon,
+  title,
+  tone,
+  items,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  tone: "medium" | "high";
+  items: string[];
+}) {
+  const cls =
+    tone === "high"
+      ? "border-red-500/30 bg-red-500/5 text-red-200"
+      : "border-amber-500/30 bg-amber-500/5 text-amber-100";
+  return (
+    <div className={`rounded-md border p-2 ${cls}`}>
+      <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider">
+        {icon}
+        {title}
+      </div>
+      <ul className="space-y-0.5 text-[11px] leading-relaxed text-current/80">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function statusColor(status: string): string {
+  if (status === "success") return "text-emerald-400";
+  if (status === "error") return "text-red-400";
+  if (status === "running") return "text-blue-400";
+  if (status === "skipped") return "text-zinc-400";
+  return "text-muted-foreground";
 }

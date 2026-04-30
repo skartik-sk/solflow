@@ -19,6 +19,8 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
+  Pause,
+  Play,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
@@ -325,6 +327,8 @@ export default function ExecutionDetailPage() {
               />
             )}
 
+            <ExecutionReplayPanel nodeResults={nodeResults} />
+
             {/* Node timeline */}
             <div>
               <h2 className="text-sm font-semibold mb-3">Node Execution Timeline</h2>
@@ -337,10 +341,6 @@ export default function ExecutionDetailPage() {
               ) : (
                 <div className="space-y-2">
                   {nodeResults.map((nr: any, idx: number) => {
-                    const cfg =
-                      NODE_STATUS_CONFIG[nr.status] ?? NODE_STATUS_CONFIG.QUEUED;
-                    const Icon = cfg.icon;
-
                     return (
                       <NodeResultCard
                         key={nr.id}
@@ -350,6 +350,7 @@ export default function ExecutionDetailPage() {
                         status={nr.status}
                         duration={nr.duration}
                         error={nr.error}
+                        logs={Array.isArray(nr.logs) ? nr.logs : []}
                         inputSnapshot={nr.inputSnapshot}
                         outputSnapshot={nr.outputSnapshot}
                         startedAt={nr.startedAt}
@@ -460,6 +461,161 @@ function ReplayDiffPanel({
   );
 }
 
+function ExecutionReplayPanel({ nodeResults }: { nodeResults: any[] }) {
+  const [activeIndex, setActiveIndex] = React.useState(0);
+  const [playing, setPlaying] = React.useState(false);
+
+  React.useEffect(() => {
+    setActiveIndex(0);
+    setPlaying(false);
+  }, [nodeResults.length]);
+
+  React.useEffect(() => {
+    if (!playing || nodeResults.length <= 1) return;
+    const id = window.setInterval(() => {
+      setActiveIndex((index) => {
+        const next = index + 1;
+        if (next >= nodeResults.length) {
+          window.clearInterval(id);
+          setPlaying(false);
+          return index;
+        }
+        return next;
+      });
+    }, 1200);
+    return () => window.clearInterval(id);
+  }, [playing, nodeResults.length]);
+
+  if (nodeResults.length === 0) return null;
+
+  const active = nodeResults[Math.min(activeIndex, nodeResults.length - 1)];
+  const cfg = NODE_STATUS_CONFIG[active.status] ?? NODE_STATUS_CONFIG.QUEUED;
+  const Icon = cfg.icon;
+  const logs = Array.isArray(active.logs) ? active.logs : [];
+
+  return (
+    <div className="mb-6 rounded-xl border border-border bg-card p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">Execution Replay</p>
+          <p className="text-[11px] text-muted-foreground">
+            Step through node inputs, outputs, timing, logs, and failure points.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPlaying((value) => !value)}
+          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+          {playing ? "Pause" : "Play"}
+        </button>
+      </div>
+
+      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+        {nodeResults.map((result, index) => {
+          const stepCfg = NODE_STATUS_CONFIG[result.status] ?? NODE_STATUS_CONFIG.QUEUED;
+          const activeStep = index === activeIndex;
+          return (
+            <button
+              key={result.id ?? result.nodeId}
+              type="button"
+              onClick={() => {
+                setActiveIndex(index);
+                setPlaying(false);
+              }}
+              className={`min-w-[132px] rounded-lg border px-3 py-2 text-left transition-colors ${
+                activeStep
+                  ? `${stepCfg.border} ${stepCfg.bg} ring-2 ring-primary/30`
+                  : "border-border bg-background hover:bg-accent/50"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: statusDotColor(result.status) }} />
+                <span className="truncate text-xs font-semibold">{result.nodeType}</span>
+              </div>
+              <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+                {result.nodeId?.slice(0, 12)}...
+              </p>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3`}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Icon className={`h-4 w-4 ${cfg.color} ${active.status === "RUNNING" ? "animate-spin" : ""}`} />
+            <div>
+              <p className="text-xs font-semibold">{active.nodeType}</p>
+              <p className="font-mono text-[10px] text-muted-foreground">{active.nodeId}</p>
+            </div>
+          </div>
+          <div className="flex gap-2 text-[10px] text-muted-foreground">
+            <span>{active.status}</span>
+            <span>{formatDuration(active.duration)}</span>
+            <span>{formatTime(active.startedAt)}</span>
+          </div>
+        </div>
+
+        {active.error && (
+          <pre className="mb-3 overflow-x-auto rounded-md border border-red-500/20 bg-red-500/5 p-2 font-mono text-[11px] text-red-300">
+            {active.error}
+          </pre>
+        )}
+
+        <div className="grid gap-3 lg:grid-cols-2">
+          <SnapshotBlock title="Input" value={active.inputSnapshot} />
+          <SnapshotBlock title="Output" value={active.outputSnapshot} />
+        </div>
+
+        {logs.length > 0 && (
+          <div className="mt-3 rounded-md border border-border/50 bg-background p-2">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Logs
+            </p>
+            <div className="space-y-1 font-mono text-[11px]">
+              {logs.slice(0, 5).map((log: any, index: number) => (
+                <div key={index} className="grid grid-cols-[70px_48px_1fr] gap-2">
+                  <span className="text-muted-foreground/60">
+                    {log.timestamp ? formatTime(new Date(log.timestamp)) : "-"}
+                  </span>
+                  <span className={log.level === "error" ? "text-red-300" : log.level === "warn" ? "text-amber-300" : "text-blue-300"}>
+                    {log.level ?? "info"}
+                  </span>
+                  <span className="truncate">{log.message ?? ""}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function statusDotColor(status: string): string {
+  if (status === "COMPLETED") return "#34d399";
+  if (status === "FAILED") return "#f87171";
+  if (status === "RUNNING") return "#60a5fa";
+  if (status === "WAITING") return "#fbbf24";
+  return "#a1a1aa";
+}
+
+function SnapshotBlock({ title, value }: { title: string; value: unknown }) {
+  const json = stableJson(value ?? null).slice(0, 1800);
+  return (
+    <div>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </p>
+      <pre className="max-h-[220px] overflow-auto rounded-md border border-border/50 bg-background p-2 font-mono text-[11px] text-muted-foreground">
+        {json}
+      </pre>
+    </div>
+  );
+}
+
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-border bg-card p-3">
@@ -478,6 +634,7 @@ function NodeResultCard({
   status,
   duration,
   error,
+  logs,
   inputSnapshot,
   outputSnapshot,
   startedAt,
@@ -489,6 +646,7 @@ function NodeResultCard({
   status: string;
   duration: number | null;
   error: string | null;
+  logs: Array<{ timestamp?: number; level?: string; message?: string; data?: unknown }>;
   inputSnapshot: unknown;
   outputSnapshot: unknown;
   startedAt: string | null;
@@ -540,6 +698,27 @@ function NodeResultCard({
               <pre className="rounded-md bg-red-500/5 border border-red-500/20 p-2 text-[11px] text-red-300/80 overflow-x-auto font-mono">
                 {error}
               </pre>
+            </div>
+          )}
+
+          {logs.length > 0 && (
+            <div>
+              <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
+                Logs
+              </p>
+              <div className="max-h-[180px] space-y-1 overflow-y-auto rounded-md bg-muted/30 p-2 font-mono text-[11px]">
+                {logs.map((log, index) => (
+                  <div key={index} className="grid grid-cols-[70px_48px_1fr] gap-2">
+                    <span className="text-muted-foreground/50">
+                      {log.timestamp ? formatTime(new Date(log.timestamp)) : "—"}
+                    </span>
+                    <span className={log.level === "error" ? "text-red-300" : log.level === "warn" ? "text-amber-300" : "text-blue-300"}>
+                      {log.level ?? "info"}
+                    </span>
+                    <span className="truncate">{log.message ?? ""}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

@@ -143,9 +143,9 @@ export async function GET(
   }
 
   zipEntries["SOLSTUDIO_EXPORT.md"] = strToU8(
-    `# ${ir.program.name}\n\nExported from SolStudio.\n\nIncluded sections:\n\n${Array.from(includes)
+    `# ${ir.program.name}\n\nExported from SolStudio as a complete project package.\n\nIncluded sections:\n\n${Array.from(includes)
       .map((item) => `- ${item}`)
-      .join("\n")}\n\nSuggested first checks:\n\n\`\`\`bash\ncargo test\n\`\`\`\n\nFor Anchor projects, run:\n\n\`\`\`bash\nanchor test --skip-local-validator\n\`\`\`\n`,
+      .join("\n")}\n\nPackage layout:\n\n- Program source files are rooted at the generated framework paths.\n- \`idl/\` contains Anchor and Codama IDLs.\n- \`sdk/\` contains a generated TypeScript client package with a README and example client.\n- \`tests/\` contains deterministic audit/stress tests generated from the current audit report.\n- \`ir.json\` is the SolStudio intermediate representation for re-import or review.\n\nSuggested first checks:\n\n\`\`\`bash\ncargo test\n\`\`\`\n\nFor Anchor projects, run:\n\n\`\`\`bash\nanchor test --skip-local-validator\n\`\`\`\n\nFor the generated client package:\n\n\`\`\`bash\ncd sdk\nbun install\nbun run typecheck\n\`\`\`\n`,
   );
 
   if (Object.keys(zipEntries).length === 0) {

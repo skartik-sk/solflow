@@ -5,6 +5,11 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "../trpc";
 import { sanitizeFlowForMarketplace } from "@/lib/marketplace/sanitize";
+import {
+  applyCertificationTag,
+  evaluateMarketplaceCertification,
+  hasDeployInstructionsText,
+} from "@/lib/marketplace/certification";
 import type { ProgramIR } from "@solflow/ir";
 import { runInstantAudit } from "@solflow/audit";
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
@@ -184,9 +189,17 @@ export const marketplaceRouter = router({
       }
 
       const certification = evaluateTemplateCertification(project, sanitizedIR);
+      const certificationWithListingChecks = evaluateMarketplaceCertification({
+        compileStatus: certification.compileStatus,
+        testStatus: certification.testStatus,
+        auditScore: certification.auditScore,
+        auditSummary: certification.auditSummary,
+        hasDeployInstructions: hasDeployInstructionsText(input.longDescription),
+        hasCodePackage: true,
+      });
       const listingTags = applyCertificationTag(
         normalizedTags,
-        certification.certified,
+        certificationWithListingChecks.certified,
       );
 
       // Upsert listing (allows re-publishing an existing listing)
@@ -207,7 +220,7 @@ export const marketplaceRouter = router({
           },
           select: { id: true },
         });
-        return { id: updated.id, certification };
+        return { id: updated.id, certification: certificationWithListingChecks };
       }
 
       const listing = await ctx.prisma.marketplaceListing.create({
@@ -227,7 +240,7 @@ export const marketplaceRouter = router({
         },
         select: { id: true },
       });
-      return { id: listing.id, certification };
+      return { id: listing.id, certification: certificationWithListingChecks };
     }),
 
   // ── fork: create a new project from a template ──────────────────
@@ -536,6 +549,7 @@ function evaluateTemplateCertification(
 ): {
   certified: boolean;
   auditScore: number;
+  auditSummary: { critical: number; high: number };
   compileStatus: string;
   testStatus: string;
 } {
@@ -551,15 +565,13 @@ function evaluateTemplateCertification(
       freshAudit.summary.critical === 0 &&
       freshAudit.summary.high === 0,
     auditScore,
+    auditSummary: {
+      critical: freshAudit.summary.critical,
+      high: freshAudit.summary.high,
+    },
     compileStatus,
     testStatus,
   };
-}
-
-function applyCertificationTag(tags: string[], certified: boolean): string[] {
-  const base = tags.filter((tag) => tag !== "solstudio-certified");
-  if (!certified) return base;
-  return [...base.slice(0, 9), "solstudio-certified"];
 }
 
 function findSecretLikeValue(value: unknown): string | null {

@@ -4,7 +4,12 @@
 
 import { PrismaClient } from "@prisma/client";
 
-const prisma = new PrismaClient();
+let prisma: PrismaClient | undefined;
+
+function getPrisma(): PrismaClient {
+  prisma ??= new PrismaClient();
+  return prisma;
+}
 
 function makeDefinition(
   nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data: Record<string, unknown> }>,
@@ -15,7 +20,7 @@ function makeDefinition(
 
 // ─── Template definitions ───────────────────────────────────────────────────
 
-const CLOUD_TEMPLATES = [
+export const CLOUD_TEMPLATES = [
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. PRICE ALERT BOT
   // ═══════════════════════════════════════════════════════════════════════════
@@ -40,7 +45,10 @@ const CLOUD_TEMPLATES = [
           id: "n2",
           type: "action:price-fetch",
           position: { x: 300, y: 200 },
-          data: { token: "So11111111111111111111111111111111111111112" },
+          data: {
+            token: "So11111111111111111111111111111111111111112",
+            source: "dexscreener",
+          },
         },
         {
           id: "n3",
@@ -202,7 +210,7 @@ const CLOUD_TEMPLATES = [
           position: { x: 290, y: 230 },
           data: {
             token: "So11111111111111111111111111111111111111112",
-            source: "birdeye",
+            source: "dexscreener",
           },
         },
         {
@@ -340,7 +348,10 @@ const CLOUD_TEMPLATES = [
           id: "n2",
           type: "action:price-fetch",
           position: { x: 300, y: 200 },
-          data: { token: "So11111111111111111111111111111111111111112" },
+          data: {
+            token: "So11111111111111111111111111111111111111112",
+            source: "dexscreener",
+          },
         },
         {
           id: "n3",
@@ -649,6 +660,244 @@ const CLOUD_TEMPLATES = [
     ),
     settings: { timeout: 120, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
   },
+
+  {
+    title: "Oracle Guard",
+    description: "Gate a workflow with Pyth or Switchboard price data before notifying operators.",
+    longDescription:
+      "A ready integration-pack template that reads an oracle price, checks a deterministic threshold, and sends an execution summary to an operations webhook. Swap the provider to Switchboard when you have a compatible API URL.",
+    category: "DEFI",
+    tags: ["pyth", "switchboard", "oracle", "risk", "automation"],
+    nodeTypes: ["trigger:cron", "action:oracle-price", "logic:if-else", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:cron",
+          position: { x: 50, y: 220 },
+          data: { cronExpression: "*/10 * * * *", timezone: "UTC" },
+        },
+        {
+          id: "n2",
+          type: "action:oracle-price",
+          position: { x: 300, y: 220 },
+          data: {
+            provider: "pyth",
+            feedId: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
+          },
+        },
+        {
+          id: "n3",
+          type: "logic:if-else",
+          position: { x: 560, y: 220 },
+          data: { field: "oracle.price", operator: "gt", value: "200" },
+        },
+        {
+          id: "n4",
+          type: "output:webhook",
+          position: { x: 830, y: 160 },
+          data: {
+            url: "https://example.com/ops/oracle-alert",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: '{"feed":"{{ $json.oracle.feedId }}","price":"{{ $json.oracle.price }}"}',
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },
+  },
+
+  {
+    title: "NFT Asset Watch",
+    description: "Read Metaplex asset metadata through Helius and route notable assets to a webhook.",
+    longDescription:
+      "Fetches a DAS-compatible asset record with the Metaplex Asset node, keeps the raw Helius result in the execution timeline, and sends the normalized asset payload to a webhook for review or indexing.",
+    category: "NFT",
+    tags: ["helius", "metaplex", "nft", "das", "webhook"],
+    nodeTypes: ["trigger:manual", "action:metaplex-asset", "output:webhook"],
+    featured: false,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:metaplex-asset",
+          position: { x: 320, y: 220 },
+          data: { assetId: "YOUR_ASSET_ID", credentialId: "" },
+        },
+        {
+          id: "n3",
+          type: "output:webhook",
+          position: { x: 610, y: 220 },
+          data: {
+            url: "https://example.com/ops/nft-asset",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{{ $json.metaplexAsset }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
+    title: "Token Treasury Report",
+    description: "Query SPL or Token-2022 accounts and prepare a Squads-compatible proposal payload.",
+    longDescription:
+      "A treasury operations template that reads token accounts for an owner, supports SPL Token and Token-2022, then posts a proposal payload to a Squads-compatible approval service.",
+    category: "UTILITY",
+    tags: ["spl-token", "token-2022", "squads", "treasury", "report"],
+    nodeTypes: ["trigger:manual", "action:token-account-query", "action:squads-proposal"],
+    featured: false,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:token-account-query",
+          position: { x: 320, y: 220 },
+          data: { owner: "YOUR_TREASURY_OWNER", tokenProgram: "spl", credentialId: "" },
+        },
+        {
+          id: "n3",
+          type: "action:squads-proposal",
+          position: { x: 610, y: 220 },
+          data: {
+            apiUrl: "https://example.com/squads/proposals",
+            multisig: "YOUR_SQUADS_MULTISIG",
+            title: "Review treasury token accounts",
+            description: "Generated by SolStudio Cloud",
+            payload: { tokenAccounts: "{{ $json.tokenAccounts }}" },
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
+    ),
+    settings: { timeout: 120, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
+    title: "Wallet Activity Alert",
+    description: "Poll recent wallet signatures and notify your team when activity appears.",
+    longDescription:
+      "A lightweight wallet monitoring workflow that checks recent signatures for an address through JSON-RPC or Helius, then forwards the result to an operations webhook.",
+    category: "UTILITY",
+    tags: ["wallet", "activity", "helius", "alert", "monitoring"],
+    nodeTypes: ["trigger:cron", "action:helius-rpc", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:cron",
+          position: { x: 50, y: 220 },
+          data: { cronExpression: "*/5 * * * *", timezone: "UTC" },
+        },
+        {
+          id: "n2",
+          type: "action:helius-rpc",
+          position: { x: 320, y: 220 },
+          data: {
+            method: "getSignaturesForAddress",
+            params: ["YOUR_WALLET_ADDRESS", { limit: 10 }],
+            credentialId: "",
+            rpcUrl: "",
+          },
+        },
+        {
+          id: "n3",
+          type: "output:webhook",
+          position: { x: 610, y: 220 },
+          data: {
+            url: "https://example.com/ops/wallet-activity",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{{ $json.helius }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },
+  },
+
+  {
+    title: "Token Account Watcher",
+    description: "Watch SPL Token or Token-2022 accounts for an owner and notify on matches.",
+    longDescription:
+      "A token account monitoring workflow that periodically reads parsed token accounts, checks whether any match the configured owner and optional mint, and sends a compact webhook payload.",
+    category: "UTILITY",
+    tags: ["spl-token", "token-2022", "watcher", "monitoring"],
+    nodeTypes: ["trigger:cron", "action:token-account-query", "logic:if-else", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:cron",
+          position: { x: 50, y: 220 },
+          data: { cronExpression: "*/15 * * * *", timezone: "UTC" },
+        },
+        {
+          id: "n2",
+          type: "action:token-account-query",
+          position: { x: 320, y: 220 },
+          data: { owner: "YOUR_OWNER_ADDRESS", mint: "", tokenProgram: "spl", credentialId: "", rpcUrl: "" },
+        },
+        {
+          id: "n3",
+          type: "logic:if-else",
+          position: { x: 590, y: 220 },
+          data: { field: "tokenAccounts.count", operator: "gt", value: "0" },
+        },
+        {
+          id: "n4",
+          type: "output:webhook",
+          position: { x: 860, y: 160 },
+          data: {
+            url: "https://example.com/ops/token-accounts",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{{ $json.tokenAccounts }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },
+  },
 ];
 
 // ─── Seed ───────────────────────────────────────────────────────────────────
@@ -657,6 +906,8 @@ export async function seedCloudWorkflowTemplates() {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required to seed cloud workflow templates.");
   }
+
+  const prisma = getPrisma();
 
   console.log("Seeding cloud workflow templates...\n");
 
@@ -710,13 +961,14 @@ async function main() {
 }
 
 // Only run main() when executed directly (not when imported by tests)
-const seedPath = import.meta.path ?? "";
-const isEntry = typeof Bun !== "undefined" && Bun.main === seedPath;
+const seedPath = (import.meta as ImportMeta & { path?: string }).path ?? "";
+const bunMain = (globalThis as typeof globalThis & { Bun?: { main?: string } }).Bun?.main;
+const isEntry = Boolean(seedPath && bunMain === seedPath);
 if (isEntry) {
   main()
     .catch((err) => {
       console.error(err instanceof Error ? err.message : err);
       process.exit(1);
     })
-    .finally(() => prisma.$disconnect());
+    .finally(() => prisma?.$disconnect());
 }

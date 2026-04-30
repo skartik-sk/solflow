@@ -770,6 +770,9 @@ behavior. Users need provenance and safety checks.
 
 - Add template linting and audit score before publish.
 - Add plugin manifest signing for non-built-in plugins.
+  **SDK helpers now exist for canonical manifest hashing and ECDSA P-256
+  signature verification; third-party install UX still needs to call them before
+  registration.**
 - Display generated dependency changes.
 - Prevent marketplace downloads from including hidden secret-bearing data.
 - Keep first-party plugin security metadata required for built-ins.

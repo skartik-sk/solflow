@@ -9,6 +9,9 @@ const credentialTypeSchema = z.enum([
   "anthropic",
   "birdeye",
   "jupiter",
+  "helius",
+  "switchboard",
+  "squads",
   "webhook",
 ]);
 

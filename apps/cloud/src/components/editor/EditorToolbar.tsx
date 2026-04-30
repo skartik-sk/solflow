@@ -3,6 +3,7 @@
 // EditorToolbar — top bar with workflow name, undo/redo, save, run, activate.
 
 import React from "react";
+import type { Edge, Node } from "@xyflow/react";
 import {
   Undo2,
   Redo2,
@@ -15,12 +16,46 @@ import {
   Loader2,
   Power,
   PowerOff,
+  Share2,
+  ShieldCheck,
 } from "lucide-react";
 import { useWorkflowStore, useUndo, useRedo, useCanUndo, useCanRedo } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { useExecutionStore } from "@/store/execution-store";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
+import { redactPreviewValue } from "@/lib/cloud-workflow-features";
+
+function serializeWorkflowDefinition(nodes: Node[], edges: Edge[]) {
+  const serializedNodes = nodes.map((n) => {
+    const data = (n.data as any)?.data ?? n.data ?? {};
+    return {
+      id: n.id,
+      type: n.type ?? "unknown",
+      position: n.position,
+      data: typeof data === "object" ? data : {},
+    };
+  });
+  const serializedEdges = edges.map((e) => ({
+    id: e.id,
+    source: e.source,
+    target: e.target,
+    sourceHandle: e.sourceHandle ?? undefined,
+    targetHandle: e.targetHandle ?? undefined,
+  }));
+  return { nodes: serializedNodes, edges: serializedEdges };
+}
+
+function encodePreviewSnapshot(value: unknown): string {
+  const json = JSON.stringify(value);
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
 
 export function EditorToolbar() {
   const workflowName = useWorkflowStore((s) => s.workflowName);
@@ -46,9 +81,8 @@ export function EditorToolbar() {
   const openBottomPanelTab = useEditorUIStore((s) => s.openBottomPanelTab);
 
   const startExecution = useExecutionStore((s) => s.startExecution);
-  const setNodeStatus = useExecutionStore((s) => s.setNodeStatus);
-  const setNodeOutput = useExecutionStore((s) => s.setNodeOutput);
-  const setNodeError = useExecutionStore((s) => s.setNodeError);
+  const setSimulationReport = useExecutionStore((s) => s.setSimulationReport);
+  const setNodeResult = useExecutionStore((s) => s.setNodeResult);
   const completeExecution = useExecutionStore((s) => s.completeExecution);
   const addLog = useExecutionStore((s) => s.addLog);
 
@@ -78,6 +112,7 @@ export function EditorToolbar() {
   };
 
   const runExecution = trpc.execution.run.useMutation();
+  const simulateWorkflow = trpc.workflow.simulate.useMutation();
   const utils = trpc.useUtils();
 
   const saveWorkflow = trpc.workflow.update.useMutation({
@@ -93,27 +128,62 @@ export function EditorToolbar() {
       toast.error("Cannot save — no workflow ID");
       return;
     }
-    const serializedNodes = nodes.map((n) => {
-      const data = (n.data as any)?.data ?? n.data ?? {};
-      return {
-        id: n.id,
-        type: n.type ?? "unknown",
-        position: n.position,
-        data: typeof data === "object" ? data : {},
-      };
-    });
-    const serializedEdges = edges.map((e) => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      sourceHandle: e.sourceHandle ?? undefined,
-      targetHandle: e.targetHandle ?? undefined,
-    }));
     await saveWorkflow.mutateAsync({
       id: workflowId,
-      definition: { nodes: serializedNodes, edges: serializedEdges },
+      definition: serializeWorkflowDefinition(nodes, edges),
       settings: workflowSettings,
     });
+  };
+
+  const runSimulation = async () => {
+    if (!workflowId) {
+      toast.error("Cannot simulate - no workflow ID");
+      return null;
+    }
+    const definition = serializeWorkflowDefinition(nodes, edges);
+    const report = await simulateWorkflow.mutateAsync({
+      workflowId,
+      definition,
+      settings: workflowSettings,
+    });
+    setSimulationReport(report);
+    openBottomPanelTab("simulation");
+    return { definition, report };
+  };
+
+  const handleSimulate = async () => {
+    try {
+      const result = await runSimulation();
+      if (!result) return;
+      if (result.report.blocked) {
+        toast.error("Simulation found blockers");
+      } else if (result.report.warnings.length > 0) {
+        toast.message("Simulation ready with warnings");
+      } else {
+        toast.success("Simulation ready");
+      }
+    } catch (err) {
+      toast.error(`Simulation failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleSharePreview = async () => {
+    if (typeof window === "undefined") return;
+    const definition = serializeWorkflowDefinition(nodes, edges);
+    const snapshot = {
+      name: workflowName,
+      status: workflowStatus,
+      generatedAt: new Date().toISOString(),
+      definition: redactPreviewValue(definition),
+      settings: redactPreviewValue(workflowSettings),
+    };
+    const url = `${window.location.origin}/preview?snapshot=${encodeURIComponent(encodePreviewSnapshot(snapshot))}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Preview link copied");
+    } catch {
+      toast.error("Could not copy preview link");
+    }
   };
 
   const handleRun = async () => {
@@ -125,27 +195,19 @@ export function EditorToolbar() {
         throw new Error("Workflow must be saved before it can run");
       }
 
-      // First save the workflow definition
-      const serializedNodes = nodes.map((n) => {
-        const data = (n.data as any)?.data ?? n.data ?? {};
-        return {
-          id: n.id,
-          type: n.type ?? "unknown",
-          position: n.position,
-          data: typeof data === "object" ? data : {},
-        };
-      });
-      const serializedEdges = edges.map((e) => ({
-        id: e.id,
-        source: e.source,
-        target: e.target,
-        sourceHandle: e.sourceHandle ?? undefined,
-        targetHandle: e.targetHandle ?? undefined,
-      }));
+      const simulation = await runSimulation();
+      if (!simulation) {
+        setIsRunning(false);
+        return;
+      }
+      addLog("info", `Simulation complete: ${simulation.report.riskLevel} risk, ${simulation.report.estimatedFeeSol} SOL estimated fee`);
+      if (simulation.report.blocked) {
+        throw new Error(`Simulation blocked run: ${simulation.report.blockers.join(" ")}`);
+      }
 
       await utils.client.workflow.update.mutate({
         id: workflowId,
-        definition: { nodes: serializedNodes, edges: serializedEdges },
+        definition: simulation.definition,
         settings: workflowSettings,
       });
 
@@ -165,18 +227,26 @@ export function EditorToolbar() {
           // Update node statuses from DB results
           if (result.nodeResults) {
             for (const nr of result.nodeResults as any[]) {
+              const baseResult = {
+                nodeType: nr.nodeType,
+                input: nr.inputSnapshot,
+                output: nr.outputSnapshot,
+                error: nr.error ?? undefined,
+                duration: nr.duration ?? undefined,
+                logs: Array.isArray(nr.logs) ? nr.logs : [],
+                startedAt: nr.startedAt ? new Date(nr.startedAt).getTime() : undefined,
+                completedAt: nr.completedAt ? new Date(nr.completedAt).getTime() : undefined,
+              };
               if (nr.status === "COMPLETED") {
-                setNodeStatus(nr.nodeId, "success");
-                setNodeOutput(nr.nodeId, nr.outputSnapshot);
+                setNodeResult(nr.nodeId, { ...baseResult, status: "success" });
                 addLog("info", `${nr.nodeType} completed (${nr.duration ?? 0}ms)`);
               } else if (nr.status === "FAILED") {
-                setNodeStatus(nr.nodeId, "error");
-                setNodeError(nr.nodeId, nr.error ?? "Unknown error");
+                setNodeResult(nr.nodeId, { ...baseResult, status: "error" });
                 addLog("error", `${nr.nodeType} failed: ${nr.error ?? "Unknown error"}`);
               } else if (nr.status === "RUNNING") {
-                setNodeStatus(nr.nodeId, "running");
+                setNodeResult(nr.nodeId, { ...baseResult, status: "running" });
               } else if (nr.status === "SKIPPED") {
-                setNodeStatus(nr.nodeId, "skipped");
+                setNodeResult(nr.nodeId, { ...baseResult, status: "skipped" });
                 addLog("warn", `${nr.nodeType} skipped: ${nr.error ?? "Dependency skipped"}`);
               }
             }
@@ -278,6 +348,16 @@ export function EditorToolbar() {
         </button>
 
         <button
+          onClick={handleSharePreview}
+          disabled={nodes.length === 0}
+          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+          title="Copy shareable workflow preview"
+        >
+          <Share2 size={12} />
+          Share
+        </button>
+
+        <button
           onClick={handleToggleActive}
           disabled={!workflowId || activate.isPending || deactivate.isPending}
           className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
@@ -298,8 +378,22 @@ export function EditorToolbar() {
         </button>
 
         <button
+          onClick={handleSimulate}
+          disabled={!workflowId || simulateWorkflow.isPending || nodes.length === 0}
+          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+          title="Simulate workflow before running"
+        >
+          {simulateWorkflow.isPending ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <ShieldCheck size={12} />
+          )}
+          Simulate
+        </button>
+
+        <button
           onClick={handleRun}
-          disabled={isRunning || runExecution.isPending || nodes.length === 0}
+          disabled={isRunning || runExecution.isPending || simulateWorkflow.isPending || nodes.length === 0}
           className="flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           title="Run workflow"
         >

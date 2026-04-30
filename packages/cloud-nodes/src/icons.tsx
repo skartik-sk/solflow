@@ -16,6 +16,11 @@ import {
   Code,
   Timer,
   Activity,
+  Database,
+  FileJson,
+  Satellite,
+  ShieldCheck,
+  Users,
 } from "lucide-react";
 import type { ComponentType } from "react";
 
@@ -34,6 +39,11 @@ const ICON_MAP: Record<string, ComponentType<{ size?: number }>> = {
   Code: Code,
   Timer: Timer,
   Activity: Activity,
+  Database: Database,
+  FileJson: FileJson,
+  Satellite: Satellite,
+  ShieldCheck: ShieldCheck,
+  Users: Users,
 };
 
 export function getIconByName(name: string, size = 12): React.ReactNode {

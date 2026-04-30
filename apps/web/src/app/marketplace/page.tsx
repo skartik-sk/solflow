@@ -9,7 +9,13 @@ import {
   Workflow,
   CheckCircle2,
   XCircle,
+  ShieldCheck,
 } from "lucide-react";
+import {
+  evaluateMarketplaceCertification,
+  hasDeployInstructionsText,
+  isCertifiedTag,
+} from "@/lib/marketplace/certification";
 
 export const metadata = { title: "Marketplace | SolStudio" };
 
@@ -19,6 +25,7 @@ type ListingSummary = {
   id: string;
   title: string;
   description: string;
+  longDescription: string | null;
   category: string;
   tags: string[];
   thumbnailUrl: string | null;
@@ -88,6 +95,7 @@ export default async function MarketplacePage({ searchParams }: PageProps) {
           id: true,
           title: true,
           description: true,
+          longDescription: true,
           category: true,
           tags: true,
           thumbnailUrl: true,
@@ -324,6 +332,8 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
           ? `${listing.priceSOL} SOL`
           : "Paid";
 
+  const certification = getListingCertification(listing);
+
   return (
     <Link
       href={`/marketplace/${listing.id}`}
@@ -355,6 +365,11 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
                 Featured
               </span>
             )}
+            {certification.certified && (
+              <span className="rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-300 backdrop-blur-sm">
+                Certified
+              </span>
+            )}
           </div>
         </div>
       </div>
@@ -372,7 +387,7 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
         {/* Tags */}
         {listing.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
-            {listing.tags.slice(0, 3).map((tag) => (
+            {listing.tags.filter((tag) => !isCertifiedTag(tag)).slice(0, 3).map((tag) => (
               <span
                 key={tag}
                 className="rounded border border-border bg-background px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
@@ -383,7 +398,7 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
           </div>
         )}
 
-        <TemplateStatusBadges listing={listing} />
+        <TemplateStatusBadges certification={certification} />
 
         {/* Footer Stats */}
         <div className="mt-auto flex items-center justify-between pt-3 border-t border-border mt-3">
@@ -411,17 +426,37 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
   );
 }
 
-function TemplateStatusBadges({ listing }: { listing: ListingSummary }) {
-  const compileStatus = listing.project.compilations[0]?.status
-    ?? (listing.project.generatedCode ? "GENERATED" : "PENDING");
-  const auditScore = listing.project.auditReports[0]?.score;
-  const testStatus = listing.project.testRuns[0]?.status ?? "PENDING";
+function getListingCertification(listing: ListingSummary) {
+  return evaluateMarketplaceCertification({
+    compileStatus: listing.project.compilations[0]?.status ?? null,
+    testStatus: listing.project.testRuns[0]?.status ?? null,
+    auditScore: listing.project.auditReports[0]?.score ?? null,
+    hasDeployInstructions: hasDeployInstructionsText(listing.longDescription),
+    hasCodePackage: Boolean(listing.project.generatedCode || listing.project.framework),
+  });
+}
 
+function TemplateStatusBadges({
+  certification,
+}: {
+  certification: ReturnType<typeof getListingCertification>;
+}) {
   return (
     <div className="mt-2 grid grid-cols-3 gap-1.5">
-      <StatusPill label="Build" value={compileStatus} ok={compileStatus === "SUCCESS" || compileStatus === "GENERATED"} />
-      <StatusPill label="Audit" value={auditScore == null ? "Pending" : `${auditScore}/100`} ok={auditScore != null && auditScore >= 80} />
-      <StatusPill label="Test" value={testStatus} ok={testStatus === "PASSED"} />
+      {certification.certified && (
+        <span className="col-span-3 inline-flex items-center gap-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-1 text-[9px] font-semibold text-emerald-300">
+          <ShieldCheck className="h-2.5 w-2.5 shrink-0" />
+          SolStudio certified
+        </span>
+      )}
+      {certification.checks.slice(0, 3).map((check) => (
+        <StatusPill
+          key={check.id}
+          label={check.label === "Compile" ? "Build" : check.label}
+          value={check.value}
+          ok={check.ok}
+        />
+      ))}
     </div>
   );
 }

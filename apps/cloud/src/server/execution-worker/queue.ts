@@ -305,6 +305,7 @@ export function startExecutionWorker(): void {
           ...settings.safety,
           manualApprovalRequired: false,
           walletAutomationAllowed: true,
+          oneTimeApproval: true,
         };
       }
 
@@ -334,6 +335,17 @@ export function startExecutionWorker(): void {
       const errorCount = Array.from(result.nodeResults.values()).filter(
         (r) => r.status === "error",
       ).length;
+      const nodeTimeline = Array.from(result.nodeResults.entries()).map(([nodeId, nodeResult]) => ({
+        nodeId,
+        nodeType: nodeResult.nodeType,
+        status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
+        duration: nodeResult.duration,
+        attempts: nodeResult.attempts ?? 0,
+        error: nodeResult.error ?? null,
+        logCount: nodeResult.logs.length,
+        inputBytes: safeJsonByteLength(nodeResult.inputSnapshot),
+        outputBytes: safeJsonByteLength(nodeResult.outputSnapshot),
+      }));
 
       await prisma.workflowExecution.update({
         where: { id: executionId },
@@ -345,6 +357,12 @@ export function startExecutionWorker(): void {
           nodesSucceeded: successCount,
           nodesFailed: errorCount,
           errorMessage: result.error,
+          executionData: {
+            timeline: nodeTimeline,
+            retryPolicy: settings.retryPolicy,
+            onError: settings.onError,
+            safety: redactSafetyForTimeline(settings.safety),
+          } as any,
         },
       });
 
@@ -400,6 +418,28 @@ export function startExecutionWorker(): void {
       workflowId: job.data.workflowId,
     });
   });
+}
+
+function safeJsonByteLength(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value ?? null), "utf8");
+  } catch {
+    return 0;
+  }
+}
+
+function redactSafetyForTimeline(safety: WorkflowSettings["safety"]): Record<string, unknown> | undefined {
+  if (!safety) return undefined;
+  return {
+    simulationRequired: safety.simulationRequired,
+    manualApprovalRequired: safety.manualApprovalRequired,
+    walletAutomationAllowed: safety.walletAutomationAllowed,
+    spendLimitLamports: safety.spendLimitLamports,
+    maxSlippageBps: safety.maxSlippageBps,
+    allowedMints: safety.allowedMints,
+    webhookAllowlistCount: safety.webhookAllowlist?.length ?? 0,
+    oneTimeApproval: safety.oneTimeApproval === true,
+  };
 }
 
 export async function stopExecutionWorker(): Promise<void> {

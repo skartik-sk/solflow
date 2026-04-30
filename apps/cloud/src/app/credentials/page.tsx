@@ -12,6 +12,9 @@ const CREDENTIAL_TYPES = [
   { value: "anthropic", label: "Anthropic" },
   { value: "birdeye", label: "Birdeye" },
   { value: "jupiter", label: "Jupiter" },
+  { value: "helius", label: "Helius" },
+  { value: "switchboard", label: "Switchboard" },
+  { value: "squads", label: "Squads" },
   { value: "webhook", label: "Webhook" },
 ] as const;
 
@@ -57,6 +60,9 @@ function buildCredentialData(form: FormState, requireSecret: boolean): Record<st
   const data: Record<string, unknown> = {};
   if (form.apiKey.trim()) data.apiKey = form.apiKey.trim();
   if (form.type === "jupiter" && form.baseUrl.trim()) data.baseUrl = form.baseUrl.trim();
+  if (form.type === "helius" && form.baseUrl.trim()) data.rpcUrl = form.baseUrl.trim();
+  if (form.type === "switchboard" && form.baseUrl.trim()) data.apiUrl = form.baseUrl.trim();
+  if (form.type === "squads" && form.baseUrl.trim()) data.apiUrl = form.baseUrl.trim();
   if (!data.apiKey && requireSecret) {
     throw new Error(`${form.type} credentials need an API key`);
   }
@@ -190,7 +196,7 @@ export default function CredentialsPage() {
               <KeyRound className="mb-3 h-10 w-10 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">No credentials yet</p>
               <p className="mb-4 text-xs text-muted-foreground/60">
-                Add provider keys for AI, price, Jupiter, or webhook nodes
+                Add provider keys for AI, price, Jupiter, Helius, Switchboard, Squads, or webhook nodes
               </p>
             </div>
           )}
@@ -238,8 +244,21 @@ export default function CredentialsPage() {
               ) : (
                 <>
                   <input className={inputClass} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.id ? "New API key (optional)" : "API key"} />
-                  {form.type === "jupiter" && (
-                    <input className={inputClass} value={form.baseUrl} onChange={(e) => setForm({ ...form, baseUrl: e.target.value })} placeholder="Optional Jupiter base URL" />
+                  {["jupiter", "helius", "switchboard", "squads"].includes(form.type) && (
+                    <input
+                      className={inputClass}
+                      value={form.baseUrl}
+                      onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                      placeholder={
+                        form.type === "helius"
+                          ? "Optional Helius RPC URL"
+                          : form.type === "switchboard"
+                            ? "Optional Switchboard API URL"
+                            : form.type === "squads"
+                              ? "Optional Squads API URL"
+                              : "Optional Jupiter base URL"
+                      }
+                    />
                   )}
                 </>
               )}

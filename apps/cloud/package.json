@@ -9,7 +9,8 @@
     "start": "NODE_OPTIONS='--max-old-space-size=4096' tsx server.ts",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:manual": "bun scripts/manual-workflow-smoke.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.3",
