@@ -15,6 +15,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.OPENAI_API_KEY;
   delete process.env.ANTHROPIC_API_KEY;
+  delete process.env.GEMINI_API_KEY;
+  delete process.env.GOOGLE_API_KEY;
   delete process.env.BIRDEYE_API_KEY;
   delete process.env.JUPITER_API_BASE;
   delete process.env.SOLFLOW_ALLOW_PRIVATE_OUTBOUND;
@@ -455,6 +457,46 @@ describe("Execute functions", () => {
     expect(body.messages[0].content).toBe("test prompt");
     expect((result[0].json as any).ai.content).toBe("analysis complete");
     expect((result[0].json as any).ai.usage.output_tokens).toBe(2);
+  });
+
+  it("action:ai-agent calls Gemini Generative Language API", async () => {
+    process.env.GEMINI_API_KEY = "test-gemini";
+    const def = cloudNodeRegistry.get("action:ai-agent")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: "{\"decision\":\"hold\"}" }] } }],
+        usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 4, totalTokenCount: 10 },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      provider: "gemini",
+      model: "gemini-2.0-flash",
+      systemPrompt: "You classify swaps.",
+      prompt: "test prompt",
+      responseFormat: "json",
+    }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=test-gemini",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.contents[0].parts[0].text).toBe("test prompt");
+    expect(body.generationConfig.responseMimeType).toBe("application/json");
+    expect((result[0].json as any).ai.content).toBe("{\"decision\":\"hold\"}");
+    expect((result[0].json as any).ai.json).toEqual({ decision: "hold" });
+    expect((result[0].json as any).ai.usage.totalTokenCount).toBe(10);
   });
 
   it("action:ai-agent uses selected provider credential", async () => {

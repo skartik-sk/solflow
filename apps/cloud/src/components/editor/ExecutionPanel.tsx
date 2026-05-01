@@ -28,7 +28,7 @@ export function ExecutionPanel() {
   if (!bottomPanelOpen) return null;
 
   return (
-    <div className="flex h-[200px] flex-col border-t border-border bg-card">
+    <div className="flex h-[260px] flex-col border-t border-border bg-card shadow-[0_-12px_30px_rgba(0,0,0,0.18)]">
       {/* Tab bar */}
       <div className="flex items-center justify-between border-b border-border px-2">
         <div className="flex items-center gap-1">
@@ -103,7 +103,9 @@ export function ExecutionPanel() {
         {bottomPanelTab === "executions" && (
           <div className="space-y-1">
             {nodeResults.size === 0 ? (
-              <p className="text-muted-foreground/50">No executions yet.</p>
+              <p className="text-muted-foreground/50">
+                No node results yet. Click Run to queue a manual execution.
+              </p>
             ) : (
               Array.from(nodeResults.values()).map((result) => (
                 <div
@@ -230,11 +232,20 @@ export function ExecutionPanel() {
         {bottomPanelTab === "output" && (
           <div className="space-y-2">
             {nodeResults.size === 0 ? (
-              <p className="text-muted-foreground/50">No output yet. Run the workflow to see results.</p>
+              <p className="text-muted-foreground/50">
+                No output yet. Run the workflow to see node JSON output here.
+              </p>
             ) : (
-              Array.from(nodeResults.values())
-                .filter((r) => r.output)
-                .map((result) => (
+              (() => {
+                const outputResults = Array.from(nodeResults.values()).filter((r) => r.output);
+                if (outputResults.length === 0) {
+                  return (
+                    <p className="text-muted-foreground/50">
+                      This run has node statuses but no JSON output yet. Check Executions or Logs.
+                    </p>
+                  );
+                }
+                return outputResults.map((result) => (
                   <div key={result.nodeId}>
                     <p className="text-muted-foreground/60 mb-0.5">
                       {result.nodeId.slice(0, 8)}...
@@ -243,7 +254,8 @@ export function ExecutionPanel() {
                       {JSON.stringify(result.output, null, 2)}
                     </pre>
                   </div>
-                ))
+                ));
+              })()
             )}
           </div>
         )}

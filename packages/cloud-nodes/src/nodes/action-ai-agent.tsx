@@ -6,7 +6,7 @@ import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
 
-type AiProvider = "openai" | "anthropic";
+type AiProvider = "openai" | "anthropic" | "gemini";
 type AiResponseFormat = "text" | "json";
 
 interface AiCallOptions {
@@ -38,6 +38,20 @@ function requireFetch(): typeof fetch {
     throw new Error("Global fetch is not available in this runtime");
   }
   return fetch;
+}
+
+function defaultModelForProvider(provider: string): string {
+  if (provider === "anthropic") return "claude-3-5-haiku-20241022";
+  if (provider === "gemini") return "gemini-2.0-flash";
+  return "gpt-4o-mini";
+}
+
+function resolveModelForProvider(provider: string, model?: string): string {
+  if (!model) return defaultModelForProvider(provider);
+  if (provider !== "openai" && model === "gpt-4o-mini") {
+    return defaultModelForProvider(provider);
+  }
+  return model;
 }
 
 function readJsonObject(value: string, provider: AiProvider): unknown {
@@ -75,6 +89,14 @@ function extractAnthropicText(payload: any): string {
   return (Array.isArray(payload.content) ? payload.content : [])
     .filter((block: any) => block?.type === "text" && typeof block.text === "string")
     .map((block: any) => block.text)
+    .join("");
+}
+
+function extractGeminiText(payload: any): string {
+  const parts = payload?.candidates?.[0]?.content?.parts;
+  return (Array.isArray(parts) ? parts : [])
+    .filter((part: any) => typeof part?.text === "string")
+    .map((part: any) => part.text)
     .join("");
 }
 
@@ -168,9 +190,61 @@ async function callAnthropic(options: AiCallOptions): Promise<AiCallResult> {
   };
 }
 
+async function callGemini(options: AiCallOptions): Promise<AiCallResult> {
+  const apiKey = options.apiKey ?? getEnv("GEMINI_API_KEY") ?? getEnv("GOOGLE_API_KEY");
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is required to execute the Gemini AI Agent node");
+  }
+
+  const wantsJson = options.responseFormat === "json";
+  const systemPrompt = [
+    options.systemPrompt.trim(),
+    wantsJson ? "Respond only with a valid JSON object." : "",
+  ].filter(Boolean).join("\n\n");
+
+  const response = await requireFetch()(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(options.model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: options.signal,
+      body: JSON.stringify({
+        ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: options.prompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: options.temperature,
+          maxOutputTokens: options.maxTokens,
+          ...(wantsJson ? { responseMimeType: "application/json" } : {}),
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      `Gemini API error ${response.status} ${response.statusText}: ${await readErrorBody(response)}`,
+    );
+  }
+
+  const payload = await response.json();
+  const content = extractGeminiText(payload);
+  return {
+    content,
+    parsedJson: wantsJson ? readJsonObject(content, "gemini") : undefined,
+    usage: payload.usageMetadata,
+    rawResponse: payload,
+  };
+}
+
 async function callAiProvider(options: AiCallOptions): Promise<AiCallResult> {
   if (options.provider === "openai") return callOpenAi(options);
   if (options.provider === "anthropic") return callAnthropic(options);
+  if (options.provider === "gemini") return callGemini(options);
   throw new Error(`Unsupported AI provider "${options.provider}"`);
 }
 
@@ -203,7 +277,7 @@ export const AiAgentNode = memo(function AiAgentNode({
   selected?: boolean;
 }) {
   const provider = (data.data?.provider as string) || "openai";
-  const model = (data.data?.model as string) || "gpt-4o-mini";
+  const model = resolveModelForProvider(provider, data.data?.model as string | undefined);
 
   return (
     <CloudBaseNode data={data} selected={selected}>
@@ -238,6 +312,7 @@ export const aiAgentDef: CloudNodeDefinition = {
       options: [
         { label: "OpenAI", value: "openai" },
         { label: "Anthropic", value: "anthropic" },
+        { label: "Gemini", value: "gemini" },
       ],
     },
     {
@@ -245,8 +320,8 @@ export const aiAgentDef: CloudNodeDefinition = {
       label: "Credential",
       type: "credential",
       required: false,
-      credentialTypes: ["openai", "anthropic"],
-      description: "Optional provider API key credential. Falls back to provider env vars.",
+      credentialTypes: ["openai", "anthropic", "gemini"],
+      description: "Select a saved provider credential, or leave blank to use OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
     },
     {
       key: "model",
@@ -259,6 +334,8 @@ export const aiAgentDef: CloudNodeDefinition = {
         { label: "GPT-4o", value: "gpt-4o" },
         { label: "Claude Haiku", value: "claude-3-5-haiku-20241022" },
         { label: "Claude Sonnet", value: "claude-sonnet-4-20250514" },
+        { label: "Gemini 2.0 Flash", value: "gemini-2.0-flash" },
+        { label: "Gemini 1.5 Flash", value: "gemini-1.5-flash" },
       ],
     },
     {
@@ -321,7 +398,7 @@ export const aiAgentDef: CloudNodeDefinition = {
   component: AiAgentNode,
   async execute(ctx) {
     const provider = ((ctx.params.provider as string) || "openai") as AiProvider;
-    const model = (ctx.params.model as string) || "gpt-4o-mini";
+    const model = resolveModelForProvider(provider, ctx.params.model as string | undefined);
     const systemPrompt = (ctx.params.systemPrompt as string) || "";
     const prompt = ctx.params.prompt as string;
     const temperature = Number(ctx.params.temperature) || 0.7;
@@ -332,7 +409,7 @@ export const aiAgentDef: CloudNodeDefinition = {
       throw new Error("Prompt is required");
     }
 
-    if (!["openai", "anthropic"].includes(provider)) {
+    if (!["openai", "anthropic", "gemini"].includes(provider)) {
       throw new Error(`Unsupported AI provider "${provider}"`);
     }
 

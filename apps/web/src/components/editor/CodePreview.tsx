@@ -26,18 +26,19 @@ function cn(...inputs: ClassValue[]) {
 import { loader } from "@monaco-editor/react";
 
 if (typeof window !== "undefined") {
-  loader.config({
-    paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.0/min/vs" },
-  });
+  void import("monaco-editor")
+    .then((monaco) => {
+      loader.config({ monaco });
+    })
+    .catch(() => {
+      // The plain text fallback below keeps generated code visible even if
+      // Monaco fails to initialize in a locked-down browser/runtime.
+    });
 }
 
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
-  loading: () => (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-      Loading editor…
-    </div>
-  ),
+  loading: () => null,
 });
 
 // ─── Language detection ───────────────────────────────────────────────────────
@@ -133,12 +134,14 @@ export function CodePreview() {
   const { generatedCode, activeFile, errors, focusRequest, setActiveFile } = useCodeStore();
   const [compareMode, setCompareMode] = useState(false);
   const [focusTarget, setFocusTarget] = useState<CodeFocusTarget | null>(null);
+  const [monacoReadyPath, setMonacoReadyPath] = useState<string | null>(null);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const decorationsRef = useRef<string[]>([]);
 
   const files = generatedCode?.files ?? [];
   const currentFile = files.find((f) => f.path === activeFile) ?? files[0] ?? null;
+  const monacoReady = !!currentFile && monacoReadyPath === currentFile.path;
 
   const handleTabClick = useCallback(
     (path: string) => setActiveFile(path),
@@ -186,6 +189,13 @@ export function CodePreview() {
   useEffect(() => {
     revealFocusTarget();
   }, [revealFocusTarget]);
+
+  useEffect(() => {
+    setMonacoReadyPath(null);
+    editorRef.current = null;
+    monacoRef.current = null;
+    decorationsRef.current = [];
+  }, [currentFile?.path]);
 
   // ── Empty / error state ──────────────────────────────────────────
   if (!generatedCode && errors.length === 0) {
@@ -283,37 +293,48 @@ export function CodePreview() {
       )}
 
       {/* Monaco editor */}
-      <div className="min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 overflow-hidden">
         {currentFile ? (
-          <MonacoEditor
-            key={currentFile.path}
-            value={currentFile.content}
-            language={detectLanguage(currentFile)}
-            theme="vs-dark"
-            onMount={(editor, monaco) => {
-              editorRef.current = editor;
-              monacoRef.current = monaco;
-              requestAnimationFrame(revealFocusTarget);
-            }}
-            options={{
-              readOnly: true,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              fontSize: 12,
-              fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              lineNumbers: "on",
-              wordWrap: "off",
-              automaticLayout: true,
-              scrollbar: {
-                verticalScrollbarSize: 6,
-                horizontalScrollbarSize: 6,
-              },
-              renderLineHighlight: "none",
-              overviewRulerBorder: false,
-              hideCursorInOverviewRuler: true,
-              padding: { top: 8, bottom: 8 },
-            }}
-          />
+          <>
+            {!monacoReady && <PlainCodeFallback file={currentFile} />}
+            <div
+              className={cn(
+                "absolute inset-0 transition-opacity duration-150",
+                monacoReady ? "opacity-100" : "pointer-events-none opacity-0",
+              )}
+            >
+              <MonacoEditor
+                key={currentFile.path}
+                value={currentFile.content}
+                language={detectLanguage(currentFile)}
+                theme="vs-dark"
+                onMount={(editor, monaco) => {
+                  editorRef.current = editor;
+                  monacoRef.current = monaco;
+                  setMonacoReadyPath(currentFile.path);
+                  requestAnimationFrame(revealFocusTarget);
+                }}
+                options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  scrollBeyondLastLine: false,
+                  fontSize: 12,
+                  fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                  lineNumbers: "on",
+                  wordWrap: "off",
+                  automaticLayout: true,
+                  scrollbar: {
+                    verticalScrollbarSize: 6,
+                    horizontalScrollbarSize: 6,
+                  },
+                  renderLineHighlight: "none",
+                  overviewRulerBorder: false,
+                  hideCursorInOverviewRuler: true,
+                  padding: { top: 8, bottom: 8 },
+                }}
+              />
+            </div>
+          </>
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             No file selected.
@@ -351,6 +372,14 @@ export function CodePreview() {
         }
       `}</style>
     </div>
+  );
+}
+
+function PlainCodeFallback({ file }: { file: GeneratedFile }) {
+  return (
+    <pre className="h-full overflow-auto bg-zinc-950 p-3 font-mono text-[12px] leading-5 text-zinc-200">
+      <code>{file.content}</code>
+    </pre>
   );
 }
 

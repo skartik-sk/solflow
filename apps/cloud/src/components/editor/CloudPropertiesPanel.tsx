@@ -3,7 +3,8 @@
 // CloudPropertiesPanel — right sidebar for editing selected node properties.
 
 import React from "react";
-import { X, Settings, Trash2, Copy } from "lucide-react";
+import Link from "next/link";
+import { X, Settings, Trash2, Copy, Plus } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { trpc } from "@/lib/trpc/client";
@@ -63,20 +64,65 @@ function CredentialSelect({
   const { data: credentials, isLoading } = trpc.credential.list.useQuery(
     types?.length ? { types: types as any } : undefined,
   );
+  const createHref = `/credentials${types?.[0] ? `?type=${encodeURIComponent(types[0])}` : ""}`;
+  const typeLabel = types?.length === 1 ? types[0] : "provider";
 
   return (
-    <select
-      className={selectClass}
-      value={value !== undefined && value !== null ? String(value) : ""}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      <option value="">{isLoading ? "Loading..." : "No credential"}</option>
-      {credentials?.map((credential) => (
-        <option key={credential.id} value={credential.id}>
-          {credential.label} ({credential.type})
-        </option>
-      ))}
-    </select>
+    <div className="space-y-1.5">
+      <select
+        className={selectClass}
+        value={value !== undefined && value !== null ? String(value) : ""}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{isLoading ? "Loading..." : "No credential selected"}</option>
+        {credentials?.map((credential) => (
+          <option key={credential.id} value={credential.id}>
+            {credential.label} ({credential.type})
+          </option>
+        ))}
+      </select>
+      <Link
+        href={createHref}
+        className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+      >
+        <Plus size={10} />
+        Add {typeLabel} credential
+      </Link>
+    </div>
+  );
+}
+
+function WalletSelect({
+  value,
+  onChange,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+}) {
+  const { data: wallets, isLoading } = trpc.wallet.list.useQuery();
+
+  return (
+    <div className="space-y-1.5">
+      <select
+        className={selectClass}
+        value={value !== undefined && value !== null ? String(value) : ""}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">{isLoading ? "Loading..." : "Select a Cloud wallet"}</option>
+        {wallets?.map((wallet) => (
+          <option key={wallet.id} value={wallet.id}>
+            {wallet.label} ({wallet.network})
+          </option>
+        ))}
+      </select>
+      <Link
+        href="/wallets"
+        className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+      >
+        <Plus size={10} />
+        Create Cloud wallet
+      </Link>
+    </div>
   );
 }
 
@@ -100,6 +146,9 @@ function PropertyField({
           onChange={onChange}
         />
       );
+
+    case "wallet-select":
+      return <WalletSelect value={value} onChange={onChange} />;
 
     case "text":
     case "pubkey":
@@ -264,7 +313,6 @@ export function CloudPropertiesPanel() {
                   onChange={(val) => {
                     updateNodeData(selectedNode.id, {
                       [prop.key]: val,
-                      data: { ...nodeData, [prop.key]: val },
                     });
                   }}
                 />

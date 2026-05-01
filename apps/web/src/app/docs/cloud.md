@@ -27,11 +27,32 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Family    | Nodes                                         | Use                                                             |
 | --------- | --------------------------------------------- | --------------------------------------------------------------- |
 | Trigger   | Manual Trigger, Cron Trigger, Webhook Trigger | Start a workflow run                                            |
-| Action    | Fetch Price, Token Transfer, Jupiter Swap     | Fetch data or perform Solana-aware work                         |
+| Action    | Fetch Price, Token Transfer, Jupiter Swap, Oracle Price, Helius RPC, Token Account Query, Metaplex Asset, Squads Proposal | Fetch data or perform Solana-aware work |
 | AI        | AI Agent                                      | Summarize, classify, score risk, or create structured decisions |
 | Logic     | If / Else, Wait                               | Branch or delay execution                                       |
 | Transform | Filter                                        | Keep only items matching a condition                            |
 | Output    | HTTP Request                                  | Send workflow results to another app                            |
+
+## Node Credential Matrix
+
+| Node                 | Credential type                         | Required?                                | Fallback / note                                      |
+| -------------------- | --------------------------------------- | ---------------------------------------- | ---------------------------------------------------- |
+| Manual Trigger       | None                                    | No                                       | Starts from the Run button                           |
+| Cron Trigger         | None                                    | No                                       | Runs only after activation                           |
+| Webhook Trigger      | None                                    | No                                       | Header auth is configured on the node itself         |
+| Fetch Price          | `birdeye`                               | Required for Birdeye, not DexScreener    | `BIRDEYE_API_KEY` works as an environment fallback   |
+| Jupiter Swap         | `jupiter` plus a Cloud wallet           | Wallet required, API key optional        | `JUPITER_API_KEY` and `JUPITER_API_BASE` can fallback |
+| Token Transfer       | Cloud wallet                            | Yes                                      | Uses the selected encrypted Cloud wallet             |
+| AI Agent             | `openai`, `anthropic`, or `gemini`      | Required unless env var is configured    | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` |
+| Oracle Price         | `switchboard` or `webhook` for Switchboard | Required for Switchboard, not Pyth    | Pyth reads can run without an API key                |
+| Helius RPC           | `helius`                                | Required unless RPC URL is provided      | API key can build the Helius RPC URL                 |
+| Token Account Query  | `helius` or `webhook`                   | Required unless RPC URL is provided      | Supports SPL Token and Token-2022 queries            |
+| Metaplex Asset       | `helius`                                | Required unless DAS RPC URL is provided  | Reads asset metadata through DAS-compatible RPC      |
+| Squads Proposal      | `squads` or `webhook`                   | Usually required                         | Sends proposal payload to a Squads-compatible API    |
+| If / Else            | None                                    | No                                       | Branches on item JSON fields                         |
+| Filter               | None                                    | No                                       | Drops non-matching items                             |
+| Wait                 | None                                    | No                                       | Delays the item before continuing                    |
+| HTTP Request         | `webhook`                               | Optional                                 | Merges bearer token, API key, or custom headers      |
 
 ## Connection Rules
 
@@ -133,11 +154,16 @@ Use Webhook Trigger when another product, bot, backend, or alerting system shoul
 
 ## Action Nodes
 
-| Node           | Required inputs                   | Key properties                                                  | Emits                                           |
-| -------------- | --------------------------------- | --------------------------------------------------------------- | ----------------------------------------------- |
-| Fetch Price    | Optional incoming item            | Token Address, Price Source, Credential                         | `price` and `priceData`                         |
-| Token Transfer | Incoming item or fixed properties | Destination Address, Amount, Token Mint, Source Wallet          | Transaction signature and transfer metadata     |
-| Jupiter Swap   | Incoming item or fixed properties | Input Token, Output Token, Amount, Slippage, Wallet, Credential | Transaction signature, route, and swap metadata |
+| Node                | Required inputs                   | Key properties                                                  | Emits                                           |
+| ------------------- | --------------------------------- | --------------------------------------------------------------- | ----------------------------------------------- |
+| Fetch Price         | Optional incoming item            | Token Address, Price Source, Credential                         | `price` and `priceData`                         |
+| Token Transfer      | Incoming item or fixed properties | Destination Address, Amount, Token Mint, Source Wallet          | Transaction signature and transfer metadata     |
+| Jupiter Swap        | Incoming item or fixed properties | Input Token, Output Token, Amount, Slippage, Wallet, Credential | Transaction signature, route, and swap metadata |
+| Oracle Price        | Optional incoming item            | Provider, Feed ID, API URL, Credential                          | Oracle price payload                            |
+| Helius RPC          | Optional incoming item            | Method, Params, RPC URL, Credential                             | JSON-RPC result                                 |
+| Token Account Query | Optional incoming item            | Owner, Mint, Token Program, RPC URL, Credential                 | Token account list                              |
+| Metaplex Asset      | Optional incoming item            | Asset ID, RPC URL, Credential                                   | DAS asset metadata                              |
+| Squads Proposal     | Incoming item or fixed payload    | API URL, Multisig, Title, Payload, Credential                   | Proposal API response                           |
 
 ### Fetch Price
 
@@ -186,7 +212,7 @@ AI Agent calls an LLM to process workflow data.
 
 | Property        | Meaning                                                                     |
 | --------------- | --------------------------------------------------------------------------- |
-| Provider        | OpenAI or Anthropic                                                         |
+| Provider        | OpenAI, Anthropic, or Gemini                                                 |
 | Credential      | Optional provider credential. Environment variables can be used as fallback |
 | Model           | Selected model                                                              |
 | System Prompt   | Instruction that sets the agent behavior                                    |
@@ -258,7 +284,9 @@ Cloud workflows can use encrypted wallets and credentials for automated actions.
 | Cloud wallet           | Token Transfer, Jupiter Swap | Used for transaction signing                  |
 | Birdeye credential     | Fetch Price                  | Optional when `BIRDEYE_API_KEY` is available  |
 | Jupiter credential     | Jupiter Swap                 | Optional when `JUPITER_API_KEY` is available  |
-| AI provider credential | AI Agent                     | Optional when provider env vars are available |
+| OpenAI credential      | AI Agent                     | Optional when `OPENAI_API_KEY` is available   |
+| Anthropic credential   | AI Agent                     | Optional when `ANTHROPIC_API_KEY` is available |
+| Gemini credential      | AI Agent                     | Optional when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is available |
 | Webhook credential     | HTTP Request                 | Merged into outbound request headers          |
 
 Operational rules:

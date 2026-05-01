@@ -21,7 +21,7 @@ import {
   CATEGORY_COLORS,
   type CloudFlowNodeData,
 } from "@solflow/cloud-nodes";
-import { getIconByName } from "@solflow/cloud-nodes";
+import { Maximize2 } from "lucide-react";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useExecutionStore } from "@/store/execution-store";
 
@@ -102,12 +102,11 @@ function FitViewButton() {
   return (
     <button
       onClick={() => fitView({ padding: 0.2, duration: 300 })}
-      className="absolute bottom-3 left-3 z-10 flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-lg hover:bg-accent hover:text-foreground transition-colors"
+      className="absolute bottom-28 left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-lg transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       title="Fit to screen"
+      aria-label="Fit canvas to screen"
     >
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
-      </svg>
+      <Maximize2 size={14} />
     </button>
   );
 }

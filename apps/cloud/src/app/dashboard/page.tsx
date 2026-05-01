@@ -1,36 +1,28 @@
 "use client";
 
-// Cloud Dashboard — main landing page after login.
+// Cloud Dashboard - compact operational home after login.
 
 import React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  Workflow,
-  Plus,
   Activity,
+  ArrowRight,
   BarChart3,
-  CheckCircle2,
-  Wallet,
-  Clock,
   Bot,
-  Loader2,
+  Boxes,
+  CheckCircle2,
+  Clock,
+  KeyRound,
+  Plus,
+  Wallet,
+  Workflow,
   XCircle,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { AppShell } from "@/components/layout/AppShell";
 
-const PROTOCOL_PACKS = [
-  { name: "Jupiter", detail: "Swap quotes and execution", color: "#10b981" },
-  { name: "Pyth", detail: "Oracle price feeds", color: "#f59e0b" },
-  { name: "Helius", detail: "DAS and JSON-RPC", color: "#6366f1" },
-  { name: "Metaplex", detail: "NFT asset metadata", color: "#ec4899" },
-  { name: "SPL Token", detail: "Token account reads", color: "#22c55e" },
-  { name: "Squads", detail: "Approval handoff", color: "#eab308" },
-];
-
 function statusClass(status: string): string {
-  if (status === "COMPLETED") return "bg-emerald-500/10 text-emerald-300";
+  if (status === "ACTIVE" || status === "COMPLETED") return "bg-emerald-500/10 text-emerald-300";
   if (status === "FAILED" || status === "TIMED_OUT") return "bg-red-500/10 text-red-300";
   if (status === "RUNNING") return "bg-blue-500/10 text-blue-300";
   return "bg-muted text-muted-foreground";
@@ -42,109 +34,131 @@ function formatTime(value: string | Date | null | undefined): string {
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { data: templates, isLoading: templatesLoading } =
-    trpc.template.list.useQuery({ limit: 6 });
   const { data: workflows } = trpc.workflow.list.useQuery();
   const { data: executionData } = trpc.execution.list.useQuery({ limit: 8 });
-  const forkTemplate = trpc.template.fork.useMutation();
+
+  const workflowItems = workflows ?? [];
   const recentExecutions = executionData?.items ?? [];
-  const activeWorkflows = (workflows ?? []).filter((workflow: any) => workflow.status === "ACTIVE");
+  const activeWorkflows = workflowItems.filter((workflow: any) => workflow.status === "ACTIVE");
   const completedRuns = recentExecutions.filter((execution: any) => execution.status === "COMPLETED").length;
-  const successRate = recentExecutions.length > 0
-    ? Math.round((completedRuns / recentExecutions.length) * 100)
-    : 0;
+  const successRate =
+    recentExecutions.length > 0 ? Math.round((completedRuns / recentExecutions.length) * 100) : 0;
   const nextRun = activeWorkflows
     .map((workflow: any) => workflow.nextRunAt)
     .filter(Boolean)
     .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime())[0];
 
-  const handleUseTemplate = async (templateId: string, title: string) => {
-    const workflow = await forkTemplate.mutateAsync({
-      templateId,
-      name: title,
-    });
-    router.push(`/editor/${workflow.id}`);
-  };
-
   return (
     <AppShell>
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">Welcome back</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Build and automate Solana workflows visually
+      <div className="mb-6 flex flex-col justify-between gap-4 md:flex-row md:items-end">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Cloud dashboard</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Run history, workflow status, wallets, and credentials in one place.
           </p>
         </div>
-
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="flex flex-wrap gap-2">
           <Link
             href="/editor/new"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-primary/40 hover:shadow-lg hover:shadow-primary/5 transition-all group"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary group-hover:bg-primary/20 transition-colors">
-              <Plus size={18} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">New Workflow</p>
-              <p className="text-xs text-muted-foreground">Start from scratch</p>
-            </div>
+            <Plus size={13} />
+            New Workflow
           </Link>
-
           <Link
-            href="/assistant"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-violet-500/40 hover:shadow-lg hover:shadow-violet-500/5 transition-all group"
+            href="/marketplace"
+            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-violet-500/10 text-violet-300 group-hover:bg-violet-500/20 transition-colors">
-              <Bot size={18} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">AI Assistant</p>
-              <p className="text-xs text-muted-foreground">Generate a workflow</p>
-            </div>
-          </Link>
-
-          <Link
-            href="/workflows"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-blue-500/40 hover:shadow-lg hover:shadow-blue-500/5 transition-all group"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20 transition-colors">
-              <Workflow size={18} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">My Workflows</p>
-              <p className="text-xs text-muted-foreground">Manage existing workflows</p>
-            </div>
-          </Link>
-
-          <Link
-            href="/wallets"
-            className="flex items-center gap-3 rounded-xl border border-border bg-card p-4 hover:border-emerald-500/40 hover:shadow-lg hover:shadow-emerald-500/5 transition-all group"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
-              <Wallet size={18} />
-            </div>
-            <div>
-              <p className="text-sm font-semibold">Wallets</p>
-              <p className="text-xs text-muted-foreground">Manage cloud wallets</p>
-            </div>
+            <Boxes size={13} />
+            Marketplace
           </Link>
         </div>
+      </div>
 
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Run History
-          </h2>
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-            <DashboardMetric icon={<Workflow size={15} />} label="Active workflows" value={`${activeWorkflows.length}`} />
-            <DashboardMetric icon={<Activity size={15} />} label="Recent runs" value={`${recentExecutions.length}`} />
-            <DashboardMetric icon={<BarChart3 size={15} />} label="Success rate" value={recentExecutions.length ? `${successRate}%` : "-"} />
-            <DashboardMetric icon={<Clock size={15} />} label="Next run" value={formatTime(nextRun)} />
+      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-5">
+        <DashboardAction href="/editor/new" icon={<Workflow size={17} />} title="Editor" detail="Build a workflow" />
+        <DashboardAction href="/marketplace" icon={<Boxes size={17} />} title="Marketplace" detail="Use templates" />
+        <DashboardAction href="/wallets" icon={<Wallet size={17} />} title="Wallets" detail="Signing wallets" />
+        <DashboardAction href="/credentials" icon={<KeyRound size={17} />} title="Credentials" detail="Provider keys" />
+        <DashboardAction href="/assistant" icon={<Bot size={17} />} title="Assistant" detail="Prompt to graph" />
+      </div>
+
+      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-4">
+        <DashboardMetric icon={<Workflow size={15} />} label="Active workflows" value={`${activeWorkflows.length}`} />
+        <DashboardMetric icon={<Activity size={15} />} label="Recent runs" value={`${recentExecutions.length}`} />
+        <DashboardMetric icon={<BarChart3 size={15} />} label="Success rate" value={recentExecutions.length ? `${successRate}%` : "-"} />
+        <DashboardMetric icon={<Clock size={15} />} label="Next run" value={formatTime(nextRun)} />
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Workflows
+            </h2>
+            <Link href="/workflows" className="text-xs font-medium text-primary hover:underline">
+              View all
+            </Link>
           </div>
-          {recentExecutions.length > 0 && (
-            <div className="mt-3 rounded-xl border border-border bg-card">
-              {recentExecutions.slice(0, 5).map((execution: any) => (
+
+          {workflowItems.length > 0 ? (
+            <div className="rounded-xl border border-border bg-card">
+              {workflowItems.slice(0, 8).map((workflow: any) => (
+                <Link
+                  key={workflow.id}
+                  href={`/editor/${workflow.id}`}
+                  className="flex items-center justify-between gap-3 border-b border-border/50 px-4 py-3 last:border-b-0 hover:bg-accent/40"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{workflow.name}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {workflow._count?.executions ?? 0} runs - Updated {formatTime(workflow.updatedAt)}
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-medium ${statusClass(workflow.status)}`}>
+                    {workflow.status}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
+              <Workflow className="mx-auto mb-3 h-9 w-9 text-muted-foreground/30" />
+              <p className="text-sm font-medium">No workflows yet</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Create one from scratch or start from a marketplace template.
+              </p>
+              <div className="mt-4 flex justify-center gap-2">
+                <Link
+                  href="/editor/new"
+                  className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground"
+                >
+                  New Workflow
+                </Link>
+                <Link
+                  href="/marketplace"
+                  className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-xs font-semibold text-foreground"
+                >
+                  Marketplace
+                </Link>
+              </div>
+            </div>
+          )}
+        </section>
+
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+              Recent Runs
+            </h2>
+            <Link href="/executions" className="text-xs font-medium text-primary hover:underline">
+              View all
+            </Link>
+          </div>
+
+          {recentExecutions.length > 0 ? (
+            <div className="rounded-xl border border-border bg-card">
+              {recentExecutions.slice(0, 6).map((execution: any) => (
                 <Link
                   key={execution.id}
                   href={`/executions/${execution.id}`}
@@ -171,154 +185,42 @@ export default function DashboardPage() {
                 </Link>
               ))}
             </div>
-          )}
-        </div>
-
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Protocol Packs
-          </h2>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-            {PROTOCOL_PACKS.map((pack) => (
-              <div key={pack.name} className="rounded-xl border border-border bg-card p-3">
-                <div className="mb-2 h-2 w-8 rounded-full" style={{ backgroundColor: pack.color }} />
-                <p className="text-sm font-semibold">{pack.name}</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{pack.detail}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Getting Started */}
-        <div className="mb-8">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Getting Started
-          </h2>
-          <div className="rounded-xl border border-border bg-card p-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary text-xs font-bold">
-                  1
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Create a Wallet</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Set up an encrypted cloud wallet for automated signing
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-500/10 text-blue-400 text-xs font-bold">
-                  2
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Build a Workflow</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Drag and drop nodes to create automation flows
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold">
-                  3
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Run & Monitor</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Execute manually or set up triggers for automation
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Starter Templates */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Starter Templates
-            </h2>
-            {templates && templates.length > 0 && (
-              <span className="text-[11px] text-muted-foreground">
-                {templates.length} template{templates.length !== 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-
-          {templatesLoading && (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-6 text-sm text-muted-foreground">
+              No runs yet. Manual runs from the editor will appear here.
             </div>
           )}
-
-          {!templatesLoading && templates && templates.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {templates.map((template: any) => (
-                <div
-                  key={template.id}
-                  className="group rounded-xl border border-border bg-card p-4 hover:border-border/80 hover:shadow-lg transition-all"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-2 w-2 rounded-full"
-                        style={{
-                          background:
-                            template.category === "DEFI"
-                              ? "#3b82f6"
-                              : template.category === "UTILITY"
-                              ? "#f59e0b"
-                              : "#22c55e",
-                        }}
-                      />
-                      <p className="text-sm font-semibold">{template.title}</p>
-                    </div>
-                    {template.featured && (
-                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
-                        Featured
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    {template.description}
-                  </p>
-                  <div className="flex flex-wrap gap-1 mb-3">
-                    {(template.nodeTypes as string[]).map((node: string) => (
-                      <span
-                        key={node}
-                        className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                      >
-                        {node.split(":")[1]}
-                      </span>
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => handleUseTemplate(template.id, template.title)}
-                    disabled={forkTemplate.isPending}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-border py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
-                  >
-                    {forkTemplate.isPending ? (
-                      <Loader2 size={10} className="animate-spin" />
-                    ) : (
-                      <Plus size={10} />
-                    )}
-                    Use Template
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!templatesLoading && templates && templates.length === 0 && (
-            <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                No templates available yet.
-              </p>
-            </div>
-          )}
-        </div>
+        </section>
+      </div>
     </AppShell>
+  );
+}
+
+function DashboardAction({
+  href,
+  icon,
+  title,
+  detail,
+}: {
+  href: string;
+  icon: React.ReactNode;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/35 hover:bg-accent/30"
+    >
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-colors group-hover:bg-primary/20">
+        {icon}
+      </div>
+      <div className="min-w-0">
+        <p className="text-sm font-semibold">{title}</p>
+        <p className="truncate text-xs text-muted-foreground">{detail}</p>
+      </div>
+      <ArrowRight className="ml-auto h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
+    </Link>
   );
 }
 

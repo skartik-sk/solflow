@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 
 const WEB_URL = process.env.NEXT_PUBLIC_WEB_URL ?? "https://solstudio.fun";
+const WEB_EDITOR_URL = `${WEB_URL}/dashboard`;
+const CLOUD_DOCS_URL = `${WEB_URL}/docs/cloud`;
 
 /* ─── Animation ─────────────────────────────────────────────────── */
 
@@ -232,10 +234,9 @@ export default function CloudLandingPage() {
             <span className="font-bold text-sm tracking-tight">SolStudio Cloud</span>
           </Link>
           <div className="hidden md:flex items-center gap-5 text-[13px] text-muted-foreground">
-            <a href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</a>
-            <a href="#features" className="hover:text-foreground transition-colors">Features</a>
-            <a href="#integrations" className="hover:text-foreground transition-colors">Integrations</a>
-            <a href={WEB_URL} className="hover:text-foreground transition-colors">Editor</a>
+            <a href={CLOUD_DOCS_URL} className="hover:text-foreground transition-colors">Docs</a>
+            <Link href="/marketplace" className="hover:text-foreground transition-colors">Marketplace</Link>
+            <a href={WEB_EDITOR_URL} className="hover:text-foreground transition-colors">Web Editor</a>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/dashboard" className="inline-flex h-8 items-center rounded-md bg-primary px-3.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
@@ -271,7 +272,7 @@ export default function CloudLandingPage() {
               <Link href="/dashboard" className="inline-flex h-9 w-full sm:w-auto items-center justify-center rounded-lg bg-primary px-6 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/15">
                 Get Started <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Link>
-              <Link href="/templates" className="inline-flex h-9 w-full sm:w-auto items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
+              <Link href="/marketplace" className="inline-flex h-9 w-full sm:w-auto items-center justify-center gap-2 rounded-lg border border-border bg-card px-6 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
                 <Boxes className="h-3.5 w-3.5 text-muted-foreground" /> Browse Templates
               </Link>
             </motion.div>
@@ -452,9 +453,9 @@ export default function CloudLandingPage() {
                   <div className="absolute bottom-0 left-0 right-0 border-t border-border/30 bg-background/30 px-3 py-2">
                     <div className="grid grid-cols-3 gap-2 text-center">
                       {[
-                        { val: "847ms", label: "avg run" },
-                        { val: "99.7%", label: "uptime" },
-                        { val: "1.2k", label: "runs/day" },
+                        { val: "Sim", label: "preflight" },
+                        { val: "Logs", label: "per node" },
+                        { val: "Replay", label: "run view" },
                       ].map((s) => (
                         <div key={s.label}>
                           <div className="text-[9px] font-bold text-foreground">{s.val}</div>
@@ -512,15 +513,15 @@ export default function CloudLandingPage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
               {[
-                { icon: <Workflow className="h-4 w-4" />, title: "Visual Builder", desc: "Drag-and-drop node editor with 20+ node types. Build complex automations without code." },
+                { icon: <Workflow className="h-4 w-4" />, title: "Visual Builder", desc: "Drag triggers, actions, logic, AI, and outputs across the Cloud node canvas." },
                 { icon: <Wallet className="h-4 w-4" />, title: "Cloud Wallets", desc: "Encrypted wallet management. Swap, transfer, and manage tokens around the clock." },
-                { icon: <Bot className="h-4 w-4" />, title: "AI Agents", desc: "Integrate LLMs to analyze on-chain data and make intelligent decisions automatically." },
+                { icon: <Bot className="h-4 w-4" />, title: "AI Agents", desc: "Use OpenAI, Anthropic, or Gemini credentials for classification and JSON decisions." },
                 { icon: <Shield className="h-4 w-4" />, title: "Enterprise Security", desc: "AES-256-GCM encryption, audit logging, and rate limiting. Keys never leave the server." },
-                { icon: <Layers className="h-4 w-4" />, title: "DeFi Integrations", desc: "Native support for Jupiter, Raydium, Orca, MarginFi, Kamino, and more." },
-                { icon: <Plug className="h-4 w-4" />, title: "Plugin Architecture", desc: "Extend with custom nodes. Build integrations for any protocol or service." },
+                { icon: <Layers className="h-4 w-4" />, title: "Protocol Nodes", desc: "Jupiter, Pyth, Helius, Metaplex, SPL Token, Squads, and webhook nodes are built in." },
+                { icon: <Plug className="h-4 w-4" />, title: "Credentials", desc: "Attach provider keys per node or fall back to server environment variables." },
                 { icon: <Timer className="h-4 w-4" />, title: "Cron Triggers", desc: "Schedule workflows on cron expressions. Recurring swaps, rebalancing, or monitoring." },
                 { icon: <BarChart3 className="h-4 w-4" />, title: "Execution Logs", desc: "Detailed run history with inputs, outputs, and error traces for every execution." },
-                { icon: <Lock className="h-4 w-4" />, title: "Role-Based Access", desc: "Team management with granular permissions. Control who can create, edit, or run workflows." },
+                { icon: <Lock className="h-4 w-4" />, title: "Simulation Gates", desc: "Preflight wallet actions with estimated fees, warnings, blockers, and wallet deltas." },
               ].map((f) => (
                 <motion.div key={f.title} variants={fadeUp}
                   whileHover={{ y: -2, transition: { duration: 0.12 } }}
@@ -545,16 +546,15 @@ export default function CloudLandingPage() {
             </motion.div>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               {[
-                { name: "Jupiter", tag: "Swap", color: "#10b981", desc: "Token swaps and quotes" },
-                { name: "Birdeye", tag: "Price", color: "#06b6d4", desc: "Real-time price feeds" },
-                { name: "Pyth", tag: "Oracle", color: "#f59e0b", desc: "Hermes price feed reads" },
-                { name: "Switchboard", tag: "Oracle", color: "#a855f7", desc: "Configurable feed APIs" },
-                { name: "Helius", tag: "RPC", color: "#6366f1", desc: "DAS and account data" },
-                { name: "Metaplex", tag: "NFT", color: "#ec4899", desc: "Asset metadata via DAS" },
-                { name: "SPL Token", tag: "Token", color: "#22c55e", desc: "Token account queries" },
-                { name: "Token-2022", tag: "Token", color: "#84cc16", desc: "Token extension accounts" },
-                { name: "Squads", tag: "Ops", color: "#eab308", desc: "Approval proposal handoff" },
-                { name: "OpenAI", tag: "AI", color: "#10a37f", desc: "Analyze and classify data" },
+                { name: "Jupiter", tag: "Swap", color: "#10b981", desc: "Quotes and signed swaps" },
+                { name: "Birdeye", tag: "Price", color: "#06b6d4", desc: "API-key price fetches" },
+                { name: "Pyth", tag: "Oracle", color: "#f59e0b", desc: "Public price reads" },
+                { name: "Switchboard", tag: "Oracle", color: "#a855f7", desc: "Credentialed feed APIs" },
+                { name: "Helius", tag: "RPC", color: "#6366f1", desc: "DAS and token data" },
+                { name: "Metaplex", tag: "NFT", color: "#ec4899", desc: "NFT asset lookup" },
+                { name: "SPL Token", tag: "Token", color: "#22c55e", desc: "Token account watcher" },
+                { name: "Squads", tag: "Ops", color: "#eab308", desc: "Approval proposals" },
+                { name: "AI Providers", tag: "AI", color: "#10a37f", desc: "OpenAI, Anthropic, Gemini" },
                 { name: "Webhooks", tag: "I/O", color: "#ef4444", desc: "Receive and send events" },
               ].map((p) => (
                 <div key={p.name}
@@ -578,10 +578,10 @@ export default function CloudLandingPage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 md:grid-cols-4 gap-4">
               {[
-                { val: "20+", label: "Node Types" },
-                { val: "8+", label: "Protocols" },
-                { val: "99.7%", label: "Uptime" },
-                { val: "<1s", label: "Avg. Run" },
+                { val: "16", label: "Node Types" },
+                { val: "10", label: "Credential Paths" },
+                { val: "3", label: "Run Modes" },
+                { val: "6+", label: "Templates" },
               ].map((s) => (
                 <motion.div key={s.label} variants={fadeUp} className="text-center">
                   <div className="text-xl font-extrabold text-foreground">{s.val}</div>
@@ -604,11 +604,11 @@ export default function CloudLandingPage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
               {[
-                { title: "DCA Trader", desc: "Dollar-cost average into any token on a schedule", tags: ["Jupiter", "Cron"], color: "#3b82f6" },
-                { title: "Liquidation Guard", desc: "Monitor lending positions and auto-deleverage", tags: ["MarginFi", "Alert"], color: "#ef4444" },
-                { title: "Yield Harvester", desc: "Auto-compound rewards across DeFi protocols", tags: ["Raydium", "Kamino"], color: "#10b981" },
+                { title: "Price-Guarded DCA", desc: "Fetch price, check limits, then prepare a guarded Jupiter swap", tags: ["Jupiter", "Cron"], color: "#3b82f6" },
+                { title: "NFT Asset Watch", desc: "Read Metaplex/Helius asset metadata and post a webhook result", tags: ["NFT", "Helius"], color: "#ef4444" },
+                { title: "Treasury Approval", desc: "Inspect token accounts and create a Squads-style approval handoff", tags: ["SPL", "Squads"], color: "#10b981" },
               ].map((t) => (
-                <Link key={t.title} href={`/templates?q=${encodeURIComponent(t.title)}`}
+                <Link key={t.title} href={`/marketplace?q=${encodeURIComponent(t.title)}`}
                   className="group rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/30 hover:shadow-sm">
                   <div className="flex items-center justify-between mb-2.5">
                     <Code2 className="h-3.5 w-3.5 text-muted-foreground" />
@@ -628,7 +628,7 @@ export default function CloudLandingPage() {
               ))}
             </motion.div>
             <div className="mt-5 text-center">
-              <Link href="/templates" className="text-[12px] text-primary font-medium hover:underline inline-flex items-center gap-0.5">
+              <Link href="/marketplace" className="text-[12px] text-primary font-medium hover:underline inline-flex items-center gap-0.5">
                 Browse all templates <ChevronRight className="h-3 w-3" />
               </Link>
             </div>
@@ -646,7 +646,7 @@ export default function CloudLandingPage() {
               <Link href="/dashboard" className="inline-flex h-9 items-center rounded-lg bg-primary px-5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors shadow-lg shadow-primary/15">
                 Start Free <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
               </Link>
-              <Link href="/templates" className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-5 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
+              <Link href="/marketplace" className="inline-flex h-9 items-center rounded-lg border border-border bg-card px-5 text-[13px] font-medium text-foreground hover:bg-accent transition-colors">
                 Browse Templates
               </Link>
             </div>
@@ -662,8 +662,8 @@ export default function CloudLandingPage() {
             <span className="font-semibold text-xs text-foreground">SolStudio Cloud</span>
           </div>
           <div className="flex gap-5 text-[11px] text-muted-foreground">
-            <a href={WEB_URL} className="hover:text-foreground transition-colors">Editor</a>
-            <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
+            <a href={WEB_EDITOR_URL} className="hover:text-foreground transition-colors">Web Editor</a>
+            <a href={CLOUD_DOCS_URL} className="hover:text-foreground transition-colors">Docs</a>
             <a href="https://github.com/skartik-sk" className="hover:text-foreground transition-colors">GitHub</a>
             <a href="https://x.com/solstudiodotfun" className="hover:text-foreground transition-colors">X</a>
           </div>

@@ -596,7 +596,7 @@ function AuditPanel({
     for (const file of files) {
       downloadTextFile(file.path.replace(/\//g, "__"), file.content);
     }
-    toast.success(`Generated ${files.length} audit test file(s)`);
+    toast.success(`Downloaded ${files.length} audit test file(s). Full Export also includes tests.`);
   }, [framework, report]);
 
   if (!report) {
@@ -691,7 +691,7 @@ function AuditPanel({
           onClick={generateTests}
           className="rounded border border-cyan-500/40 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/10"
         >
-          Generate Tests
+          Download Tests
         </button>
         <button
           onClick={() => exportReport("markdown")}

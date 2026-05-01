@@ -10,6 +10,7 @@ import { trpc } from "@/lib/trpc/client";
 const CREDENTIAL_TYPES = [
   { value: "openai", label: "OpenAI" },
   { value: "anthropic", label: "Anthropic" },
+  { value: "gemini", label: "Gemini" },
   { value: "birdeye", label: "Birdeye" },
   { value: "jupiter", label: "Jupiter" },
   { value: "helius", label: "Helius" },
@@ -71,6 +72,8 @@ function buildCredentialData(form: FormState, requireSecret: boolean): Record<st
 
 export default function CredentialsPage() {
   const [form, setForm] = useState<FormState | null>(null);
+  const [openedFromQuery, setOpenedFromQuery] = useState(false);
+  const [queryCredentialType, setQueryCredentialType] = useState<CredentialType | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const utils = trpc.useUtils();
   const { data: credentials, isLoading } = trpc.credential.list.useQuery();
@@ -117,6 +120,20 @@ export default function CredentialsPage() {
   };
 
   const pending = createCredential.isPending || updateCredential.isPending;
+  React.useEffect(() => {
+    const queryType = new URLSearchParams(window.location.search).get("type");
+    setQueryCredentialType(
+      CREDENTIAL_TYPES.some((type) => type.value === queryType)
+        ? (queryType as CredentialType)
+        : null,
+    );
+  }, []);
+
+  React.useEffect(() => {
+    if (openedFromQuery || !queryCredentialType) return;
+    setOpenedFromQuery(true);
+    setForm({ ...emptyForm, type: queryCredentialType });
+  }, [openedFromQuery, queryCredentialType]);
 
   return (
     <AppShell>
@@ -128,7 +145,7 @@ export default function CredentialsPage() {
           </p>
         </div>
         <button
-          onClick={() => setForm(emptyForm)}
+          onClick={() => setForm({ ...emptyForm, type: queryCredentialType ?? "openai" })}
           className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
         >
           <Plus size={13} />
@@ -243,7 +260,18 @@ export default function CredentialsPage() {
                 </>
               ) : (
                 <>
-                  <input className={inputClass} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.id ? "New API key (optional)" : "API key"} />
+                  <input
+                    className={inputClass}
+                    value={form.apiKey}
+                    onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
+                    placeholder={
+                      form.id
+                        ? "New API key (optional)"
+                        : form.type === "gemini"
+                          ? "Gemini API key"
+                          : "API key"
+                    }
+                  />
                   {["jupiter", "helius", "switchboard", "squads"].includes(form.type) && (
                     <input
                       className={inputClass}

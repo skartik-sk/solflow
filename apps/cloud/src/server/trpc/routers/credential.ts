@@ -7,6 +7,7 @@ import { cloudCredentialPublicSelect } from "../public-selects";
 const credentialTypeSchema = z.enum([
   "openai",
   "anthropic",
+  "gemini",
   "birdeye",
   "jupiter",
   "helius",

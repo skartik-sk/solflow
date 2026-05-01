@@ -33,6 +33,8 @@ type CloudTemplate = {
 };
 
 const WEB_URL = process.env.NEXT_PUBLIC_WEB_URL ?? "https://solstudio.fun";
+const WEB_EDITOR_URL = `${WEB_URL}/dashboard`;
+const CLOUD_DOCS_URL = `${WEB_URL}/docs/cloud`;
 
 function nodeLabel(type: string): string {
   const [, name = type] = type.split(":");
@@ -135,7 +137,8 @@ export default function CloudTemplatesPage() {
           </Link>
           <div className="hidden items-center gap-5 text-[13px] text-muted-foreground md:flex">
             <Link href="/dashboard" className="hover:text-foreground transition-colors">Dashboard</Link>
-            <a href={WEB_URL} className="hover:text-foreground transition-colors">Editor</a>
+            <a href={CLOUD_DOCS_URL} className="hover:text-foreground transition-colors">Docs</a>
+            <a href={WEB_EDITOR_URL} className="hover:text-foreground transition-colors">Web Editor</a>
           </div>
           <Link
             href="/dashboard"

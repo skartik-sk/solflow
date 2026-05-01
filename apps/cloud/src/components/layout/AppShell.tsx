@@ -8,22 +8,29 @@ import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/workflows", label: "Workflows" },
-  { href: "/templates", label: "Templates" },
-  { href: "/assistant", label: "Assistant" },
+  { href: "/editor/new", label: "Editor" },
+  { href: "/marketplace", label: "Marketplace" },
   { href: "/wallets", label: "Wallets" },
   { href: "/credentials", label: "Credentials" },
-  { href: "/executions", label: "Executions" },
+  { href: "/executions", label: "Runs" },
 ];
 
 const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL ?? "https://solstudio.fun";
-const CODE_URL = process.env.NEXT_PUBLIC_CODE_URL ?? "https://code.solstudio.fun";
+const CLOUD_DOCS_URL = `${STUDIO_URL}/docs/cloud`;
+const WEB_EDITOR_URL = `${STUDIO_URL}/dashboard`;
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // Determine active nav item
-  const activeHref = NAV_ITEMS.find((item) => pathname?.startsWith(item.href))?.href ?? "/dashboard";
+  const activeHref =
+    NAV_ITEMS.find((item) =>
+      item.href === "/marketplace"
+        ? pathname?.startsWith("/marketplace") || pathname?.startsWith("/templates")
+        : item.href === "/editor/new"
+          ? pathname?.startsWith("/editor")
+        : pathname?.startsWith(item.href),
+    )?.href ?? "/dashboard";
 
   return (
     <div className="min-h-screen bg-background">
@@ -50,10 +57,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <div className="hidden items-center gap-3 text-xs text-muted-foreground md:flex">
-            <a href={CODE_URL} className="hover:text-foreground transition-colors">
-              Builder
+            <a href={WEB_EDITOR_URL} className="hover:text-foreground transition-colors">
+              Web Editor
             </a>
-            <a href={`${STUDIO_URL}/docs`} className="hover:text-foreground transition-colors">
+            <a href={CLOUD_DOCS_URL} className="hover:text-foreground transition-colors">
               Docs
             </a>
           </div>

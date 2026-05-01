@@ -222,11 +222,10 @@ export default function HomePage() {
             <span className="font-bold text-sm tracking-tight">SolStudio</span>
           </Link>
           <div className="hidden md:flex items-center gap-5 text-[13px] text-muted-foreground">
-            <Link href="#how-it-works" className="hover:text-foreground transition-colors">How It Works</Link>
-            <Link href="#features" className="hover:text-foreground transition-colors">Features</Link>
-            <Link href="#marketplace" className="hover:text-foreground transition-colors">Marketplace</Link>
+            <Link href="/marketplace" className="hover:text-foreground transition-colors">Marketplace</Link>
             <a href={CLOUD_URL} className="hover:text-foreground transition-colors">Cloud</a>
-            <Link href="/docs/learn/cli" className="hover:text-foreground transition-colors">CLI</Link>
+            <Link href="/docs/cli" className="hover:text-foreground transition-colors">CLI</Link>
+            <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/auth/signin" className="inline-flex h-8 items-center rounded-md bg-primary px-3.5 text-[13px] font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
@@ -474,7 +473,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-2xl">
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[{ val: "6+", label: "Templates" }, { val: "3", label: "Frameworks" }, { val: "10+", label: "Node Types" },{ val: "20+", label: "Users" }].map((s) => (
+              {[{ val: "6+", label: "Templates" }, { val: "3", label: "Frameworks" }, { val: "40+", label: "Audit Rules" },{ val: "4", label: "Plugin Packs" }].map((s) => (
                 <motion.div key={s.label} variants={fadeUp} className="text-center">
                   <div className="text-xl font-extrabold text-foreground">{s.val}</div>
                   <div className="text-[11px] text-muted-foreground">{s.label}</div>
@@ -496,9 +495,9 @@ export default function HomePage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
               {[
-                { title: "Simple Vault", desc: "SOL deposit/withdraw with PDA seeds, bump, and events", tags: ["SPL", "PDA"], color: "#2563eb" },
-                { title: "NFT Collection", desc: "Mint, manage, and verify NFTs on Solana", tags: ["NFT", "Metaplex"], color: "#7c3aed" },
-                { title: "AMM", desc: "Automated market maker with liquidity pools and swaps", tags: ["DeFi", "Swap"], color: "#16a34a" },
+                { title: "Simple Vault", desc: "PDA vault with deposit, withdraw, close, and event paths", tags: ["SPL", "PDA"], color: "#2563eb" },
+                { title: "Token Escrow", desc: "Maker/taker escrow with vault accounts, refunds, and close constraints", tags: ["Escrow", "ATA"], color: "#7c3aed" },
+                { title: "NFT Collection", desc: "Collection state, mint flow, metadata, and verification nodes", tags: ["NFT", "Metaplex"], color: "#16a34a" },
               ].map((t) => (
                 <Link key={t.title} href={`/marketplace?q=${encodeURIComponent(t.title)}`}
                   className="group rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/30 hover:shadow-sm">

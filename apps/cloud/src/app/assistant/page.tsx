@@ -43,6 +43,9 @@ export default function AssistantPage() {
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             The assistant creates an editable Cloud graph with triggers, protocol nodes, safety defaults, and an output path.
           </p>
+          <p className="mt-2 max-w-2xl text-xs text-muted-foreground">
+            This generator is rule-based and does not call an external model. AI Agent nodes need an OpenAI, Anthropic, or Gemini credential before execution.
+          </p>
         </div>
       </div>
 

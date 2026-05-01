@@ -3,8 +3,10 @@
 // EditorToolbar — top bar with workflow name, undo/redo, save, run, activate.
 
 import React from "react";
+import Link from "next/link";
 import type { Edge, Node } from "@xyflow/react";
 import {
+  ChevronLeft,
   Undo2,
   Redo2,
   Save,
@@ -187,8 +189,20 @@ export function EditorToolbar() {
   };
 
   const handleRun = async () => {
-    if (isRunning || !workflowId) return;
+    if (isRunning) return;
+    openBottomPanelTab("logs");
+    if (!workflowId) {
+      addLog("error", "Workflow must finish loading before it can run");
+      toast.error("Workflow is not ready yet");
+      return;
+    }
+    if (nodes.length === 0) {
+      addLog("error", "Add at least one trigger node before running");
+      toast.error("Add a node before running");
+      return;
+    }
     setIsRunning(true);
+    addLog("info", "Manual run requested");
 
     try {
       if (workflowId.startsWith("mock-") || !workflowId.includes("-")) {
@@ -263,7 +277,7 @@ export function EditorToolbar() {
             const finalStatus = result.status === "COMPLETED" ? "success" : "error";
             completeExecution(finalStatus);
             addLog("info", `Workflow execution ${finalStatus}`);
-            openBottomPanelTab("output");
+            openBottomPanelTab("executions");
             setIsRunning(false);
             utils.execution.list.invalidate();
           }
@@ -275,7 +289,7 @@ export function EditorToolbar() {
       // Timeout after 5 minutes
       setTimeout(() => {
         clearInterval(pollInterval);
-        if (isRunning) {
+        if (useEditorUIStore.getState().isRunning) {
           completeExecution("error");
           addLog("error", "Execution timed out");
           setIsRunning(false);
@@ -285,7 +299,7 @@ export function EditorToolbar() {
       const message = err instanceof Error ? err.message : String(err);
       completeExecution("error");
       addLog("error", `Execution failed: ${message}`);
-      openBottomPanelTab("output");
+      openBottomPanelTab("logs");
       setIsRunning(false);
     }
   };
@@ -294,6 +308,14 @@ export function EditorToolbar() {
     <div className="flex h-10 items-center justify-between border-b border-border bg-card px-2">
       {/* Left: panels toggle + name */}
       <div className="flex items-center gap-2">
+        <Link
+          href="/dashboard"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          title="Back to dashboard"
+          aria-label="Back to dashboard"
+        >
+          <ChevronLeft size={14} />
+        </Link>
         <button
           onClick={togglePalette}
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
@@ -313,6 +335,14 @@ export function EditorToolbar() {
 
         <span className="text-[10px] text-muted-foreground/50 ml-1">
           {nodes.length} nodes, {edges.length} connections
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+            isActive ? "bg-emerald-500/10 text-emerald-300" : "bg-muted text-muted-foreground"
+          }`}
+          title={isActive ? "Triggers are active" : "Manual runs still work while inactive"}
+        >
+          {isActive ? "Triggers active" : "Manual run mode"}
         </span>
       </div>
 

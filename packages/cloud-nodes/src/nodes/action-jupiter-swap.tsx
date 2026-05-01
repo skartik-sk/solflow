@@ -204,7 +204,7 @@ export const jupiterSwapDef: CloudNodeDefinition = {
       type: "credential",
       required: false,
       credentialType: "jupiter",
-      description: "Optional Jupiter API credential. Falls back to JUPITER_API_KEY.",
+      description: "Select a saved Jupiter credential, or leave blank to use JUPITER_API_KEY/JUPITER_API_BASE from the server environment.",
     },
   ],
   inputs: [{ type: "main", label: "input" }],
