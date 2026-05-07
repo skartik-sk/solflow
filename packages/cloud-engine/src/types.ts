@@ -58,6 +58,8 @@ export interface NodeExecutionResult {
   error?: string;
   attempts?: number;
   logs: { timestamp: number; level: string; message: string; data?: unknown }[];
+  startedAt?: number;
+  completedAt?: number;
 }
 
 export interface ExecutionResult {
@@ -69,4 +71,9 @@ export interface ExecutionResult {
   completedAt?: number;
   duration?: number;
   error?: string;
+}
+
+export interface ExecutionObserver {
+  onNodeStart?: (result: NodeExecutionResult) => void | Promise<void>;
+  onNodeFinish?: (result: NodeExecutionResult) => void | Promise<void>;
 }

@@ -3131,7 +3131,7 @@ export function CloudLearnClient() {
             <p className="mt-2">
               Webhook Trigger receives a trade idea, Fetch Price adds market
               context, AI Agent returns an approval object, If/Else blocks
-              rejected runs, Jupiter Swap executes, and Webhook Output reports
+              rejected runs, Jupiter API executes the swap branch, and Webhook Output reports
               the signature.
             </p>
           </div>

@@ -28,6 +28,7 @@ describe("cloud workflow feature helpers", () => {
             id: "n2",
             type: "action:jupiter-swap",
             data: {
+              operation: "swap-direct-send",
               inputMint: "USDC",
               outputMint: "SOL",
               amount: "1000000",

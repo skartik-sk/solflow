@@ -11,6 +11,7 @@ import { buildDAG, topologicalSort, getParallelBatches } from "./dag";
 import { resolveExpressions } from "./expression";
 import type {
   WorkflowDefinition,
+  ExecutionObserver,
   ExecutionResult,
   NodeExecutionResult,
 } from "./types";
@@ -47,6 +48,7 @@ export class WorkflowExecutor {
   private registry: CloudNodeRegistry;
   private walletOps: WalletOperations;
   private credentialOps?: CredentialOperations;
+  private observer?: ExecutionObserver;
   private aborted = false;
   private abortController?: AbortController;
 
@@ -54,10 +56,12 @@ export class WorkflowExecutor {
     registry: CloudNodeRegistry,
     walletOps: WalletOperations,
     credentialOps?: CredentialOperations,
+    observer?: ExecutionObserver,
   ) {
     this.registry = registry;
     this.walletOps = walletOps;
     this.credentialOps = credentialOps;
+    this.observer = observer;
   }
 
   async execute(
@@ -96,7 +100,7 @@ export class WorkflowExecutor {
         }
       }
 
-      this.markUnexecutedNodesSkipped(def, sorted, nodeResults, timedOut
+      await this.markUnexecutedNodesSkipped(def, sorted, nodeResults, timedOut
         ? "Execution timed out before node ran"
         : this.aborted
           ? "Execution was cancelled before node ran"
@@ -145,7 +149,8 @@ export class WorkflowExecutor {
     const wfNode = def.nodes.find((n) => n.id === nodeId)!;
     const nodeDef = this.registry.get(wfNode.type);
     if (!nodeDef?.execute) {
-      nodeResults.set(nodeId, {
+      const now = Date.now();
+      const result: NodeExecutionResult = {
         nodeId,
         nodeType: wfNode.type,
         status: "skipped",
@@ -154,7 +159,11 @@ export class WorkflowExecutor {
         duration: 0,
         error: `No executable node registered for type ${wfNode.type}`,
         logs: [],
-      });
+        startedAt: now,
+        completedAt: now,
+      };
+      nodeResults.set(nodeId, result);
+      await this.emitNodeFinish(result);
       return;
     }
 
@@ -162,7 +171,8 @@ export class WorkflowExecutor {
     const upstreamEdges = this.upstreamEdges(dag, nodeId);
     const skipReason = this.getDependencySkipReason(upstreamEdges, nodeResults, def.settings.onError);
     if (skipReason) {
-      nodeResults.set(nodeId, {
+      const now = Date.now();
+      const result: NodeExecutionResult = {
         nodeId,
         nodeType: wfNode.type,
         status: "skipped",
@@ -171,7 +181,11 @@ export class WorkflowExecutor {
         duration: 0,
         error: skipReason,
         logs: [],
-      });
+        startedAt: now,
+        completedAt: now,
+      };
+      nodeResults.set(nodeId, result);
+      await this.emitNodeFinish(result);
       return;
     }
 
@@ -203,35 +217,59 @@ export class WorkflowExecutor {
 
     const startTime = Date.now();
     let attempts = 0;
+    const runningResult: NodeExecutionResult = {
+      nodeId,
+      nodeType: wfNode.type,
+      status: "running",
+      inputSnapshot: this.safeSnapshot(inputs),
+      outputSnapshot: null,
+      duration: 0,
+      attempts,
+      logs: nodeLogs,
+      startedAt: startTime,
+    };
+    nodeResults.set(nodeId, runningResult);
+    await this.emitNodeStart(runningResult);
+
     try {
       const output = await this.executeWithRetry(nodeDef, ctx, def, nodeLogs, () => {
         attempts += 1;
       });
       const normalizedOutput = this.normalizeOutput(output, nodeDef);
       outputData.set(nodeId, normalizedOutput);
-      nodeResults.set(nodeId, {
+      const completedAt = Date.now();
+      const result: NodeExecutionResult = {
         nodeId,
         nodeType: wfNode.type,
         status: "success",
         inputSnapshot: this.safeSnapshot(inputs),
         outputSnapshot: this.safeSnapshot(this.snapshotOutput(normalizedOutput, nodeDef)),
-        duration: Date.now() - startTime,
+        duration: completedAt - startTime,
         attempts,
         logs: nodeLogs,
-      });
+        startedAt: startTime,
+        completedAt,
+      };
+      nodeResults.set(nodeId, result);
+      await this.emitNodeFinish(result);
     } catch (err) {
       const message = signal.aborted ? abortMessage(signal) : (err as Error).message;
-      nodeResults.set(nodeId, {
+      const completedAt = Date.now();
+      const result: NodeExecutionResult = {
         nodeId,
         nodeType: wfNode.type,
         status: "error",
         inputSnapshot: this.safeSnapshot(inputs),
         outputSnapshot: null,
-        duration: Date.now() - startTime,
+        duration: completedAt - startTime,
         error: message,
         attempts,
         logs: nodeLogs,
-      });
+        startedAt: startTime,
+        completedAt,
+      };
+      nodeResults.set(nodeId, result);
+      await this.emitNodeFinish(result);
 
       if (def.settings.onError === "branch") {
         outputData.set(nodeId, this.errorOutputBuckets(nodeId, wfNode.type, message, inputs));
@@ -341,17 +379,18 @@ export class WorkflowExecutor {
     return Array.from(nodeResults.values()).some((result) => result.status === "error");
   }
 
-  private markUnexecutedNodesSkipped(
+  private async markUnexecutedNodesSkipped(
     def: WorkflowDefinition,
     sorted: string[],
     nodeResults: Map<string, NodeExecutionResult>,
     reason: string,
-  ): void {
+  ): Promise<void> {
     for (const nodeId of sorted) {
       if (nodeResults.has(nodeId)) continue;
       const wfNode = def.nodes.find((node) => node.id === nodeId);
       if (!wfNode) continue;
-      nodeResults.set(nodeId, {
+      const now = Date.now();
+      const result: NodeExecutionResult = {
         nodeId,
         nodeType: wfNode.type,
         status: "skipped",
@@ -360,7 +399,27 @@ export class WorkflowExecutor {
         duration: 0,
         error: reason,
         logs: [],
-      });
+        startedAt: now,
+        completedAt: now,
+      };
+      nodeResults.set(nodeId, result);
+      await this.emitNodeFinish(result);
+    }
+  }
+
+  private async emitNodeStart(result: NodeExecutionResult): Promise<void> {
+    try {
+      await this.observer?.onNodeStart?.(result);
+    } catch {
+      // Execution must continue even when live progress persistence fails.
+    }
+  }
+
+  private async emitNodeFinish(result: NodeExecutionResult): Promise<void> {
+    try {
+      await this.observer?.onNodeFinish?.(result);
+    } catch {
+      // Final execution persistence writes the completed node result again.
     }
   }
 

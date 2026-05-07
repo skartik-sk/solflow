@@ -102,10 +102,13 @@ export const CLOUD_TEMPLATES = [
           type: "action:jupiter-swap",
           position: { x: 350, y: 200 },
           data: {
+            operation: "swap-direct-send",
             inputMint: "So11111111111111111111111111111111111111112",
             outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             amount: "100000000",
             slippageBps: 50,
+            walletId: "",
+            credentialId: "",
           },
         },
       ],
@@ -154,6 +157,7 @@ export const CLOUD_TEMPLATES = [
           type: "action:jupiter-swap",
           position: { x: 770, y: 140 },
           data: {
+            operation: "swap-direct-send",
             inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             outputMint: "So11111111111111111111111111111111111111112",
             amount: "25000000",
@@ -224,6 +228,7 @@ export const CLOUD_TEMPLATES = [
           type: "action:jupiter-swap",
           position: { x: 770, y: 150 },
           data: {
+            operation: "swap-direct-send",
             inputMint: "So11111111111111111111111111111111111111112",
             outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             amount: "{{ $json.deleverageLamports }}",
@@ -294,6 +299,7 @@ export const CLOUD_TEMPLATES = [
           type: "action:jupiter-swap",
           position: { x: 770, y: 150 },
           data: {
+            operation: "swap-direct-send",
             inputMint: "{{ $json.rewardMint }}",
             outputMint: "So11111111111111111111111111111111111111112",
             amount: "{{ $json.rewardAmount }}",
@@ -502,6 +508,7 @@ export const CLOUD_TEMPLATES = [
           type: "action:jupiter-swap",
           position: { x: 770, y: 140 },
           data: {
+            operation: "swap-direct-send",
             inputMint: "So11111111111111111111111111111111111111112",
             outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
             amount: "100000000",

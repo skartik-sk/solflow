@@ -8,7 +8,6 @@ import { usePathname } from "next/navigation";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
-  { href: "/editor/new", label: "Editor" },
   { href: "/marketplace", label: "Marketplace" },
   { href: "/wallets", label: "Wallets" },
   { href: "/credentials", label: "Credentials" },
@@ -27,8 +26,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     NAV_ITEMS.find((item) =>
       item.href === "/marketplace"
         ? pathname?.startsWith("/marketplace") || pathname?.startsWith("/templates")
-        : item.href === "/editor/new"
-          ? pathname?.startsWith("/editor")
         : pathname?.startsWith(item.href),
     )?.href ?? "/dashboard";
 

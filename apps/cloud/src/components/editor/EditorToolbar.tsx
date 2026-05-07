@@ -83,6 +83,7 @@ export function EditorToolbar() {
   const openBottomPanelTab = useEditorUIStore((s) => s.openBottomPanelTab);
 
   const startExecution = useExecutionStore((s) => s.startExecution);
+  const resetRun = useExecutionStore((s) => s.resetRun);
   const setSimulationReport = useExecutionStore((s) => s.setSimulationReport);
   const setNodeResult = useExecutionStore((s) => s.setNodeResult);
   const completeExecution = useExecutionStore((s) => s.completeExecution);
@@ -190,6 +191,7 @@ export function EditorToolbar() {
 
   const handleRun = async () => {
     if (isRunning) return;
+    resetRun();
     openBottomPanelTab("logs");
     if (!workflowId) {
       addLog("error", "Workflow must finish loading before it can run");
@@ -215,6 +217,12 @@ export function EditorToolbar() {
         return;
       }
       addLog("info", `Simulation complete: ${simulation.report.riskLevel} risk, ${simulation.report.estimatedFeeSol} SOL estimated fee`);
+      for (const warning of simulation.report.warnings) {
+        addLog("warn", `Simulation warning: ${warning}`);
+      }
+      for (const blocker of simulation.report.blockers) {
+        addLog("error", `Simulation blocker: ${blocker}`);
+      }
       if (simulation.report.blocked) {
         throw new Error(`Simulation blocked run: ${simulation.report.blockers.join(" ")}`);
       }
@@ -231,8 +239,10 @@ export function EditorToolbar() {
 
       startExecution(executionId);
       addLog("info", `Execution ${executionId} queued`);
+      openBottomPanelTab("executions");
 
       // Poll for results
+      const seenNodeLogs = new Set<string>();
       const pollInterval = setInterval(async () => {
         try {
           const result = await utils.client.execution.get.query({ id: executionId });
@@ -251,17 +261,37 @@ export function EditorToolbar() {
                 startedAt: nr.startedAt ? new Date(nr.startedAt).getTime() : undefined,
                 completedAt: nr.completedAt ? new Date(nr.completedAt).getTime() : undefined,
               };
+              const nodeLogKey = `${nr.nodeId}:${nr.status}`;
               if (nr.status === "COMPLETED") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "success" });
-                addLog("info", `${nr.nodeType} completed (${nr.duration ?? 0}ms)`);
+                if (!seenNodeLogs.has(nodeLogKey)) {
+                  seenNodeLogs.add(nodeLogKey);
+                  addLog("info", `${nr.nodeType} completed (${nr.duration ?? 0}ms)`);
+                }
               } else if (nr.status === "FAILED") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "error" });
-                addLog("error", `${nr.nodeType} failed: ${nr.error ?? "Unknown error"}`);
+                if (!seenNodeLogs.has(nodeLogKey)) {
+                  seenNodeLogs.add(nodeLogKey);
+                  addLog("error", `${nr.nodeType} failed: ${nr.error ?? "Unknown error"}`);
+                }
               } else if (nr.status === "RUNNING") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "running" });
+                if (!seenNodeLogs.has(nodeLogKey)) {
+                  seenNodeLogs.add(nodeLogKey);
+                  addLog("info", `${nr.nodeType} started`);
+                }
               } else if (nr.status === "SKIPPED") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "skipped" });
-                addLog("warn", `${nr.nodeType} skipped: ${nr.error ?? "Dependency skipped"}`);
+                if (!seenNodeLogs.has(nodeLogKey)) {
+                  seenNodeLogs.add(nodeLogKey);
+                  addLog("warn", `${nr.nodeType} skipped: ${nr.error ?? "Dependency skipped"}`);
+                }
+              } else if (nr.status === "WAITING") {
+                setNodeResult(nr.nodeId, { ...baseResult, status: "running" });
+                if (!seenNodeLogs.has(nodeLogKey)) {
+                  seenNodeLogs.add(nodeLogKey);
+                  addLog("warn", `${nr.nodeType} waiting: ${nr.error ?? "Manual approval required"}`);
+                }
               }
             }
           }

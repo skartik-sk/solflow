@@ -192,6 +192,6 @@ export interface CloudFlowNodeData {
   inputs: NodePort[];
   outputs: NodePort[];
   data: Record<string, unknown>;
-  status?: "idle" | "running" | "success" | "error";
+  status?: "idle" | "running" | "success" | "error" | "skipped";
   outputPreview?: unknown;
 }

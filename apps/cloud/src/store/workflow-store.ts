@@ -168,6 +168,9 @@ export const useWorkflowStore = create<WorkflowState>()(
       onNodesChange: (changes) => {
         const newNodes = applyNodeChanges(changes, get().nodes);
         let lastSelectedId: string | null = get().selectedNodeId;
+        const graphChanged = changes.some(
+          (change) => change.type !== "select" && change.type !== "dimensions",
+        );
 
         for (const change of changes) {
           if (change.type === "select" && change.selected) {
@@ -180,11 +183,15 @@ export const useWorkflowStore = create<WorkflowState>()(
           .map((n) => n.id);
 
         set({ nodes: newNodes, selectedNodeId: lastSelectedId, selectedNodeIds });
+        if (graphChanged) get().markDirty();
       },
 
       onEdgesChange: (changes) => {
         const newEdges = applyEdgeChanges(changes, get().edges);
         set({ edges: newEdges });
+        if (changes.some((change) => change.type !== "select")) {
+          get().markDirty();
+        }
       },
 
       onConnect: (connection) => {

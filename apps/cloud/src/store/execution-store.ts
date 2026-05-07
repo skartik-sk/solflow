@@ -27,6 +27,7 @@ interface ExecutionState {
 
   setSimulationReport: (report: WorkflowSimulationReport | null) => void;
   startExecution: (executionId: string) => void;
+  resetRun: () => void;
   setNodeStatus: (nodeId: string, status: NodeExecutionResult["status"]) => void;
   setNodeResult: (nodeId: string, result: Partial<NodeExecutionResult>) => void;
   setNodeOutput: (nodeId: string, output: unknown) => void;
@@ -49,6 +50,14 @@ export const useExecutionStore = create<ExecutionState>()((set, get) => ({
     set({
       executionId,
       status: "running",
+      nodeResults: new Map(),
+    });
+  },
+
+  resetRun: () => {
+    set({
+      executionId: null,
+      status: "idle",
       nodeResults: new Map(),
       logs: [],
     });

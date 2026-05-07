@@ -847,7 +847,30 @@ describe("Execute functions", () => {
     expect(result[1][0].json.price).toBe(50);
   });
 
-  it("action:jupiter-swap quotes, builds, simulates, and sends a Jupiter swap", async () => {
+  it("action:jupiter-swap reads Jupiter Price API by default", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+    const pricePayload = {
+      So11111111111111111111111111111111111111112: { usdPrice: 150 },
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(pricePayload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      tokenIds: "So11111111111111111111111111111111111111112",
+    }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect((result[0].json as any).jupiter.operation).toBe("price");
+    expect((result[0].json as any).jupiter.payload).toEqual(pricePayload);
+  });
+
+  it("action:jupiter-swap can quote, build, simulate, and send a legacy direct Jupiter swap", async () => {
     const def = cloudNodeRegistry.get("action:jupiter-swap")!;
     const quote = {
       inputMint: "So11111111111111111111111111111111111111112",
@@ -883,6 +906,7 @@ describe("Execute functions", () => {
 
     const result = await def.execute!({
       ...makeCtx({
+        operation: "swap-direct-send",
         inputMint: quote.inputMint,
         outputMint: quote.outputMint,
         amount: 1000000,
@@ -898,11 +922,11 @@ describe("Execute functions", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50",
+      "https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.jup.ag/swap/v1/swap",
+      "https://quote-api.jup.ag/v6/swap",
       expect.objectContaining({ method: "POST" }),
     );
     const swapBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
@@ -934,6 +958,7 @@ describe("Execute functions", () => {
 
     await expect(def.execute!({
       ...makeCtx({
+        operation: "swap-direct-send",
         inputMint: "So11111111111111111111111111111111111111112",
         outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         amount: 1000000,
@@ -960,6 +985,8 @@ describe("Execute functions", () => {
 
     await expect(def.execute!({
       ...makeCtx({
+        operation: "price",
+        tokenIds: "So11111111111111111111111111111111111111112",
         inputMint: "So11111111111111111111111111111111111111112",
         outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         amount: 1000000,

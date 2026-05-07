@@ -14,6 +14,7 @@ const STATUS_STYLES: Record<string, { dot: string; bg: string }> = {
   running: { dot: "bg-blue-400 animate-pulse", bg: "border-blue-500/40" },
   success: { dot: "bg-emerald-400", bg: "border-emerald-500/30" },
   error:   { dot: "bg-red-400", bg: "border-red-500/30" },
+  skipped: { dot: "bg-zinc-400", bg: "border-zinc-500/30" },
 };
 
 // ─── Handle position calculator ───────────────────────────────────────────

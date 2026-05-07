@@ -7,7 +7,7 @@ import { WorkflowExecutor } from "@solflow/cloud-engine";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
 import type { CredentialOperations, WalletOperations } from "@solflow/cloud-nodes";
 import { decryptString, WalletSigner, type EncryptedKey } from "@solflow/cloud-wallet";
-import type { WorkflowSettings } from "@solflow/cloud-engine";
+import type { NodeExecutionResult, WorkflowSettings } from "@solflow/cloud-engine";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
 // Ensure nodes are registered
@@ -107,7 +107,9 @@ function stringList(value: unknown): string[] | undefined {
 function mapNodeExecutionStatus(
   status: string,
   error?: string,
-): "COMPLETED" | "FAILED" | "SKIPPED" | "WAITING" {
+): "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED" | "WAITING" {
+  if (status === "queued") return "QUEUED";
+  if (status === "running") return "RUNNING";
   if (status === "success") return "COMPLETED";
   if (
     status === "waiting" ||
@@ -117,6 +119,40 @@ function mapNodeExecutionStatus(
   }
   if (status === "error") return "FAILED";
   return "SKIPPED";
+}
+
+async function writeNodeExecution(
+  executionId: string,
+  nodeResult: NodeExecutionResult,
+): Promise<void> {
+  const existing = await prisma.nodeExecution.findFirst({
+    where: { executionId, nodeId: nodeResult.nodeId },
+    select: { id: true },
+  });
+
+  const data = {
+    executionId,
+    nodeId: nodeResult.nodeId,
+    nodeType: nodeResult.nodeType,
+    status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
+    inputSnapshot: nodeResult.inputSnapshot as any,
+    outputSnapshot: nodeResult.outputSnapshot as any,
+    duration: nodeResult.duration,
+    error: nodeResult.error,
+    logs: nodeResult.logs as any,
+    startedAt: nodeResult.startedAt ? new Date(nodeResult.startedAt) : undefined,
+    completedAt: nodeResult.completedAt ? new Date(nodeResult.completedAt) : undefined,
+  };
+
+  if (existing) {
+    await prisma.nodeExecution.update({
+      where: { id: existing.id },
+      data,
+    });
+    return;
+  }
+
+  await prisma.nodeExecution.create({ data });
 }
 
 // ─── Queue ────────────────────────────────────────────────────────────────────
@@ -293,7 +329,14 @@ export function startExecutionWorker(): void {
       const walletOps = createWalletOperations(workflow);
       const credentialOps = createCredentialOperations(workflow);
 
-      const executor = new WorkflowExecutor(cloudNodeRegistry, walletOps, credentialOps);
+      const executor = new WorkflowExecutor(cloudNodeRegistry, walletOps, credentialOps, {
+        async onNodeStart(nodeResult) {
+          await writeNodeExecution(executionId, nodeResult);
+        },
+        async onNodeFinish(nodeResult) {
+          await writeNodeExecution(executionId, nodeResult);
+        },
+      });
 
       const settings = normalizeWorkflowSettings(workflow.settings);
       const triggerData =
@@ -368,21 +411,7 @@ export function startExecutionWorker(): void {
 
       // Write per-node execution results
       for (const [nodeId, nodeResult] of result.nodeResults) {
-        await prisma.nodeExecution.create({
-          data: {
-            executionId,
-            nodeId,
-            nodeType: nodeResult.nodeType,
-            status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
-            inputSnapshot: nodeResult.inputSnapshot as any,
-            outputSnapshot: nodeResult.outputSnapshot as any,
-            duration: nodeResult.duration,
-            error: nodeResult.error,
-            logs: nodeResult.logs as any,
-            startedAt: new Date(Date.now() - nodeResult.duration),
-            completedAt: new Date(),
-          },
-        });
+        await writeNodeExecution(executionId, { ...nodeResult, nodeId });
       }
 
       logExecutionWorkerEvent("finished", {

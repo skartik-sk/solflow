@@ -75,8 +75,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-5">
-        <DashboardAction href="/editor/new" icon={<Workflow size={17} />} title="Editor" detail="Build a workflow" />
+      <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-4">
         <DashboardAction href="/marketplace" icon={<Boxes size={17} />} title="Marketplace" detail="Use templates" />
         <DashboardAction href="/wallets" icon={<Wallet size={17} />} title="Wallets" detail="Signing wallets" />
         <DashboardAction href="/credentials" icon={<KeyRound size={17} />} title="Credentials" detail="Provider keys" />

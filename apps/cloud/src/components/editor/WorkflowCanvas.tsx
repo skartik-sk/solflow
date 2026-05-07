@@ -2,7 +2,7 @@
 
 // WorkflowCanvas — React Flow canvas for the cloud workflow editor.
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -39,60 +39,12 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
   style: { strokeWidth: 2 },
 };
 
-// ─── Execution status overlay on nodes ─────────────────────────────────────
-
-function ExecutionOverlayLayer() {
-  const nodes = useWorkflowStore((s) => s.nodes);
-  const nodeResults = useExecutionStore((s) => s.nodeResults);
-
-  if (nodeResults.size === 0) return null;
-
-  return (
-    <>
-      {nodes
-        .filter((n) => nodeResults.has(n.id))
-        .map((n) => {
-          const result = nodeResults.get(n.id)!;
-          if (result.status === "idle") return null;
-          const color =
-            result.status === "running"
-              ? "rgba(59,130,246,0.75)"
-              : result.status === "success"
-                ? "rgba(34,197,94,0.75)"
-                : result.status === "skipped"
-                  ? "rgba(113,113,122,0.75)"
-                  : "rgba(239,68,68,0.75)";
-          const width = (n as { measured?: { width?: number } }).measured?.width ?? 180;
-          const height = (n as { measured?: { height?: number } }).measured?.height ?? 60;
-
-          return (
-            <div
-              key={n.id}
-              style={{
-                position: "absolute",
-                left: n.position.x - 3,
-                top: n.position.y - 3,
-                width: width + 6,
-                height: height + 6,
-                borderRadius: 12,
-                border: `2px solid ${color}`,
-                boxShadow: result.status === "running" ? `0 0 12px 3px ${color}` : `0 0 6px 2px ${color}`,
-                pointerEvents: "none",
-                zIndex: 10,
-                animation: result.status === "running" ? "pulse-ring 1.5s ease-in-out infinite" : undefined,
-              }}
-            />
-          );
-        })}
-      <style>{`
-        @keyframes pulse-ring {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.5; }
-        }
-      `}</style>
-    </>
-  );
-}
+const EDGE_STATUS_COLOR: Record<string, string> = {
+  running: "#60a5fa",
+  success: "#34d399",
+  error: "#f87171",
+  skipped: "#a1a1aa",
+};
 
 // ─── Fit View Button ────────────────────────────────────────────────────────
 
@@ -115,9 +67,55 @@ function FitViewButton() {
 export function WorkflowCanvas() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode } =
     useWorkflowStore();
+  const nodeResults = useExecutionStore((s) => s.nodeResults);
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
+
+  const displayNodes = useMemo(
+    () =>
+      nodes.map((node) => {
+        const result = nodeResults.get(node.id);
+        if (!result || result.status === "idle") return node;
+
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            status: result.status,
+            outputPreview: result.output,
+          },
+        };
+      }),
+    [nodes, nodeResults],
+  );
+
+  const displayEdges = useMemo(
+    () =>
+      edges.map((edge) => {
+        const source = nodeResults.get(edge.source);
+        const target = nodeResults.get(edge.target);
+        const status =
+          target?.status && target.status !== "idle"
+            ? target.status
+            : source?.status && source.status !== "idle"
+              ? source.status
+              : undefined;
+
+        if (!status) return edge;
+
+        return {
+          ...edge,
+          animated: status === "running" || edge.animated,
+          style: {
+            ...edge.style,
+            stroke: EDGE_STATUS_COLOR[status] ?? edge.style?.stroke,
+            strokeWidth: status === "running" ? 3 : 2,
+          },
+        };
+      }),
+    [edges, nodeResults],
+  );
 
   const minimapNodeColor = useCallback(
     (n: { data?: { category?: string } }) => {
@@ -172,8 +170,8 @@ export function WorkflowCanvas() {
   return (
     <div ref={wrapperRef} className="relative h-full w-full">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={displayNodes}
+        edges={displayEdges}
         nodeTypes={cloudNodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -213,7 +211,6 @@ export function WorkflowCanvas() {
           className="rounded-xl border border-border bg-card shadow-lg"
           style={{ width: 140, height: 90 }}
         />
-        <ExecutionOverlayLayer />
         <FitViewButton />
       </ReactFlow>
     </div>

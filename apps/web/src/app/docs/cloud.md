@@ -27,7 +27,7 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Family    | Nodes                                         | Use                                                             |
 | --------- | --------------------------------------------- | --------------------------------------------------------------- |
 | Trigger   | Manual Trigger, Cron Trigger, Webhook Trigger | Start a workflow run                                            |
-| Action    | Fetch Price, Token Transfer, Jupiter Swap, Oracle Price, Helius RPC, Token Account Query, Metaplex Asset, Squads Proposal | Fetch data or perform Solana-aware work |
+| Action    | Fetch Price, Token Transfer, Jupiter API, Oracle Price, Helius RPC, Token Account Query, Metaplex Asset, Squads Proposal | Fetch data or perform Solana-aware work |
 | AI        | AI Agent                                      | Summarize, classify, score risk, or create structured decisions |
 | Logic     | If / Else, Wait                               | Branch or delay execution                                       |
 | Transform | Filter                                        | Keep only items matching a condition                            |
@@ -41,7 +41,7 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Cron Trigger         | None                                    | No                                       | Runs only after activation                           |
 | Webhook Trigger      | None                                    | No                                       | Header auth is configured on the node itself         |
 | Fetch Price          | `birdeye`                               | Required for Birdeye, not DexScreener    | `BIRDEYE_API_KEY` works as an environment fallback   |
-| Jupiter Swap         | `jupiter` plus a Cloud wallet           | Wallet required, API key optional        | `JUPITER_API_KEY` and `JUPITER_API_BASE` can fallback |
+| Jupiter API          | `jupiter` plus optional Cloud wallet    | API key optional; wallet required only for direct swap send | `JUPITER_API_KEY` and `JUPITER_API_BASE` can fallback |
 | Token Transfer       | Cloud wallet                            | Yes                                      | Uses the selected encrypted Cloud wallet             |
 | AI Agent             | `openai`, `anthropic`, or `gemini`      | Required unless env var is configured    | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` |
 | Oracle Price         | `switchboard` or `webhook` for Switchboard | Required for Switchboard, not Pyth    | Pyth reads can run without an API key                |
@@ -97,6 +97,19 @@ Nodes pass arrays of items. Each item has a JSON object:
 ```
 
 Most action nodes merge their result into the incoming item. For example, Fetch Price can receive `{ "token": "SOL" }` and emit the same item with `price` and `priceData` attached.
+
+## Execution Visibility
+
+The Cloud editor keeps a bottom execution panel open during manual runs.
+
+| Tab        | Shows                                                                 |
+| ---------- | --------------------------------------------------------------------- |
+| Executions | Each node status: running, completed, failed, waiting, or skipped     |
+| Simulation | Risk level, fee estimate, route, blockers, warnings, and wallet deltas |
+| Logs       | Runtime messages from the runner and each node                        |
+| Output     | JSON output emitted by completed nodes                                |
+
+During a run, nodes and connected edges update on the canvas so the active step is visible while data moves through the workflow.
 
 ## Expressions
 
@@ -158,7 +171,7 @@ Use Webhook Trigger when another product, bot, backend, or alerting system shoul
 | ------------------- | --------------------------------- | --------------------------------------------------------------- | ----------------------------------------------- |
 | Fetch Price         | Optional incoming item            | Token Address, Price Source, Credential                         | `price` and `priceData`                         |
 | Token Transfer      | Incoming item or fixed properties | Destination Address, Amount, Token Mint, Source Wallet          | Transaction signature and transfer metadata     |
-| Jupiter Swap        | Incoming item or fixed properties | Input Token, Output Token, Amount, Slippage, Wallet, Credential | Transaction signature, route, and swap metadata |
+| Jupiter API         | Incoming item or fixed properties | Operation, Token IDs, Search Query, Wallet/Taker, Swap Tokens, Credential | Jupiter price/token/portfolio data, swap order/build payloads, or direct swap metadata |
 | Oracle Price        | Optional incoming item            | Provider, Feed ID, API URL, Credential                          | Oracle price payload                            |
 | Helius RPC          | Optional incoming item            | Method, Params, RPC URL, Credential                             | JSON-RPC result                                 |
 | Token Account Query | Optional incoming item            | Owner, Mint, Token Program, RPC URL, Credential                 | Token account list                              |
@@ -194,17 +207,28 @@ Example connection:
 Manual Trigger -> Token Transfer -> HTTP Request
 ```
 
-### Jupiter Swap
+### Jupiter API
 
-Jupiter Swap executes a token swap through Jupiter.
+Jupiter API can run lightweight read operations or prepare swap payloads before a wallet action.
 
-Use it behind a guard step when the swap depends on external data:
+| Operation             | API surface              | Requires wallet?                    | Output                         |
+| --------------------- | ------------------------ | ----------------------------------- | ------------------------------ |
+| Price API v3          | `GET /price/v3`          | No                                  | Token price payload            |
+| Token Search v2       | `GET /tokens/v2/search`  | No                                  | Token metadata/search results  |
+| Portfolio Positions   | `GET /portfolio/v1/positions` | Wallet address or selected wallet public key | Position payload       |
+| Swap v2 Order         | `GET /swap/v2/order`     | Taker address or selected wallet public key | Quote and assembled order payload |
+| Swap v2 Build         | `GET /swap/v2/build`     | Taker address or selected wallet public key | Raw swap instruction payload   |
+| Legacy Direct Swap Send | Legacy quote/swap transaction path | Selected Cloud wallet             | Signature, route, and swap metadata |
+
+Use swap operations behind a guard step when the swap depends on external data:
 
 ```text
-Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Swap -> HTTP Request
+Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter API -> HTTP Request
 ```
 
 `slippageBps` is basis points. `50` means `0.5%`.
+
+For most first tests, choose `Price API v3`. It does not need a wallet and can run with keyless Jupiter access. For production rate limits, add a Jupiter credential or configure `JUPITER_API_KEY` on the server.
 
 ## AI Agent
 
@@ -281,9 +305,9 @@ Cloud workflows can use encrypted wallets and credentials for automated actions.
 
 | Resource               | Used by                      | Notes                                         |
 | ---------------------- | ---------------------------- | --------------------------------------------- |
-| Cloud wallet           | Token Transfer, Jupiter Swap | Used for transaction signing                  |
+| Cloud wallet           | Token Transfer, Jupiter API direct swap | Used for transaction signing                  |
 | Birdeye credential     | Fetch Price                  | Optional when `BIRDEYE_API_KEY` is available  |
-| Jupiter credential     | Jupiter Swap                 | Optional when `JUPITER_API_KEY` is available  |
+| Jupiter credential     | Jupiter API                  | Optional for keyless reads; recommended for production rate limits |
 | OpenAI credential      | AI Agent                     | Optional when `OPENAI_API_KEY` is available   |
 | Anthropic credential   | AI Agent                     | Optional when `ANTHROPIC_API_KEY` is available |
 | Gemini credential      | AI Agent                     | Optional when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is available |
@@ -303,7 +327,7 @@ Operational rules:
 | Scheduled market alert | `Cron Trigger -> Fetch Price -> If / Else -> HTTP Request`                                |
 | AI price monitor       | `Cron Trigger -> Fetch Price -> AI Agent -> If / Else -> HTTP Request`                    |
 | Manual payout          | `Manual Trigger -> Token Transfer -> Filter -> HTTP Request`                              |
-| AI-assisted swap guard | `Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Swap -> HTTP Request` |
+| AI-assisted swap guard | `Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter API -> HTTP Request` |
 | Delayed follow-up      | `Manual Trigger -> Wait -> HTTP Request`                                                  |
 
 ## Cloud Versus Other Surfaces

@@ -66,6 +66,20 @@ async function assertWorkflowActivationQuota(ctx: {
   }
 }
 
+const DEFAULT_WORKFLOW_SETTINGS = {
+  timeout: 300,
+  retryPolicy: { maxAttempts: 1, delayMs: 0 },
+  onError: "stop",
+  safety: {
+    simulationRequired: true,
+    manualApprovalRequired: true,
+    walletAutomationAllowed: false,
+    maxSlippageBps: 100,
+    allowedMints: [],
+    webhookAllowlist: [],
+  },
+};
+
 export const workflowRouter = router({
   list: protectedProcedure.query(async ({ ctx }) => {
     return ctx.prisma.workflow.findMany({
@@ -99,6 +113,11 @@ export const workflowRouter = router({
       z.object({
         name: z.string().min(1).max(100),
         description: z.string().optional(),
+        definition: z
+          .object({ nodes: z.array(z.any()), edges: z.array(z.any()) })
+          .optional(),
+        settings: z.any().optional(),
+        tags: z.array(z.string()).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -107,20 +126,9 @@ export const workflowRouter = router({
           user: { connect: { id: ctx.session.user.id } },
           name: input.name,
           description: input.description,
-          definition: { nodes: [], edges: [] } as any,
-          settings: {
-            timeout: 300,
-            retryPolicy: { maxAttempts: 1, delayMs: 0 },
-            onError: "stop",
-            safety: {
-              simulationRequired: true,
-              manualApprovalRequired: true,
-              walletAutomationAllowed: false,
-              maxSlippageBps: 100,
-              allowedMints: [],
-              webhookAllowlist: [],
-            },
-          } as any,
+          definition: (input.definition ?? { nodes: [], edges: [] }) as any,
+          settings: (input.settings ?? DEFAULT_WORKFLOW_SETTINGS) as any,
+          tags: input.tags,
         },
         select: workflowPublicSelect,
       });

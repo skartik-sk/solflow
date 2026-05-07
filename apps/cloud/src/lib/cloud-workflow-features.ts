@@ -81,12 +81,12 @@ type TemplateLike = {
 };
 
 const WALLET_ACTIONS = new Set([
-  "action:jupiter-swap",
   "action:token-transfer",
 ]);
 
 const EXTERNAL_ACTIONS = new Set([
   "action:price-fetch",
+  "action:jupiter-swap",
   "action:ai-agent",
   "action:oracle-price",
   "action:helius-rpc",
@@ -108,7 +108,7 @@ const NODE_LABELS: Record<string, string> = {
   "trigger:cron": "Cron Trigger",
   "trigger:webhook": "Webhook Trigger",
   "action:price-fetch": "Price Fetch",
-  "action:jupiter-swap": "Jupiter Swap",
+  "action:jupiter-swap": "Jupiter API",
   "action:token-transfer": "Token Transfer",
   "action:ai-agent": "AI Agent",
   "action:oracle-price": "Oracle Price",
@@ -148,6 +148,15 @@ function hasMeaningfulValue(value: unknown): boolean {
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort();
+}
+
+function jupiterOperation(node: WorkflowNodeInput): string {
+  return String(nodeConfig(node).operation || "price");
+}
+
+function isWalletAction(node: WorkflowNodeInput): boolean {
+  if (WALLET_ACTIONS.has(node.type)) return true;
+  return node.type === "action:jupiter-swap" && jupiterOperation(node) === "swap-direct-send";
 }
 
 function buildRoute(nodes: WorkflowNodeInput[], edges: WorkflowEdgeInput[]): string[] {
@@ -207,14 +216,18 @@ function walletDeltasFor(nodes: WorkflowNodeInput[]): WorkflowSimulationReport["
   return nodes.flatMap((node) => {
     const data = nodeConfig(node);
     if (node.type === "action:jupiter-swap") {
+      const operation = jupiterOperation(node);
+      if (operation !== "swap-direct-send" && operation !== "swap-order" && operation !== "swap-build") {
+        return [];
+      }
       return [{
         asset: String(data.inputMint || "input mint"),
         change: `-${String(data.amount || "configured amount")}`,
-        reason: "Jupiter swap input",
+        reason: operation === "swap-direct-send" ? "Jupiter direct swap input" : "Jupiter swap quote input",
       }, {
         asset: String(data.outputMint || "output mint"),
         change: "+quoted output",
-        reason: "Jupiter swap output",
+        reason: operation === "swap-direct-send" ? "Jupiter direct swap output" : "Jupiter quoted output",
       }];
     }
     if (node.type === "action:token-transfer") {
@@ -230,12 +243,25 @@ function walletDeltasFor(nodes: WorkflowNodeInput[]): WorkflowSimulationReport["
 
 function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationReport["transactionPlan"] {
   return nodes
-    .filter((node) => WALLET_ACTIONS.has(node.type) || EXTERNAL_ACTIONS.has(node.type))
+    .filter((node) => isWalletAction(node) || EXTERNAL_ACTIONS.has(node.type))
     .map((node) => {
       const data = nodeConfig(node);
       let effect = "Calls an external service";
       if (node.type === "action:jupiter-swap") {
-        effect = `Simulates and signs a Jupiter swap for ${String(data.amount || "configured amount")}`;
+        const operation = jupiterOperation(node);
+        if (operation === "price") {
+          effect = `Reads Jupiter Price API for ${String(data.tokenIds || "configured token ids")}`;
+        } else if (operation === "token-search") {
+          effect = `Searches Jupiter Tokens API for ${String(data.query || "configured query")}`;
+        } else if (operation === "portfolio-positions") {
+          effect = "Reads Jupiter Portfolio positions for the configured wallet";
+        } else if (operation === "swap-order") {
+          effect = `Builds a Jupiter Swap API V2 order for ${String(data.amount || "configured amount")}`;
+        } else if (operation === "swap-build") {
+          effect = `Builds Jupiter swap instructions for ${String(data.amount || "configured amount")}`;
+        } else {
+          effect = `Simulates and signs a Jupiter legacy direct swap for ${String(data.amount || "configured amount")}`;
+        }
       } else if (node.type === "action:token-transfer") {
         effect = `Simulates and signs a transfer to ${String(data.recipient || "configured recipient")}`;
       } else if (node.type === "output:webhook") {
@@ -260,7 +286,7 @@ export function createSimulationReport(
   const nodes = Array.isArray(definition.nodes) ? definition.nodes : [];
   const edges = Array.isArray(definition.edges) ? definition.edges : [];
   const safety = settings.safety ?? {};
-  const walletActions = nodes.filter((node) => WALLET_ACTIONS.has(node.type)).length;
+  const walletActions = nodes.filter(isWalletAction).length;
   const externalCalls = nodes.filter((node) => EXTERNAL_ACTIONS.has(node.type)).length;
   const triggerTypes = uniqueSorted(nodes.filter((node) => node.type.startsWith("trigger:")).map((node) => node.type));
   const blockers: string[] = [];
@@ -423,7 +449,7 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
         { id: "trigger", type: "trigger:cron", position: { x: 80, y: 200 }, data: { cronExpression: "0 */6 * * *", timezone: "UTC" } },
         { id: "price", type: "action:price-fetch", position: { x: 330, y: 200 }, data: { token: "So11111111111111111111111111111111111111112", source: "dexscreener" } },
         { id: "guard", type: "logic:if-else", position: { x: 580, y: 200 }, data: { field: "price", operator: "lt", value: "180" } },
-        { id: "swap", type: "action:jupiter-swap", position: { x: 830, y: 120 }, data: { inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", outputMint: "So11111111111111111111111111111111111111112", amount: "1000000", slippageBps: 50 } },
+        { id: "swap", type: "action:jupiter-swap", position: { x: 830, y: 120 }, data: { operation: "swap-order", inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", outputMint: "So11111111111111111111111111111111111111112", amount: "1000000", slippageBps: 50, walletAddress: "YOUR_TAKER_ADDRESS" } },
         { id: "notify", type: "output:webhook", position: { x: 1080, y: 120 }, data: { url: "https://example.com/ops/swap-summary", method: "POST", body: "{{ $json }}" } },
       ],
       [edge("e1", "trigger", "price"), edge("e2", "price", "guard"), edge("e3", "guard", "swap", "true"), edge("e4", "swap", "notify")],
@@ -452,7 +478,8 @@ export function evaluateCloudTemplateCertification(template: TemplateLike): Clou
   const hasTrigger = nodeTypes.some((type) => type.startsWith("trigger:"));
   const hasAction = nodeTypes.some((type) => type.startsWith("action:"));
   const hasOutput = nodeTypes.some((type) => type.startsWith("output:") || type === "action:squads-proposal");
-  const walletAction = nodeTypes.some((type) => WALLET_ACTIONS.has(type));
+  const walletAction = template.definition?.nodes?.some(isWalletAction)
+    ?? nodeTypes.some((type) => WALLET_ACTIONS.has(type));
   const protocolNode = nodeTypes.some((type) =>
     [
       "action:jupiter-swap",
