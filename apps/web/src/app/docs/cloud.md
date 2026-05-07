@@ -171,11 +171,11 @@ Use Webhook Trigger when another product, bot, backend, or alerting system shoul
 | ------------------- | --------------------------------- | --------------------------------------------------------------- | ----------------------------------------------- |
 | Fetch Price         | Optional incoming item            | Token Address, Price Source, Credential                         | `price` and `priceData`                         |
 | Token Transfer      | Incoming item or fixed properties | Destination Address, Amount, Token Mint, Source Wallet          | Transaction signature and transfer metadata     |
-| Jupiter API         | Incoming item or fixed properties | Operation, Token IDs, Search Query, Wallet/Taker, Swap Tokens, Credential | Jupiter price/token/portfolio data, swap order/build payloads, or direct swap metadata |
-| Oracle Price        | Optional incoming item            | Provider, Feed ID, API URL, Credential                          | Oracle price payload                            |
-| Helius RPC          | Optional incoming item            | Method, Params, RPC URL, Credential                             | JSON-RPC result                                 |
+| Jupiter API         | Incoming item or fixed properties | Operation, Token IDs, Token Search/Tag/Category, Wallet/Taker, Swap Tokens, Credential | Jupiter price/token/portfolio data, swap order/build payloads, or direct swap metadata |
+| Oracle Price        | Optional incoming item            | Operation, Provider, Feed ID/Search Query, API URL, Credential  | Oracle price payload or Pyth feed search result |
+| Helius RPC          | Optional incoming item            | DAS/RPC Method, Params, RPC URL, Credential                     | JSON-RPC result                                 |
 | Token Account Query | Optional incoming item            | Owner, Mint, Token Program, RPC URL, Credential                 | Token account list                              |
-| Metaplex Asset      | Optional incoming item            | Asset ID, RPC URL, Credential                                   | DAS asset metadata                              |
+| Metaplex Asset      | Optional incoming item            | DAS Operation, Asset/Owner/Group/Creator fields, Display Options, RPC URL, Credential | DAS asset result                    |
 | Squads Proposal     | Incoming item or fixed payload    | API URL, Multisig, Title, Payload, Credential                   | Proposal API response                           |
 
 ### Fetch Price
@@ -215,6 +215,9 @@ Jupiter API can run lightweight read operations or prepare swap payloads before 
 | --------------------- | ------------------------ | ----------------------------------- | ------------------------------ |
 | Price API v3          | `GET /price/v3`          | No                                  | Token price payload            |
 | Token Search v2       | `GET /tokens/v2/search`  | No                                  | Token metadata/search results  |
+| Token Tag v2          | `GET /tokens/v2/tag`     | No                                  | Verified/LST/stocks token list |
+| Token Category v2     | `GET /tokens/v2/{category}/{interval}` | No                    | Trending/traded/organic token list |
+| Recent Tokens v2      | `GET /tokens/v2/recent`  | No                                  | Jupiter's default recently pooled token list |
 | Portfolio Positions   | `GET /portfolio/v1/positions` | Wallet address or selected wallet public key | Position payload       |
 | Swap v2 Order         | `GET /swap/v2/order`     | Taker address or selected wallet public key | Quote and assembled order payload |
 | Swap v2 Build         | `GET /swap/v2/build`     | Taker address or selected wallet public key | Raw swap instruction payload   |
@@ -229,6 +232,44 @@ Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter API -> HTTP R
 `slippageBps` is basis points. `50` means `0.5%`.
 
 For most first tests, choose `Price API v3`. It does not need a wallet and can run with keyless Jupiter access. For production rate limits, add a Jupiter credential or configure `JUPITER_API_KEY` on the server.
+
+### Oracle Price
+
+Oracle Price reads Pyth Hermes directly, searches Pyth feed IDs, or calls a Switchboard-compatible HTTP endpoint when you provide an API URL and credential.
+
+| Operation         | Provider    | Required fields             | Credential need                         |
+| ----------------- | ----------- | --------------------------- | --------------------------------------- |
+| Latest Price      | Pyth        | Feed ID                     | None for the public Hermes endpoint     |
+| Pyth Feed Search  | Pyth        | Search Query, optional Asset Type | None for the public Hermes endpoint |
+| Latest Price      | Switchboard | Feed ID plus API URL template | `switchboard` or `webhook` headers when the endpoint requires auth |
+
+Pyth output includes normalized price, raw price, confidence, exponent, publish time, and the fetch timestamp.
+
+### Helius RPC
+
+Helius RPC is the low-level escape hatch for DAS and Solana JSON-RPC calls. It supports the standard DAS methods `getAsset`, `getAssetBatch`, `getAssetProof`, `getAssetProofBatch`, `getAssetsByAuthority`, `getAssetsByCreator`, `getAssetsByGroup`, `getAssetsByOwner`, `getNftEditions`, `getSignaturesForAsset`, `getTokenAccounts`, and `searchAssets`, plus Solana RPC methods such as `getSignaturesForAddress` and `getTransaction`.
+
+Use Params JSON as the exact JSON-RPC params array. For DAS calls, add a Helius credential or a DAS-compatible RPC URL.
+
+### Metaplex Asset
+
+Metaplex Asset is the guided DAS node for NFT, compressed NFT, and token metadata reads.
+
+| Operation          | Required field                     | Notes                                      |
+| ------------------ | ---------------------------------- | ------------------------------------------ |
+| Get Asset          | Asset ID                           | Single NFT/token metadata and ownership    |
+| Get Asset Proof    | Asset ID                           | Merkle proof for compressed assets         |
+| Assets by Owner    | Owner Address                      | Supports pagination and display options    |
+| Assets by Group    | Group Key and Group Value          | Use `collection` as the group key for collections |
+| Assets by Creator  | Creator Address                    | Optional verified-only filter              |
+| Assets by Authority | Authority Address                 | Finds assets controlled by an authority    |
+| Search Assets      | Search fields or Advanced Search JSON | Supports token type, owner, creator, group, sorting, and display flags |
+
+This node requires a Helius credential unless you provide another DAS-compatible RPC URL.
+
+### Squads Proposal
+
+Squads Proposal sends a prepared approval payload to your own Squads-compatible API or webhook adapter. Squads v4 itself is SDK/program driven, so this node does not claim to directly create on-chain proposals without an adapter service. Use it to hand off treasury workflow output, transaction summaries, or token-account snapshots into an approval backend.
 
 ## AI Agent
 

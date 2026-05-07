@@ -17,6 +17,9 @@ const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 type JupiterOperation =
   | "price"
   | "token-search"
+  | "token-tag"
+  | "token-category"
+  | "token-recent"
   | "portfolio-positions"
   | "swap-order"
   | "swap-build"
@@ -115,11 +118,20 @@ function positiveIntegerParam(
   return Math.trunc(amount);
 }
 
+function positiveIntegerWithDefault(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+}
+
 function normalizeOperation(value: unknown): JupiterOperation {
   const operation = typeof value === "string" ? value : "price";
   if (
     operation === "price" ||
     operation === "token-search" ||
+    operation === "token-tag" ||
+    operation === "token-category" ||
+    operation === "token-recent" ||
     operation === "portfolio-positions" ||
     operation === "swap-order" ||
     operation === "swap-build" ||
@@ -203,6 +215,9 @@ export const JupiterSwapNode = memo(function JupiterSwapNode({
   const operation = (nodeData.operation as string) || "price";
   const tokenIds = (nodeData.tokenIds as string) || "";
   const query = (nodeData.query as string) || "";
+  const tokenTag = (nodeData.tokenTag as string) || "";
+  const tokenCategory = (nodeData.tokenCategory as string) || "";
+  const tokenInterval = (nodeData.tokenInterval as string) || "";
   const walletAddress = (nodeData.walletAddress as string) || "";
   const inputMint = (nodeData.inputMint as string) || "";
   const outputMint = (nodeData.outputMint as string) || "";
@@ -230,6 +245,30 @@ export const JupiterSwapNode = memo(function JupiterSwapNode({
             <span className="text-muted-foreground/70">query</span>
             <span className="truncate max-w-[120px] text-right font-mono text-[10px]">
               {query || "SOL"}
+            </span>
+          </div>
+        )}
+        {operation === "token-tag" && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground/70">tag</span>
+            <span className="truncate max-w-[120px] text-right font-mono text-[10px]">
+              {tokenTag || "verified"}
+            </span>
+          </div>
+        )}
+        {operation === "token-category" && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground/70">cat</span>
+            <span className="truncate max-w-[120px] text-right font-mono text-[10px]">
+              {tokenCategory || "toptraded"}:{tokenInterval || "24h"}
+            </span>
+          </div>
+        )}
+        {operation === "token-recent" && (
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground/70">tokens</span>
+            <span className="truncate max-w-[120px] text-right font-mono text-[10px]">
+              recent
             </span>
           </div>
         )}
@@ -290,6 +329,9 @@ export const jupiterSwapDef: CloudNodeDefinition = {
       options: [
         { label: "Price API v3", value: "price" },
         { label: "Token Search v2", value: "token-search" },
+        { label: "Token Tag v2", value: "token-tag" },
+        { label: "Token Category v2", value: "token-category" },
+        { label: "Recent Tokens v2", value: "token-recent" },
         { label: "Portfolio Positions v1", value: "portfolio-positions" },
         { label: "Swap v2 Order", value: "swap-order" },
         { label: "Swap v2 Build", value: "swap-build" },
@@ -313,6 +355,54 @@ export const jupiterSwapDef: CloudNodeDefinition = {
       description: "Name, symbol, or mint to search with Tokens API v2.",
       placeholder: "SOL",
       supportsExpressions: true,
+    },
+    {
+      key: "tokenTag",
+      label: "Token Tag",
+      type: "select",
+      required: false,
+      default: "verified",
+      description: "Tokens API v2 tag query.",
+      options: [
+        { label: "Verified", value: "verified" },
+        { label: "Liquid Staking Tokens", value: "lst" },
+        { label: "Stocks", value: "stocks" },
+      ],
+    },
+    {
+      key: "tokenCategory",
+      label: "Token Category",
+      type: "select",
+      required: false,
+      default: "toptraded",
+      description: "Tokens API v2 category endpoint.",
+      options: [
+        { label: "Top Traded", value: "toptraded" },
+        { label: "Top Trending", value: "toptrending" },
+        { label: "Top Organic Score", value: "toporganicscore" },
+      ],
+    },
+    {
+      key: "tokenInterval",
+      label: "Token Interval",
+      type: "select",
+      required: false,
+      default: "24h",
+      description: "Category interval.",
+      options: [
+        { label: "5 minutes", value: "5m" },
+        { label: "1 hour", value: "1h" },
+        { label: "6 hours", value: "6h" },
+        { label: "24 hours", value: "24h" },
+      ],
+    },
+    {
+      key: "tokenLimit",
+      label: "Token Limit",
+      type: "number",
+      required: false,
+      default: 30,
+      description: "Limit for category token reads. Recent Tokens v2 returns Jupiter's default recent list.",
     },
     {
       key: "walletAddress",
@@ -378,6 +468,10 @@ export const jupiterSwapDef: CloudNodeDefinition = {
     operation: "price",
     tokenIds: SOL_MINT,
     query: "SOL",
+    tokenTag: "verified",
+    tokenCategory: "toptraded",
+    tokenInterval: "24h",
+    tokenLimit: 30,
     walletAddress: "",
     inputMint: SOL_MINT,
     outputMint: USDC_MINT,
@@ -412,6 +506,44 @@ export const jupiterSwapDef: CloudNodeDefinition = {
       }, jupiterConfig);
       ctx.logger.info("Jupiter Tokens API complete");
       return attachJupiterOutput(inputItems, operation, payload, { query });
+    }
+
+    if (operation === "token-tag") {
+      const tag = optionalString(ctx.params, "tokenTag") ?? "verified";
+      ctx.logger.info("Jupiter Tokens tag request", { tag });
+      const payload = await fetchJupiterJson<any>(`/tokens/v2/tag?${queryString({ query: tag })}`, {
+        method: "GET",
+        signal: ctx.signal,
+      }, jupiterConfig);
+      ctx.logger.info("Jupiter Tokens tag complete");
+      return attachJupiterOutput(inputItems, operation, payload, { tag });
+    }
+
+    if (operation === "token-category") {
+      const category = optionalString(ctx.params, "tokenCategory") ?? "toptraded";
+      const interval = optionalString(ctx.params, "tokenInterval") ?? "24h";
+      const limit = positiveIntegerWithDefault(ctx.params.tokenLimit, 30);
+      ctx.logger.info("Jupiter Tokens category request", { category, interval, limit });
+      const payload = await fetchJupiterJson<any>(
+        `/tokens/v2/${encodeURIComponent(category)}/${encodeURIComponent(interval)}?${queryString({ limit })}`,
+        {
+          method: "GET",
+          signal: ctx.signal,
+        },
+        jupiterConfig,
+      );
+      ctx.logger.info("Jupiter Tokens category complete");
+      return attachJupiterOutput(inputItems, operation, payload, { category, interval, limit });
+    }
+
+    if (operation === "token-recent") {
+      ctx.logger.info("Jupiter recent tokens request");
+      const payload = await fetchJupiterJson<any>("/tokens/v2/recent", {
+        method: "GET",
+        signal: ctx.signal,
+      }, jupiterConfig);
+      ctx.logger.info("Jupiter recent tokens complete");
+      return attachJupiterOutput(inputItems, operation, payload);
     }
 
     if (operation === "portfolio-positions") {

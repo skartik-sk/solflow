@@ -669,6 +669,103 @@ export const CLOUD_TEMPLATES = [
   },
 
   {
+    title: "Jupiter Token Discovery",
+    description: "Pull top Jupiter token lists without a wallet before routing opportunities to a webhook.",
+    longDescription:
+      "A no-wallet starter that calls Jupiter Tokens V2 category data, keeps token metadata and market signals in the run output, then forwards the result to a webhook for dashboards, alerts, or manual review.",
+    category: "DEFI",
+    tags: ["jupiter", "tokens", "discovery", "market", "no-wallet"],
+    nodeTypes: ["trigger:manual", "action:jupiter-swap", "output:webhook"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:jupiter-swap",
+          position: { x: 320, y: 220 },
+          data: {
+            operation: "token-category",
+            tokenCategory: "toptraded",
+            tokenInterval: "24h",
+            tokenLimit: 25,
+            credentialId: "",
+          },
+        },
+        {
+          id: "n3",
+          type: "output:webhook",
+          position: { x: 610, y: 220 },
+          data: {
+            url: "https://example.com/ops/jupiter-token-discovery",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{{ $json.jupiter }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
+    title: "Pyth Feed Finder",
+    description: "Search public Pyth feed IDs before wiring an oracle guard.",
+    longDescription:
+      "A no-key utility template that searches the Pyth Hermes feed catalog by symbol or pair, returns matching feed IDs, and sends the result to a webhook so operators can pick the exact feed for production workflows.",
+    category: "DEFI",
+    tags: ["pyth", "oracle", "feed-search", "no-wallet", "utility"],
+    nodeTypes: ["trigger:manual", "action:oracle-price", "output:webhook"],
+    featured: false,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:oracle-price",
+          position: { x: 320, y: 220 },
+          data: {
+            operation: "feed-search",
+            provider: "pyth",
+            query: "SOL",
+            assetType: "crypto",
+          },
+        },
+        {
+          id: "n3",
+          type: "output:webhook",
+          position: { x: 610, y: 220 },
+          data: {
+            url: "https://example.com/ops/pyth-feed-search",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{{ $json.oracle }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
     title: "Oracle Guard",
     description: "Gate a workflow with Pyth or Switchboard price data before notifying operators.",
     longDescription:
@@ -742,7 +839,7 @@ export const CLOUD_TEMPLATES = [
           id: "n2",
           type: "action:metaplex-asset",
           position: { x: 320, y: 220 },
-          data: { assetId: "YOUR_ASSET_ID", credentialId: "" },
+          data: { operation: "getAsset", assetId: "YOUR_ASSET_ID", credentialId: "" },
         },
         {
           id: "n3",

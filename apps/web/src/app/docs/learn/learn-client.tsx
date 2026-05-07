@@ -752,9 +752,9 @@ const cloudNodeLessons = [
     connects: "Data action -> AI Agent -> If/Else or Output",
   },
   {
-    type: "Jupiter Swap",
-    use: "Execute a swap with configured wallet and token inputs.",
-    connects: "If/Else or Trigger -> Jupiter Swap -> Output",
+    type: "Jupiter API",
+    use: "Read Jupiter price/token data, prepare swap payloads, or execute a wallet-gated direct swap.",
+    connects: "If/Else or Trigger -> Jupiter API -> Output",
   },
   {
     type: "Token Transfer",
@@ -1039,7 +1039,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
   {
     id: "swap-guard",
     title: "AI-assisted swap guard",
-    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter Swap executes, then Webhook Output reports the signature.",
+    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter API executes the direct-swap branch, then Webhook Output reports the signature.",
     nodes: [
       {
         id: "webhookTrigger",
@@ -1106,7 +1106,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
       },
       {
         id: "swap",
-        label: "Jupiter Swap",
+        label: "Jupiter API",
         type: "action:jupiter-swap",
         category: "action",
         icon: "Zap",
@@ -1219,15 +1219,15 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
       },
       {
         id: "swap",
-        title: "Execute Jupiter swap",
-        add: "Drag Jupiter Swap. This is the wallet action, so it should come after the approval branch.",
+        title: "Execute Jupiter direct swap",
+        add: "Drag Jupiter API and choose Legacy Direct Swap Send. This is the wallet action, so it should come after the approval branch.",
         configure: [
           { label: "walletId", value: "trading-wallet" },
           { label: "inputMint", value: "{{ $json.tokenIn }}" },
           { label: "outputMint", value: "{{ $json.tokenOut }}" },
           { label: "amount", value: "{{ $json.amount }}" },
         ],
-        connect: "Connect If / Else true -> Jupiter Swap input.",
+        connect: "Connect If / Else true -> Jupiter API input.",
         focusNodeId: "swap",
         requiredEdges: [
           { from: "webhookTrigger", to: "price" },
@@ -1251,7 +1251,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
           { label: "url", value: "https://example.com/swap-result" },
           { label: "body", value: "{{ $json.signature }}" },
         ],
-        connect: "Connect Jupiter Swap output -> Webhook Output input.",
+        connect: "Connect Jupiter API output -> Webhook Output input.",
         focusNodeId: "webhook",
         requiredEdges: [
           { from: "webhookTrigger", to: "price" },

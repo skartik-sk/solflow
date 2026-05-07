@@ -632,6 +632,44 @@ describe("Execute functions", () => {
     });
   });
 
+  it("action:oracle-price searches Pyth price feed IDs", async () => {
+    const def = cloudNodeRegistry.get("action:oracle-price")!;
+    const feedPayload = [
+      {
+        id: "feed-sol",
+        attributes: {
+          asset_type: "Crypto",
+          display_symbol: "SOL/USD",
+        },
+      },
+    ];
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(feedPayload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      operation: "feed-search",
+      provider: "pyth",
+      query: "SOL",
+      assetType: "crypto",
+    }));
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://hermes.pyth.network/v2/price_feeds?query=SOL&asset_type=crypto",
+    );
+    expect((result[0].json as any).oracle).toMatchObject({
+      provider: "pyth",
+      operation: "feed-search",
+      query: "SOL",
+      assetType: "crypto",
+      feeds: feedPayload,
+    });
+  });
+
   it("action:helius-rpc calls JSON-RPC with a selected Helius credential", async () => {
     const def = cloudNodeRegistry.get("action:helius-rpc")!;
     const fetchMock = vi.fn(async () =>
@@ -670,6 +708,67 @@ describe("Execute functions", () => {
     expect((result[0].json as any).helius).toEqual({
       method: "getAsset",
       result: { id: "asset-1" },
+    });
+  });
+
+  it("action:helius-rpc exposes common DAS methods", () => {
+    const def = cloudNodeRegistry.get("action:helius-rpc")!;
+    const methodValues = def.properties
+      .find((property) => property.key === "method")!
+      .options!
+      .map((option) => option.value);
+
+    expect(methodValues).toEqual(expect.arrayContaining([
+      "getAssetProof",
+      "getAssetsByAuthority",
+      "getAssetsByCreator",
+      "getAssetsByGroup",
+      "getNftEditions",
+      "getSignaturesForAsset",
+      "searchAssets",
+    ]));
+  });
+
+  it("action:metaplex-asset can list DAS assets by owner", async () => {
+    const def = cloudNodeRegistry.get("action:metaplex-asset")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        jsonrpc: "2.0",
+        result: { total: 1, items: [{ id: "asset-1" }] },
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      operation: "getAssetsByOwner",
+      ownerAddress: "Owner111111111111111111111111111111111111111",
+      page: 2,
+      limit: 25,
+      showFungible: true,
+      showNativeBalance: true,
+      rpcUrl: "https://rpc.example.com",
+    }));
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      method: "getAssetsByOwner",
+      params: [{
+        ownerAddress: "Owner111111111111111111111111111111111111111",
+        page: 2,
+        limit: 25,
+        displayOptions: {
+          showFungible: true,
+          showNativeBalance: true,
+        },
+      }],
+    });
+    expect((result[0].json as any).metaplexAsset).toMatchObject({
+      method: "getAssetsByOwner",
+      result: { total: 1, items: [{ id: "asset-1" }] },
     });
   });
 
@@ -868,6 +967,117 @@ describe("Execute functions", () => {
     );
     expect((result[0].json as any).jupiter.operation).toBe("price");
     expect((result[0].json as any).jupiter.payload).toEqual(pricePayload);
+  });
+
+  it("action:jupiter-swap reads Jupiter Tokens category data", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+    const tokensPayload = [{ id: "Token111", symbol: "TKN" }];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(tokensPayload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      operation: "token-category",
+      tokenCategory: "toptraded",
+      tokenInterval: "24h",
+      tokenLimit: 25,
+    }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.jup.ag/tokens/v2/toptraded/24h?limit=25",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect((result[0].json as any).jupiter).toMatchObject({
+      operation: "token-category",
+      category: "toptraded",
+      interval: "24h",
+      limit: 25,
+      payload: tokensPayload,
+    });
+  });
+
+  it("action:jupiter-swap sends saved Jupiter credential as x-api-key", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+    const pricePayload = {
+      So11111111111111111111111111111111111111112: { usdPrice: 150 },
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(pricePayload), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const getCredential = vi.fn(async () => ({
+      id: "cred-jupiter",
+      label: "Jupiter",
+      type: "jupiter",
+      data: { apiKey: "test-jupiter-key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await def.execute!({
+      ...makeCtx({
+        operation: "price",
+        tokenIds: "So11111111111111111111111111111111111111112",
+        credentialId: "cred-jupiter",
+      }),
+      credentials: { get: getCredential },
+    });
+
+    expect(getCredential).toHaveBeenCalledWith("cred-jupiter", ["jupiter"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "x-api-key": "test-jupiter-key",
+        }),
+      }),
+    );
+  });
+
+  it("action:jupiter-swap supports Jupiter token tag and recent reads", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes("/tag?")) {
+        return new Response(JSON.stringify([{ id: "LST111", tags: ["lst"] }]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify([{ id: "Recent111", firstPool: { id: "Pool111" } }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tagged = await def.execute!(makeCtx({
+      operation: "token-tag",
+      tokenTag: "lst",
+    }));
+    const recent = await def.execute!(makeCtx({
+      operation: "token-recent",
+    }));
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "https://api.jup.ag/tokens/v2/tag?query=lst",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://api.jup.ag/tokens/v2/recent",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect((tagged[0].json as any).jupiter).toMatchObject({
+      operation: "token-tag",
+      tag: "lst",
+      payload: [{ id: "LST111", tags: ["lst"] }],
+    });
+    expect((recent[0].json as any).jupiter).toMatchObject({
+      operation: "token-recent",
+      payload: [{ id: "Recent111", firstPool: { id: "Pool111" } }],
+    });
   });
 
   it("action:jupiter-swap can quote, build, simulate, and send a legacy direct Jupiter swap", async () => {

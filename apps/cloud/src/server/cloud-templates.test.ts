@@ -18,6 +18,8 @@ type SeedTemplate = (typeof CLOUD_TEMPLATES)[number];
 const NO_KEY_SMOKE_TEMPLATES = new Set([
   "Price Alert Bot",
   "Portfolio Monitor",
+  "Jupiter Token Discovery",
+  "Pyth Feed Finder",
   "Oracle Guard",
   "Token Treasury Report",
   "Wallet Activity Alert",
@@ -65,6 +67,17 @@ function mockNoKeyFetch() {
     }
 
     if (url.startsWith("https://hermes.pyth.network/")) {
+      if (url.includes("/v2/price_feeds")) {
+        return jsonResponse([
+          {
+            id: "sol-usd",
+            attributes: {
+              asset_type: "Crypto",
+              display_symbol: "SOL/USD",
+            },
+          },
+        ]);
+      }
       return jsonResponse({
         parsed: [
           {

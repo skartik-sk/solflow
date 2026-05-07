@@ -253,6 +253,12 @@ function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationRepor
           effect = `Reads Jupiter Price API for ${String(data.tokenIds || "configured token ids")}`;
         } else if (operation === "token-search") {
           effect = `Searches Jupiter Tokens API for ${String(data.query || "configured query")}`;
+        } else if (operation === "token-tag") {
+          effect = `Reads Jupiter Tokens API tag ${String(data.tokenTag || "verified")}`;
+        } else if (operation === "token-category") {
+          effect = `Reads Jupiter Tokens API category ${String(data.tokenCategory || "toptraded")}`;
+        } else if (operation === "token-recent") {
+          effect = "Reads recent Jupiter token listings";
         } else if (operation === "portfolio-positions") {
           effect = "Reads Jupiter Portfolio positions for the configured wallet";
         } else if (operation === "swap-order") {
@@ -267,11 +273,14 @@ function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationRepor
       } else if (node.type === "output:webhook") {
         effect = `Sends execution payload to ${String(data.url || "configured webhook")}`;
       } else if (node.type === "action:oracle-price") {
-        effect = `Reads ${String(data.provider || "oracle")} price feed`;
+        effect =
+          data.operation === "feed-search"
+            ? `Searches Pyth feeds for ${String(data.query || "configured query")}`
+            : `Reads ${String(data.provider || "oracle")} price feed`;
       } else if (node.type === "action:helius-rpc") {
         effect = `Runs ${String(data.method || "configured RPC method")}`;
       } else if (node.type === "action:metaplex-asset") {
-        effect = "Reads DAS asset metadata";
+        effect = `Runs DAS ${String(data.operation || "getAsset")} through Metaplex/Helius`;
       } else if (node.type === "action:squads-proposal") {
         effect = "Creates an approval proposal payload";
       }
@@ -386,7 +395,7 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
       ["nft", "metaplex", "helius", "watch"],
       [
         { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        { id: "asset", type: "action:metaplex-asset", position: { x: 340, y: 180 }, data: { assetId: "YOUR_ASSET_ID", credentialId: "" } },
+        { id: "asset", type: "action:metaplex-asset", position: { x: 340, y: 180 }, data: { operation: "getAsset", assetId: "YOUR_ASSET_ID", credentialId: "" } },
         { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/nft-asset", method: "POST", body: "{{ $json.metaplexAsset }}" } },
       ],
       [edge("e1", "trigger", "asset"), edge("e2", "asset", "notify")],
@@ -420,6 +429,21 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
         { id: "proposal", type: "action:squads-proposal", position: { x: 620, y: 180 }, data: { apiUrl: "https://example.com/squads/proposals", multisig: "YOUR_SQUADS_MULTISIG", title: "Review treasury token accounts", payload: { tokenAccounts: "{{ $json.tokenAccounts }}" }, credentialId: "" } },
       ],
       [edge("e1", "trigger", "accounts"), edge("e2", "accounts", "proposal")],
+    );
+  }
+
+  if (text.includes("token discovery") || text.includes("trending token") || text.includes("top traded")) {
+    return workflowDraft(
+      "jupiter-token-discovery",
+      "Jupiter Token Discovery",
+      "Read Jupiter Tokens V2 category data and send top token metadata to a webhook.",
+      ["jupiter", "tokens", "discovery", "market"],
+      [
+        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
+        { id: "tokens", type: "action:jupiter-swap", position: { x: 340, y: 180 }, data: { operation: "token-category", tokenCategory: "toptraded", tokenInterval: "24h", tokenLimit: 25, credentialId: "" } },
+        { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/jupiter-token-discovery", method: "POST", body: "{{ $json.jupiter }}" } },
+      ],
+      [edge("e1", "trigger", "tokens"), edge("e2", "tokens", "notify")],
     );
   }
 
