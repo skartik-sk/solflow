@@ -22,6 +22,7 @@ ${publicKey}
 Sign in to SolStudio
 
 URI: ${uri}
+Domain: ${domain}
 Version: 1
 Chain ID: devnet
 Nonce: ${nonce}

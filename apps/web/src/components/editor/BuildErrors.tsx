@@ -3,7 +3,7 @@
 
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
 import { toast } from "sonner";

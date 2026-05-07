@@ -98,7 +98,7 @@ function extractModDeclarations(src: string): string[] {
   const noStrings = noComments.replace(/"(?:[^"\\]|\\.)*"/g, '""');
 
   // Remove cfg(test) blocks
-  let cleaned = noStrings;
+  const cleaned = noStrings;
   let safe = "";
   let i = 0;
   while (i < cleaned.length) {

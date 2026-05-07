@@ -3,7 +3,6 @@
 // Wallets Page — manage encrypted cloud wallets.
 
 import React, { useState } from "react";
-import Link from "next/link";
 import { Wallet, Plus, Trash2, Copy, Shield, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { AppShell } from "@/components/layout/AppShell";

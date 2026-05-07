@@ -8,6 +8,7 @@ import { assessPluginTrust, pluginRegistry } from "@solflow/plugin-sdk";
 import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { usePluginStore } from "@/store/plugin-store";
 import { registerAuditRules } from "@solflow/audit";
+import type { AuditRule } from "@solflow/audit";
 import type { SolFlowPlugin } from "@solflow/plugin-sdk";
 import { registerBuiltInPlugins } from "@/lib/plugins/built-ins";
 
@@ -58,7 +59,7 @@ function validatePlugin(plugin: SolFlowPlugin): ValidationWarning[] {
   }
 
   // Codegen validation
-  if (!plugin.codegen || (!plugin.codegen.anchor && !plugin.codegen.pinocchio)) {
+  if (!plugin.codegen || (!plugin.codegen.anchor && !plugin.codegen.pinocchio && !plugin.codegen.quasar)) {
     warnings.push({ severity: "warn", message: "No codegen hooks defined" });
   }
 
@@ -95,7 +96,7 @@ export function PluginsPanel() {
 
   // Register enabled plugin audit rules into the audit engine
   useEffect(() => {
-    const rules: import("@solflow/audit").AuditRule[] = [];
+    const rules: AuditRule[] = [];
     for (const plugin of allPlugins) {
       if (enabledPluginIds.includes(plugin.id) && plugin.auditRules?.length) {
         rules.push(...plugin.auditRules);
@@ -134,7 +135,6 @@ export function PluginsPanel() {
         {allPlugins.map((plugin) => {
           const enabled = enabledPluginIds.includes(plugin.id);
           const warnings = validationMap.get(plugin.id) ?? [];
-          const hasErrors = warnings.some((w) => w.severity === "error");
           const hasAuditRules = (plugin.auditRules?.length ?? 0) > 0;
           const trust = assessPluginTrust(plugin);
           const isTrusted = trust.accepted && trust.trustLevel !== "untrusted";

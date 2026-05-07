@@ -528,7 +528,7 @@ export const deployRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id!;
-      const { programKp, programSecretKey, binaryBuffer, compilation } =
+      const { programKp, programSecretKey, binaryBuffer } =
         await loadBinaryAndMeta(ctx, input.projectId, userId);
 
       // Get the user's persistent deployer keypair (SEPARATE from program)

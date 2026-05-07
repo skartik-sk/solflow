@@ -94,19 +94,183 @@ describe("plugin codegen", () => {
     );
   });
 
-  it("warns when plugin integrations are not generated for Pinocchio yet", () => {
+  it("injects Anchor Metaplex metadata CPI code", () => {
+    const ir = baseIr("mint-nft");
+    ir.integrations[0] = {
+      ...ir.integrations[0],
+      pluginId: "metaplex",
+      integrationId: "mint-nft",
+      config: {
+        name: "Demo",
+        symbol: "DMO",
+        uri: "https://example.com/demo.json",
+        sellerFeeBasisPoints: 500,
+      },
+    };
+
+    const result = generateCode(ir, "anchor");
+    const cargo = result.files.find((file) => file.path.endsWith("Cargo.toml"));
+    const ix = result.files.find((file) =>
+      file.path.endsWith("src/instructions/execute.rs"),
+    );
+
+    expect(result.warnings.some((warning) =>
+      warning.message.includes("does not have Anchor codegen yet"),
+    )).toBe(false);
+    expect(cargo?.content).toContain('anchor-spl = "0.32.1"');
+    expect(cargo?.content).toContain('mpl-token-metadata = "4.1"');
+    expect(ix?.content).toContain("CreateMetadataAccountV3CpiBuilder");
+    expect(ix?.content).toContain('name: "Demo".to_string()');
+    expect(ix?.content).toContain("pub metadata: UncheckedAccount<'info>,");
+  });
+
+  it("injects Pinocchio SPL Token transfer code and accounts", () => {
     const result = generateCode(baseIr(), "pinocchio");
+    const cargo = result.files.find((file) => file.path.endsWith("Cargo.toml"));
+    const ix = result.files.find((file) =>
+      file.path.endsWith("src/instructions/execute.rs"),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.some((warning) =>
+      warning.message.includes("not generated for Pinocchio yet"),
+    )).toBe(false);
+    expect(cargo?.content).toContain('pinocchio-token = "0.6"');
+    expect(ix?.content).toContain("TokenTransfer");
+    expect(ix?.content).toContain("let [source, destination, authority, token_program");
+    expect(ix?.content).toContain("amount: 42");
+  });
+
+  it("injects Quasar SPL Token transfer code and accounts", () => {
+    const result = generateCode(baseIr(), "quasar");
+    const cargo = result.files.find((file) => file.path.endsWith("Cargo.toml"));
+    const libRs = result.files.find((file) => file.path.endsWith("src/lib.rs"));
+    const ix = result.files.find((file) =>
+      file.path.endsWith("src/instructions/execute.rs"),
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.warnings.some((warning) =>
+      warning.message.includes("not generated for Quasar yet"),
+    )).toBe(false);
+    expect(cargo?.content).toContain('quasar-spl = "0.0"');
+    expect(libRs?.content).toContain(".transfer(ctx.accounts.source");
+    expect(ix?.content).toContain("pub token_program: &'info Program<Token>,");
+  });
+
+  it("injects Pinocchio Pyth price read code", () => {
+    const ir = baseIr("read-price");
+    ir.integrations[0] = {
+      ...ir.integrations[0],
+      pluginId: "pyth",
+      integrationId: "read-price",
+      config: { maxAge: 60, outputVar: "sol_price" },
+    };
+
+    const result = generateCode(ir, "pinocchio");
+    const cargo = result.files.find((file) => file.path.endsWith("Cargo.toml"));
+    const ix = result.files.find((file) =>
+      file.path.endsWith("src/instructions/execute.rs"),
+    );
 
     expect(result.warnings.some((warning) =>
       warning.message.includes("not generated for Pinocchio yet"),
-    )).toBe(true);
+    )).toBe(false);
+    expect(cargo?.content).toContain('pyth-sdk-solana = "0.10"');
+    expect(ix?.content).toContain("let sol_price_data = price_feed.try_borrow()?");
+    expect(ix?.content).toContain("let sol_price = i64::from_le_bytes");
   });
 
-  it("warns when plugin integrations are not generated for Quasar yet", () => {
-    const result = generateCode(baseIr(), "quasar");
+  it("injects Quasar Pyth price read code", () => {
+    const ir = baseIr("read-price");
+    ir.integrations[0] = {
+      ...ir.integrations[0],
+      pluginId: "pyth",
+      integrationId: "read-price",
+      config: { maxAge: 60, outputVar: "sol_price" },
+    };
+
+    const result = generateCode(ir, "quasar");
+    const libRs = result.files.find((file) => file.path.endsWith("src/lib.rs"));
+    const ix = result.files.find((file) =>
+      file.path.endsWith("src/instructions/execute.rs"),
+    );
 
     expect(result.warnings.some((warning) =>
       warning.message.includes("not generated for Quasar yet"),
-    )).toBe(true);
+    )).toBe(false);
+    expect(libRs?.content).toContain("let sol_price_data = ctx.accounts.price_feed.try_borrow_data()?");
+    expect(ix?.content).toContain("pub price_feed: &'info AccountView");
+  });
+
+  it("injects Pinocchio Metaplex metadata CPI code", () => {
+    const ir = baseIr("mint-nft");
+    ir.integrations[0] = {
+      ...ir.integrations[0],
+      pluginId: "metaplex",
+      integrationId: "mint-nft",
+      config: { name: "Demo", symbol: "DMO", uri: "https://example.com/demo.json", sellerFeeBasisPoints: 500 },
+    };
+
+    const result = generateCode(ir, "pinocchio");
+    const cargo = result.files.find((file) => file.path.endsWith("Cargo.toml"));
+    const ix = result.files.find((file) =>
+      file.path.endsWith("src/instructions/execute.rs"),
+    );
+
+    expect(result.warnings.some((warning) =>
+      warning.message.includes("not generated for Pinocchio yet"),
+    )).toBe(false);
+    expect(cargo?.content).toContain('mpl-token-metadata = "4.1"');
+    expect(ix?.content).toContain("CreateMetadataAccountV3CpiBuilder");
+    expect(ix?.content).toContain('name: "Demo".to_string()');
+  });
+
+  it("injects Quasar Metaplex metadata CPI code", () => {
+    const ir = baseIr("mint-nft");
+    ir.integrations[0] = {
+      ...ir.integrations[0],
+      pluginId: "metaplex",
+      integrationId: "mint-nft",
+      config: { name: "Demo", symbol: "DMO", uri: "https://example.com/demo.json", sellerFeeBasisPoints: 500 },
+    };
+
+    const result = generateCode(ir, "quasar");
+    const cargo = result.files.find((file) => file.path.endsWith("Cargo.toml"));
+    const libRs = result.files.find((file) => file.path.endsWith("src/lib.rs"));
+
+    expect(result.warnings.some((warning) =>
+      warning.message.includes("not generated for Quasar yet"),
+    )).toBe(false);
+    expect(cargo?.content).toContain('mpl-token-metadata = "4.1"');
+    expect(libRs?.content).toContain("CreateMetadataAccountV3CpiBuilder");
+    expect(libRs?.content).toContain('name: "Demo".to_string()');
+  });
+
+  it("injects Metaplex collection creation details for all frameworks", () => {
+    const frameworks = ["anchor", "pinocchio", "quasar"] as const;
+
+    for (const framework of frameworks) {
+      const ir = baseIr("create-collection");
+      ir.integrations[0] = {
+        ...ir.integrations[0],
+        pluginId: "metaplex",
+        integrationId: "create-collection",
+        config: {
+          name: "Demo Collection",
+          symbol: "DMC",
+          uri: "https://example.com/collection.json",
+        },
+      };
+
+      const result = generateCode(ir, framework);
+      const content = result.files.map((file) => file.content).join("\n");
+
+      expect(result.warnings.some((warning) =>
+        warning.message.includes("does not have"),
+      )).toBe(false);
+      expect(content).toContain("CollectionDetails::V1");
+      expect(content).toContain('name: "Demo Collection".to_string()');
+    }
   });
 });

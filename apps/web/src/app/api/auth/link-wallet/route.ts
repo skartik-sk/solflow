@@ -2,8 +2,9 @@
 // POST — link a Solana wallet to the currently signed-in OAuth account.
 // Verifies wallet ownership via SIWS signature before linking.
 
-import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@solflow/auth";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { auth, consumeNonce, verifyNonce } from "@solflow/auth";
 import { prisma } from "@solflow/db";
 import { PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
@@ -28,9 +29,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
-  // 2. Validate the message contains the nonce (basic replay guard)
-  if (!message.includes(nonce)) {
+  const messageHasLine = (expected: string) =>
+    message.split(/\r?\n/).some((line) => line.trim() === expected);
+
+  // 2. Validate signed message shape and nonce authenticity.
+  if (message.length > 512) {
+    return NextResponse.json({ error: "Message too long" }, { status: 400 });
+  }
+  if (!(await verifyNonce(nonce))) {
     return NextResponse.json({ error: "Nonce mismatch" }, { status: 400 });
+  }
+  if (!messageHasLine(publicKey) || !messageHasLine(`Nonce: ${nonce}`)) {
+    return NextResponse.json({ error: "Message mismatch" }, { status: 400 });
   }
 
   // 3. Verify Ed25519 signature
@@ -51,6 +61,10 @@ export async function POST(req: NextRequest) {
       { error: "Invalid public key or signature" },
       { status: 400 },
     );
+  }
+
+  if (!(await consumeNonce(nonce))) {
+    return NextResponse.json({ error: "Nonce already used" }, { status: 400 });
   }
 
   // 4. Check the wallet isn't already linked to a DIFFERENT account

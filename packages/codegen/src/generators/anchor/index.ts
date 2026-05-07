@@ -46,7 +46,9 @@ export function generateAnchor(ir: ProgramIR): {
         a.accountType === "token-program" ||
         a.accountType === "associated-token-program",
     ),
-  ) || ir.integrations.some((integration) => integration.pluginId === "spl-token");
+  ) || ir.integrations.some((integration) =>
+    integration.pluginId === "spl-token" || integration.pluginId === "metaplex"
+  );
 
   // Sort everything deterministically
   const instructions = [...ir.instructions].sort((a, b) =>
@@ -156,6 +158,8 @@ function generateCargoToml(
   const spl = usesSpl ? '\nanchor-spl = "0.32.1"' : "";
   const hasPyth = integrations.some((integration) => integration.pluginId === "pyth");
   const pyth = hasPyth ? '\npyth-solana-receiver-sdk = "0.3"' : "";
+  const hasMetaplex = integrations.some((integration) => integration.pluginId === "metaplex");
+  const metaplex = hasMetaplex ? '\nmpl-token-metadata = "4.1"' : "";
   return `[package]
 name = "${kebab}"
 version = "${version}"
@@ -175,7 +179,7 @@ default = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}${pyth}
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}${pyth}${metaplex}
 
 [profile.release]
 opt-level = "z"
@@ -399,6 +403,10 @@ function renderAnchorIntegration(integration: Integration): AnchorPluginBlock {
     return renderAnchorPythIntegration(integration, config);
   }
 
+  if (integration.pluginId === "metaplex") {
+    return renderAnchorMetaplexIntegration(integration, config);
+  }
+
   return {
     ...empty,
     warnings: [
@@ -575,10 +583,103 @@ function renderAnchorPythIntegration(
   };
 }
 
+function renderAnchorMetaplexIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): AnchorPluginBlock {
+  const name = stringLiteral(config.name, integration.integrationId === "create-collection" ? "SolStudio Collection" : "SolStudio NFT");
+  const symbol = stringLiteral(config.symbol, integration.integrationId === "create-collection" ? "COLL" : "SOLST");
+  const uri = stringLiteral(config.uri, "");
+  const sellerFeeBasisPoints = numberLiteral(config.sellerFeeBasisPoints, "0");
+  const isMutable = booleanLiteral(config.isMutable, true);
+  const collectionDetails =
+    integration.integrationId === "create-collection"
+      ? "Some(CollectionDetails::V1 { size: 0 })"
+      : "None";
+
+  return {
+    position: integration.attachedTo.position,
+    imports: [
+      "use anchor_spl::token::Mint;",
+      "use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;",
+      "use mpl_token_metadata::types::{CollectionDetails, DataV2};",
+    ],
+    bodyLines: [
+      "let metadata_program = ctx.accounts.metadata_program.to_account_info();",
+      "let metadata = ctx.accounts.metadata.to_account_info();",
+      "let mint = ctx.accounts.mint.to_account_info();",
+      "let authority = ctx.accounts.authority.to_account_info();",
+      "let payer = ctx.accounts.payer.to_account_info();",
+      "let system_program = ctx.accounts.system_program.to_account_info();",
+      "let rent = ctx.accounts.rent.to_account_info();",
+      "let data = DataV2 {",
+      `    name: ${name}.to_string(),`,
+      `    symbol: ${symbol}.to_string(),`,
+      `    uri: ${uri}.to_string(),`,
+      `    seller_fee_basis_points: ${sellerFeeBasisPoints},`,
+      "    creators: None,",
+      "    collection: None,",
+      "    uses: None,",
+      "};",
+      "CreateMetadataAccountV3CpiBuilder::new(&metadata_program)",
+      "    .metadata(&metadata)",
+      "    .mint(&mint)",
+      "    .mint_authority(&authority)",
+      "    .payer(&payer)",
+      "    .update_authority(&authority, true)",
+      "    .system_program(&system_program)",
+      "    .rent(Some(&rent))",
+      "    .data(data)",
+      `    .is_mutable(${isMutable})`,
+      `    .collection_details(${collectionDetails})`,
+      "    .invoke()?;",
+    ],
+    accountFields: [
+      {
+        name: "metadata",
+        code: "    #[account(mut)]\n    pub metadata: UncheckedAccount<'info>,",
+      },
+      {
+        name: "mint",
+        code: "    #[account(mut)]\n    pub mint: Account<'info, Mint>,",
+      },
+      {
+        name: "authority",
+        code: "    pub authority: Signer<'info>,",
+      },
+      {
+        name: "payer",
+        code: "    #[account(mut)]\n    pub payer: Signer<'info>,",
+      },
+      {
+        name: "metadata_program",
+        code: "    pub metadata_program: UncheckedAccount<'info>,",
+      },
+      {
+        name: "system_program",
+        code: "    pub system_program: Program<'info, System>,",
+      },
+      {
+        name: "rent",
+        code: "    pub rent: Sysvar<'info, Rent>,",
+      },
+    ],
+    warnings: [],
+  };
+}
+
 function numberLiteral(value: unknown, fallback: string): string {
   return typeof value === "number" && Number.isFinite(value)
     ? String(value)
     : fallback;
+}
+
+function booleanLiteral(value: unknown, fallback: boolean): string {
+  return typeof value === "boolean" ? String(value) : String(fallback);
+}
+
+function stringLiteral(value: unknown, fallback: string): string {
+  return JSON.stringify(typeof value === "string" ? value : fallback);
 }
 
 function safeRustIdentifier(value: unknown, fallback: string): string {

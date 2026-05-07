@@ -869,7 +869,7 @@ function collectBalancedParens(lines: string[], startLine: number, parenStartCol
   endLine: number;
 } {
   let depth = 0;
-  let parts: string[] = [];
+  const parts: string[] = [];
   let foundOpen = false;
 
   for (let i = startLine; i < lines.length; i++) {

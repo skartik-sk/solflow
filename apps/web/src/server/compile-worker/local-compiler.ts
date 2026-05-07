@@ -327,13 +327,6 @@ export async function runLocalDeploy(
   input: LocalDeployInput,
   onLog: (line: string, level: "info" | "warn" | "error") => void,
 ): Promise<LocalDeployResult> {
-  const clusterUrl =
-    input.network === "devnet"
-      ? "https://api.devnet.solana.com"
-      : input.network === "mainnet"
-        ? "https://api.mainnet-beta.solana.com"
-        : "http://localhost:8899";
-
   const clusterFlag =
     input.network === "devnet"
       ? "--url devnet"

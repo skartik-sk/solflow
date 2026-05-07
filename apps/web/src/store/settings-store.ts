@@ -6,7 +6,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type DefaultFramework = "anchor" | "pinocchio";
+export type DefaultFramework = "anchor" | "pinocchio" | "quasar";
 export type DefaultNetwork = "devnet" | "mainnet" | "localnet";
 
 interface SettingsState {

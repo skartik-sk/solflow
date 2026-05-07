@@ -7,7 +7,7 @@
     "dev:next": "next dev --port 3001 --turbopack",
     "build": "next build",
     "start": "NODE_OPTIONS='--max-old-space-size=4096' tsx server.ts",
-    "lint": "next lint",
+    "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "smoke:manual": "bun scripts/manual-workflow-smoke.ts"

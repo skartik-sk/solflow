@@ -32,7 +32,7 @@ import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import { useProjectStore } from "@/store/project-store";
 import { useUIStore } from "@/store/ui-store";
-import { useUndo, useRedo, useCanUndo, useCanRedo, useFlowStore } from "@/store/flow-store";
+import { useUndo, useRedo, useCanUndo, useCanRedo } from "@/store/flow-store";
 import { useBuildStore } from "@/store/build-store";
 import type { Framework, Network } from "@/store/project-store";
 import { ImportDialog } from "./ImportDialog";
@@ -55,9 +55,6 @@ export function EditorTopBar() {
   const save = useProjectStore((s) => s.save);
 
   const openBottomPanelTab = useUIStore((s) => s.openBottomPanelTab);
-  const propertiesOpen = useUIStore((s) => s.propertiesOpen);
-  const toggleProperties = useUIStore((s) => s.toggleProperties);
-
   const wallet = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
 
@@ -71,7 +68,6 @@ export function EditorTopBar() {
   const deployStatus = useBuildStore((s) => s.deployStatus);
   const deployedProgramId = useBuildStore((s) => s.deployedProgramId);
   const deployExplorerUrl = useBuildStore((s) => s.deployExplorerUrl);
-  const deployTxExplorerUrl = useBuildStore((s) => s.deployTxExplorerUrl);
   const startCompile = useBuildStore((s) => s.startCompile);
   const startTest = useBuildStore((s) => s.startTest);
   const startDeploy = useBuildStore((s) => s.startDeploy);

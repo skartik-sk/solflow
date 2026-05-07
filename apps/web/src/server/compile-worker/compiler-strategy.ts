@@ -1,7 +1,6 @@
 import type { ProgramIR } from "@solflow/ir";
 import { execFile } from "child_process";
 import { runWasmBuild } from "./wasm-compiler";
-import { runLocalBuild } from "./local-compiler";
 import { runDockerBuild } from "./docker-runner";
 
 // ─── Fast availability checks ────────────────────────────────────────────────
@@ -11,16 +10,6 @@ function isDockerAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
     execFile("docker", ["images", "-q", "solflow-compiler:latest"], (err, stdout) => {
       resolve(!err && stdout.trim().length > 0);
-    });
-  });
-}
-
-/** Check if anchor CLI or cargo-build-sbf is available (fast, ~50ms). */
-function isLocalCliAvailable(): Promise<boolean> {
-  return new Promise((resolve) => {
-    execFile("which", ["anchor"], (err) => {
-      if (!err) return resolve(true);
-      execFile("which", ["cargo-build-sbf"], (err2) => resolve(!err2));
     });
   });
 }

@@ -7,6 +7,7 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import type { ProgramIR } from "@solflow/ir";
 import type {
+  AuditFixSuggestion,
   AuditFinding,
   AuditStressSummary,
   AuditStressTestCase,
@@ -74,7 +75,7 @@ export const auditRouter = router({
       let localScore = 100;
       let stressTests: AuditStressTestCase[] = [];
       let stressSummary: AuditStressSummary | undefined;
-      let localFixSuggestions: import("@solflow/audit").AuditFixSuggestion[] = [];
+      let localFixSuggestions: AuditFixSuggestion[] = [];
 
       if (project.irData) {
         const { attachFixSuggestions, runInstantAudit } = await import("@solflow/audit");

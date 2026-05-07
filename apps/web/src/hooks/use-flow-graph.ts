@@ -1,7 +1,7 @@
 "use client";
 
 import { useFlowStore } from "@/store/flow-store";
-import type { Node, Edge } from "@xyflow/react";
+import type { Node } from "@xyflow/react";
 import type { AccountType } from "@solflow/flow-nodes";
 import type { StateField } from "@solflow/flow-nodes";
 import type { EventField } from "@solflow/flow-nodes";

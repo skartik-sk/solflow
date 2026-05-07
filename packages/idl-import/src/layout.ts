@@ -13,7 +13,6 @@ import type { Node, Edge } from "@xyflow/react";
 const VERTICAL_GAP = 160;
 const HORIZONTAL_GAP = 300;
 const NODE_WIDTH = 240;
-const NODE_HEIGHT = 80;
 const SIDE_GAP = 260;
 const LOGIC_GAP = 100;
 
@@ -41,7 +40,6 @@ export function autoLayout(nodes: Node[], edges: Edge[]): Node[] {
 
     // ─── Layer 2: Logic nodes below instruction (vertically chained) ────────
 
-    const logicNodes = getChildren(ix.id, nodes, edges, "logic");
     // Also find logic nodes chained from other logic nodes
     const allLogicNodes = resolveLogicChain(ix.id, nodes, edges);
 

@@ -1473,21 +1473,6 @@ function edgeKey(edge: Edge) {
   return `${edge.from}->${edge.to}`;
 }
 
-function nodeColor(type: string) {
-  if (type === "Program") return "border-primary/50 bg-primary/10 text-primary";
-  if (type === "Instruction")
-    return "border-node-instruction/50 bg-node-instruction/10 text-foreground";
-  if (type === "Account")
-    return "border-node-account/50 bg-node-account/10 text-foreground";
-  if (type === "State")
-    return "border-node-state/50 bg-node-state/10 text-foreground";
-  if (type === "Constraint")
-    return "border-node-constraint/50 bg-node-constraint/10 text-foreground";
-  if (type === "Event" || type === "Error")
-    return "border-node-event/50 bg-node-event/10 text-foreground";
-  return "border-node-logic/50 bg-node-logic/10 text-foreground";
-}
-
 function buildPath(from: ExerciseNode, to: ExerciseNode) {
   const startX = from.x + 100;
   const startY = from.y + 96;

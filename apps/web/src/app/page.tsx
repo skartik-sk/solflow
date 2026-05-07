@@ -127,16 +127,14 @@ export default function HomePage() {
 
   // Auto-cycling code mutation
   const [activeMutation, setActiveMutation] = useState<NodeId | null>(null);
-  const [cycleIndex, setCycleIndex] = useState(0);
 
   const nodeOrder: NodeId[] = ["program", "initialize", "deposit", "vault", "constraint"];
 
   useEffect(() => {
     const timers = new Set<ReturnType<typeof setTimeout>>();
-    const scheduleMutation = (id: NodeId, i: number) => {
+    const scheduleMutation = (id: NodeId) => {
       const timer = setTimeout(() => {
         setActiveMutation(id);
-        setCycleIndex(i);
         timers.delete(timer);
       }, CODE_MUTATIONS[id].delay);
       timers.add(timer);
@@ -150,7 +148,6 @@ export default function HomePage() {
       nodeOrder.forEach(scheduleMutation);
     }, totalDuration);
     return () => { timers.forEach(clearTimeout); clearInterval(loopTimer); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const updatePos = useCallback((id: NodeId, x: number, y: number) => {

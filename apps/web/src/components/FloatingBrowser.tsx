@@ -6,8 +6,6 @@ import {
   Minus,
   ExternalLink,
   RefreshCw,
-  ArrowLeft,
-  ArrowRight,
   BookOpen,
   Search,
   Code2,

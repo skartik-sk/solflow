@@ -7,7 +7,6 @@ import { TRPCError } from "@trpc/server";
 import { createHash } from "crypto";
 import { rm, mkdir, copyFile } from "fs/promises";
 import { join, resolve } from "path";
-import { tmpdir } from "os";
 import { router, protectedProcedure } from "../trpc";
 import { compileRateLimit } from "@/lib/rate-limit";
 import { flowToIR } from "@solflow/ir";
@@ -123,7 +122,7 @@ export const compileRouter = router({
 
         // Step 2: Compile using best available method (WASM → Local CLI → codegen only)
         let buildLogs: string[] = [`Code generation — ${result.files.length} file(s)`];
-        let buildWarnings = [...codegenWarnings];
+        const buildWarnings = [...codegenWarnings];
         let buildErrors: string[] = [];
         let binarySize: number | null = null;
         let binaryPath: string | null = null;
@@ -185,7 +184,7 @@ export const compileRouter = router({
           if (buildResult.workDir) {
             await rm(buildResult.workDir, { recursive: true, force: true }).catch(() => undefined);
           }
-        } catch (buildErr) {
+        } catch {
           // Compilation strategy exhausted — codegen only
           buildLogs.push("No compilation toolchain available — showing generated source only.");
           buildWarnings.push("Install anchor CLI and cargo-build-sbf for compilation, or enable WASM.");

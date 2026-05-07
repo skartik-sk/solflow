@@ -101,7 +101,7 @@ export function parseKinobiIdl(json: unknown): UnifiedIdl {
 
         // Recurse into children for instructions
         if (node.children && typeof node.children === "object") {
-          for (const [childKey, child] of Object.entries(node.children)) {
+          for (const child of Object.values(node.children)) {
             if (!child || typeof child !== "object") continue;
             const childNode = child as KinobiNode;
             if (

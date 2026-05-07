@@ -86,6 +86,10 @@ export interface PluginCodegenHooks {
     nodeData: Record<string, unknown>,
     context: CodegenContext,
   ) => GeneratedCode;
+  quasar?: (
+    nodeData: Record<string, unknown>,
+    context: CodegenContext,
+  ) => GeneratedCode;
 }
 
 // ─── Cargo dependency ─────────────────────────────────────────────────────────

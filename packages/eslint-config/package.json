@@ -2,6 +2,7 @@
   "name": "@solflow/eslint-config",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "license": "MIT",
   "files": ["base.js", "next.js", "react-library.js", "library.js"],
   "devDependencies": {

@@ -342,7 +342,6 @@ function ListingCard({ listing }: { listing: ListingSummary }) {
       {/* Thumbnail */}
       <div className="relative h-40 bg-secondary overflow-hidden border-b border-border">
         {listing.thumbnailUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={listing.thumbnailUrl}
             alt={listing.title}

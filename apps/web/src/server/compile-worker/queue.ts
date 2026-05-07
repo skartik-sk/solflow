@@ -12,17 +12,7 @@ import { collectArtifacts } from "./artifact-collector";
 import { broadcastToJob } from "@/lib/ws-broadcaster";
 import { prisma } from "@solflow/db";
 
-// Local alias for Prisma JSON field values (Prisma client is ungenerated/stubbed)
-type PrismaJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | PrismaJsonValue[]
-  | { [key: string]: PrismaJsonValue };
-
-/** Cast for Prisma JSON fields that have incompatible generated types.
- *  Uses `any` to bridge PrismaJsonValue (includes null) → InputJsonValue (excludes null). */
+/** Cast for Prisma JSON fields that have incompatible generated types. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function asPrismaJson<T>(value: T): any {
   return value;

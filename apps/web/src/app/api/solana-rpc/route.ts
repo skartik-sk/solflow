@@ -1,7 +1,8 @@
 // apps/web/src/app/api/solana-rpc/route.ts
 // POST — server-side proxy for Solana JSON-RPC calls (avoids CORS in browser).
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest} from "next/server";
+import { NextResponse } from "next/server";
 
 const RPC_URLS: Record<string, string> = {
   devnet: "https://api.devnet.solana.com",

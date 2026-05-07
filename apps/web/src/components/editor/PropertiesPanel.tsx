@@ -12,7 +12,7 @@ import { useUIStore } from "@/store/ui-store";
 import { useFlowGraph } from "@/hooks/use-flow-graph";
 import { TypeEditor } from "./TypeEditor";
 import type { ProgramNodeData } from "@solflow/flow-nodes";
-import type { InstructionNodeData, InstructionField } from "@solflow/flow-nodes";
+import type { InstructionNodeData } from "@solflow/flow-nodes";
 import type { AccountNodeData, AccountType, SeedDefinition } from "@solflow/flow-nodes";
 import type { StateNodeData, StateField, SolanaType } from "@solflow/flow-nodes";
 import type { ConstraintNodeData, ConstraintType } from "@solflow/flow-nodes";
@@ -77,23 +77,10 @@ function isDuplicateName(names: string[], index: number): boolean {
   return names.some((n, i) => i !== index && n === name);
 }
 
-/** Validate a numeric value string (integer or empty). */
-function isValidInteger(value: string): boolean {
-  if (!value.trim()) return true;
-  return /^\d+$/.test(value.trim());
-}
-
 function ValidationHint({ show, message }: { show: boolean; message: string }) {
   if (!show) return null;
   return <p className="text-[10px] text-red-400 mt-0.5">{message}</p>;
 }
-
-const SOLANA_PRIMITIVES = [
-  "bool",
-  "u8","u16","u32","u64","u128",
-  "i8","i16","i32","i64","i128",
-  "f32","f64","String","Pubkey",
-];
 
 // ─── Account Type Rules ───────────────────────────────────────────────────────
 
@@ -1509,8 +1496,6 @@ export function PropertiesPanel() {
     const startX = sorted[0].position.x;
     sorted.forEach((n, i) => {
       useFlowStore.getState().updateNodeData(n.id, {});
-      // Directly set position via nodes state
-      const allNodes = useFlowStore.getState().nodes;
       useFlowStore.getState().onNodesChange([
         { type: "position", id: n.id, position: { x: startX + i * gap, y: n.position.y }, dragging: false },
       ]);

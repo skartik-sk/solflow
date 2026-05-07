@@ -5,11 +5,9 @@ import { prisma } from "@solflow/db";
 import Link from "next/link";
 import {
   Code2,
-  Plus,
   Workflow,
   Clock,
   GitBranch,
-  MoreHorizontal,
   Layers,
   Zap,
   LogOut,

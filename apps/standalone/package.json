@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "npx serve out",
     "typecheck": "tsc --noEmit",
-    "lint": "next lint"
+    "lint": "eslint src/"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

@@ -174,7 +174,11 @@ function CanvasSearchOverlay({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") {
-      e.shiftKey ? goPrev() : goNext();
+      if (e.shiftKey) {
+        goPrev();
+      } else {
+        goNext();
+      }
     } else if (e.key === "Escape") {
       onClose();
     }
@@ -184,7 +188,7 @@ function CanvasSearchOverlay({
   useEffect(() => {
     setMatchIdx(0);
     if (matches.length > 0) focusMatch(0);
-  }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [query]);
 
   return (
     <div className="absolute right-4 top-4 z-20 flex items-center gap-1.5 rounded-lg border border-border bg-card shadow-lg px-2 py-1">

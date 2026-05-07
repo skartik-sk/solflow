@@ -5,7 +5,7 @@
 import React, { useState } from "react";
 import { X, RotateCcw, RefreshCw, Keyboard, Workflow } from "lucide-react";
 import { toast } from "sonner";
-import { useSettingsStore } from "@/store/settings-store";
+import { useSettingsStore, type DefaultFramework } from "@/store/settings-store";
 import { useUIStore, type Theme } from "@/store/ui-store";
 import { useProjectStore } from "@/store/project-store";
 import { useBuildStore } from "@/store/build-store";
@@ -177,10 +177,11 @@ function DefaultsTab() {
         <select
           className={selectClass}
           value={defaultFramework}
-          onChange={(e) => setDefaultFramework(e.target.value as "anchor" | "pinocchio")}
+          onChange={(e) => setDefaultFramework(e.target.value as DefaultFramework)}
         >
           <option value="anchor">Anchor</option>
           <option value="pinocchio">Pinocchio</option>
+          <option value="quasar">Quasar</option>
         </select>
       </Row>
       <Row label="Default Network" description="Network for RPC calls and deployments">

@@ -5,7 +5,7 @@
 // - Renders file tabs + a read-only Monaco editor
 // - Monaco is loaded dynamically (browser-only)
 // - Language detection: .rs → "rust", .toml → "toml", .ts → "typescript", .json → "json"
-// - Compare toggle: shows side-by-side Anchor vs Pinocchio view
+// - Compare toggle: shows side-by-side framework output
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
@@ -228,7 +228,7 @@ export function CodePreview() {
         {/* Compare header */}
         <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-3 py-1.5">
           <span className="text-xs font-semibold text-foreground">
-            Anchor vs Pinocchio
+            Framework Compare
           </span>
           <button
             onClick={() => setCompareMode(false)}
@@ -273,7 +273,7 @@ export function CodePreview() {
               </div>
         <button
           onClick={() => setCompareMode(true)}
-          title="Compare Anchor vs Pinocchio side-by-side"
+          title="Compare generated framework output side-by-side"
           className="shrink-0 border-l border-border px-3 py-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap"
         >
           ⇄ Compare

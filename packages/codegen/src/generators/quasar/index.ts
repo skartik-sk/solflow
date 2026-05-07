@@ -22,6 +22,7 @@ import type {
   Instruction,
   Account,
   Field,
+  Integration,
   LogicOperation,
   Seed,
 } from "@solflow/ir";
@@ -134,13 +135,6 @@ export function generateQuasar(ir: ProgramIR): {
   const programId = ir.program.programId;
   const version = ir.program.version;
 
-  for (const integration of ir.integrations) {
-    warnings.push({
-      message: `Plugin integration "${integration.pluginId}:${integration.integrationId}" is not generated for Quasar yet`,
-      nodeId: integration.id,
-    });
-  }
-
   // Determine if any instruction uses SPL tokens
   const usesSpl = ir.instructions.some((ix) =>
     ix.accounts.some(
@@ -157,7 +151,7 @@ export function generateQuasar(ir: ProgramIR): {
         op.type === "mint-to" ||
         op.type === "burn",
     )
-  );
+  ) || ir.integrations.some((integration) => integration.pluginId === "spl-token");
 
   // Sort everything deterministically
   const instructions = [...ir.instructions].sort((a, b) =>
@@ -177,7 +171,7 @@ export function generateQuasar(ir: ProgramIR): {
   // ── Cargo.toml
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl),
+    content: generateCargoToml(programName, version, usesSpl, ir.integrations),
     language: "toml",
   });
 
@@ -266,9 +260,17 @@ export function generateQuasar(ir: ProgramIR): {
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
 
-function generateCargoToml(name: string, version: string, usesSpl: boolean): string {
+function generateCargoToml(
+  name: string,
+  version: string,
+  usesSpl: boolean,
+  integrations: Integration[],
+): string {
   const kebab = toKebabCase(name);
   const splDep = usesSpl ? '\nquasar-spl = "0.0"' : "";
+  const metaplexDep = integrations.some((integration) => integration.pluginId === "metaplex")
+    ? '\nmpl-token-metadata = "4.1"'
+    : "";
   return `[package]
 name = "${kebab}"
 version = "${version}"
@@ -286,7 +288,7 @@ default = ["alloc"]
 alloc = []
 
 [dependencies]
-quasar-lang = "0.0"${splDep}
+quasar-lang = "0.0"${splDep}${metaplexDep}
 
 [profile.release]
 opt-level = "z"
@@ -396,10 +398,17 @@ ${ixLines}
 function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: string): string[] {
   const lines: string[] = [];
   const errorEnum = toPascalCase(programName) + "Error";
+  const pluginBlocks = integrationsForInstruction(ir, ix).map((integration) =>
+    renderQuasarIntegration(integration),
+  );
+  const accounts = withPluginAccounts(
+    ix.accounts,
+    pluginBlocks.flatMap((block) => block.accounts),
+  );
 
   // Build a map of accountName -> stateTypeName from the instruction's accounts
   const accountToStateType = new Map<string, string>();
-  for (const a of ix.accounts) {
+  for (const a of accounts) {
     if (a.stateType) accountToStateType.set(a.name, a.stateType);
   }
 
@@ -413,7 +422,7 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
 
   // Build rename map: if account name collides with program module name, rename it
   const renameMap = new Map<string, string>();
-  for (const a of ix.accounts) {
+  for (const a of accounts) {
     if (a.name === programName) {
       renameMap.set(a.name, `${a.name}_account`);
     }
@@ -491,7 +500,15 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
     lines.push(...emitLogicOp(op, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir));
   }
 
-  return lines;
+  return [
+    ...pluginBlocks
+      .filter((block) => block.position === "before-body")
+      .flatMap((block) => block.bodyLines),
+    ...lines,
+    ...pluginBlocks
+      .filter((block) => block.position === "after-body")
+      .flatMap((block) => block.bodyLines),
+  ];
 }
 
 /// Translate Anchor-style value expressions to Quasar equivalents
@@ -755,6 +772,253 @@ function buildQuasarSeeds(seeds: Seed[]): string {
   return `&[${parts.join(", ")}]`;
 }
 
+interface QuasarPluginBlock {
+  position: Integration["attachedTo"]["position"];
+  imports: string[];
+  bodyLines: string[];
+  accounts: Account[];
+  warnings: string[];
+}
+
+function integrationsForInstruction(ir: ProgramIR, ix: Instruction): Integration[] {
+  return ir.integrations.filter((integration) =>
+    integration.attachedTo.instructionId === ix.id
+  );
+}
+
+function withPluginAccounts(baseAccounts: Account[], pluginAccounts: Account[]): Account[] {
+  const seen = new Set(baseAccounts.map((account) => account.name));
+  const merged = [...baseAccounts];
+  for (const account of pluginAccounts) {
+    if (seen.has(account.name)) continue;
+    seen.add(account.name);
+    merged.push(account);
+  }
+  return merged;
+}
+
+function pluginAccount(
+  name: string,
+  accountType: Account["accountType"],
+  constraints: Account["constraints"] = [],
+  stateType?: string,
+): Account {
+  return {
+    id: `plugin-${name}`,
+    name,
+    accountType,
+    stateType,
+    constraints,
+  };
+}
+
+function renderQuasarIntegration(integration: Integration): QuasarPluginBlock {
+  const position = integration.attachedTo.position;
+  const empty: QuasarPluginBlock = {
+    position,
+    imports: [],
+    bodyLines: [],
+    accounts: [],
+    warnings: [],
+  };
+
+  if (integration.pluginId === "spl-token") {
+    return renderQuasarSplTokenIntegration(integration, integration.config);
+  }
+  if (integration.pluginId === "pyth") {
+    return renderQuasarPythIntegration(integration, integration.config);
+  }
+  if (integration.pluginId === "metaplex") {
+    return renderQuasarMetaplexIntegration(integration, integration.config);
+  }
+
+  return {
+    ...empty,
+    warnings: [
+      `Plugin integration "${integration.pluginId}:${integration.integrationId}" does not have Quasar codegen yet`,
+    ],
+  };
+}
+
+function renderQuasarSplTokenIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): QuasarPluginBlock {
+  const position = integration.attachedTo.position;
+  const amount = numberLiteral(config.amount, "0");
+
+  if (integration.integrationId === "create-mint") {
+    const decimals = Number(numberLiteral(config.decimals, "9"));
+    return {
+      position,
+      imports: ["use quasar_spl::*;"],
+      bodyLines: [],
+      accounts: [
+        pluginAccount("mint", "mint", [
+          { type: "init", payer: "payer", space: 82 },
+          { type: "mint-decimals", decimals },
+          { type: "mint-authority", authority: "mint_authority" },
+        ]),
+        pluginAccount("payer", "signer", [{ type: "mut" }, { type: "signer" }]),
+        pluginAccount("mint_authority", "signer", [{ type: "signer" }]),
+        pluginAccount("token_program", "token-program"),
+        pluginAccount("system_program", "system-program"),
+        pluginAccount("rent", "rent"),
+      ],
+      warnings: [],
+    };
+  }
+
+  if (integration.integrationId === "mint-tokens") {
+    return {
+      position,
+      imports: ["use quasar_spl::*;"],
+      bodyLines: [
+        "ctx.accounts.token_program",
+        `    .mint_to(ctx.accounts.mint, ctx.accounts.destination, ctx.accounts.authority, ${amount})`,
+        "    .invoke()?;",
+      ],
+      accounts: [
+        pluginAccount("mint", "mint", [{ type: "mut" }]),
+        pluginAccount("destination", "token-account", [{ type: "mut" }]),
+        pluginAccount("authority", "signer", [{ type: "signer" }]),
+        pluginAccount("token_program", "token-program"),
+      ],
+      warnings: [],
+    };
+  }
+
+  if (integration.integrationId === "transfer") {
+    return {
+      position,
+      imports: ["use quasar_spl::*;"],
+      bodyLines: [
+        "ctx.accounts.token_program",
+        `    .transfer(ctx.accounts.source, ctx.accounts.destination, ctx.accounts.authority, ${amount})`,
+        "    .invoke()?;",
+      ],
+      accounts: [
+        pluginAccount("source", "token-account", [{ type: "mut" }]),
+        pluginAccount("destination", "token-account", [{ type: "mut" }]),
+        pluginAccount("authority", "signer", [{ type: "signer" }]),
+        pluginAccount("token_program", "token-program"),
+      ],
+      warnings: [],
+    };
+  }
+
+  return {
+    position,
+    imports: [],
+    bodyLines: [],
+    accounts: [],
+    warnings: [
+      `SPL Token integration "${integration.integrationId}" does not have Quasar codegen yet`,
+    ],
+  };
+}
+
+function renderQuasarPythIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): QuasarPluginBlock {
+  const outputVar = safeRustIdentifier(config.outputVar, "price");
+  const maxAge = numberLiteral(config.maxAge, "30");
+
+  return {
+    position: integration.attachedTo.position,
+    imports: [],
+    bodyLines: [
+      `let ${outputVar}_data = ctx.accounts.price_feed.try_borrow_data()?;`,
+      `if ${outputVar}_data.len() < 240 {`,
+      "    return Err(ProgramError::InvalidAccountData);",
+      "}",
+      `let ${outputVar} = i64::from_le_bytes(${outputVar}_data[208..216].try_into().map_err(|_| ProgramError::InvalidAccountData)?);`,
+      `let ${outputVar}_conf = u64::from_le_bytes(${outputVar}_data[216..224].try_into().map_err(|_| ProgramError::InvalidAccountData)?);`,
+      `let ${outputVar}_expo = i32::from_le_bytes(${outputVar}_data[224..228].try_into().map_err(|_| ProgramError::InvalidAccountData)?);`,
+      `let _${outputVar}_max_age_seconds = ${maxAge};`,
+    ],
+    accounts: [
+      pluginAccount("price_feed", "unchecked-account", [
+        { type: "safety-comment", comment: "Pyth price feed account; raw layout checked before reads" },
+      ]),
+    ],
+    warnings: [],
+  };
+}
+
+function renderQuasarMetaplexIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): QuasarPluginBlock {
+  const isCollection = integration.integrationId === "create-collection";
+  const name = stringLiteral(config.name, isCollection ? "SolStudio Collection" : "SolStudio NFT");
+  const symbol = stringLiteral(config.symbol, isCollection ? "COLL" : "SOLST");
+  const uri = stringLiteral(config.uri, "");
+  const sellerFeeBasisPoints = numberLiteral(config.sellerFeeBasisPoints, "0");
+  const isMutable = booleanLiteral(config.isMutable, true);
+  const collectionDetails = isCollection ? "Some(CollectionDetails::V1 { size: 0 })" : "None";
+
+  return {
+    position: integration.attachedTo.position,
+    imports: [],
+    bodyLines: [
+      "use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;",
+      "use mpl_token_metadata::types::{CollectionDetails, DataV2};",
+      "let data = DataV2 {",
+      `    name: ${name}.to_string(),`,
+      `    symbol: ${symbol}.to_string(),`,
+      `    uri: ${uri}.to_string(),`,
+      `    seller_fee_basis_points: ${sellerFeeBasisPoints},`,
+      "    creators: None,",
+      "    collection: None,",
+      "    uses: None,",
+      "};",
+      "CreateMetadataAccountV3CpiBuilder::new(ctx.accounts.metadata_program)",
+      "    .metadata(ctx.accounts.metadata)",
+      "    .mint(ctx.accounts.mint)",
+      "    .mint_authority(ctx.accounts.authority)",
+      "    .payer(ctx.accounts.payer)",
+      "    .update_authority(ctx.accounts.authority, true)",
+      "    .system_program(ctx.accounts.system_program)",
+      "    .rent(Some(ctx.accounts.rent))",
+      "    .data(data)",
+      `    .is_mutable(${isMutable})`,
+      `    .collection_details(${collectionDetails})`,
+      "    .invoke()?;",
+    ],
+    accounts: [
+      pluginAccount("metadata", "unchecked-account", [{ type: "mut" }]),
+      pluginAccount("mint", "mint", [{ type: "mut" }]),
+      pluginAccount("authority", "signer", [{ type: "signer" }]),
+      pluginAccount("payer", "signer", [{ type: "mut" }, { type: "signer" }]),
+      pluginAccount("metadata_program", "program"),
+      pluginAccount("system_program", "system-program"),
+      pluginAccount("rent", "rent"),
+    ],
+    warnings: [],
+  };
+}
+
+function numberLiteral(value: unknown, fallback: string): string {
+  return typeof value === "number" && Number.isFinite(value)
+    ? String(value)
+    : fallback;
+}
+
+function booleanLiteral(value: unknown, fallback: boolean): string {
+  return typeof value === "boolean" ? String(value) : String(fallback);
+}
+
+function stringLiteral(value: unknown, fallback: string): string {
+  return JSON.stringify(typeof value === "string" ? value : fallback);
+}
+
+function safeRustIdentifier(value: unknown, fallback: string): string {
+  if (typeof value !== "string") return fallback;
+  return /^[a-z_][a-z0-9_]*$/.test(value) ? value : fallback;
+}
+
 // ─── src/instructions/mod.rs  or  src/state/mod.rs ────────────────────────────
 
 function generateModRs(names: string[]): string {
@@ -772,8 +1036,15 @@ function generateInstructionRs(
   const warns: CodegenWarning[] = [];
   const errs: CodegenError[] = [];
   const ctx = toPascalCase(ix.name);
+  const pluginBlocks = integrationsForInstruction(ir, ix).map((integration) =>
+    renderQuasarIntegration(integration),
+  );
+  const accounts = withPluginAccounts(
+    ix.accounts,
+    pluginBlocks.flatMap((block) => block.accounts),
+  );
 
-  if (ix.accounts.length === 0) {
+  if (accounts.length === 0) {
     warns.push({
       message: `Instruction "${ix.name}" has no accounts`,
       nodeId: ix.id,
@@ -782,34 +1053,40 @@ function generateInstructionRs(
 
   // Collect state types referenced by accounts (for imports)
   const usedStates = new Set<string>();
-  for (const a of ix.accounts) {
+  for (const a of accounts) {
     if (a.stateType) usedStates.add(a.stateType);
   }
 
   // Build imports
   const importLines: string[] = ["use quasar_lang::prelude::*;"];
   // Add quasar-spl import if mint/token accounts are present
-  const needsSpl = ix.accounts.some((a) =>
+  const needsSpl = accounts.some((a) =>
     a.accountType === "mint" || a.accountType === "token-account" || a.accountType === "associated-token"
-  );
+  ) || pluginBlocks.some((block) => block.imports.includes("use quasar_spl::*;"));
   if (needsSpl) importLines.push("use quasar_spl::*;");
   for (const s of [...usedStates].sort()) {
     importLines.push(`use crate::state::${toSnakeFilename(s)}::${s};`);
   }
 
   // Build accounts struct — Quasar style
-  const accountFields = ix.accounts
+  const accountFields = accounts
     .map((a) => buildQuasarAccountField(a, ix, ir))
     .join("\n\n");
 
   // Auto-add token_program if mint init is present but no token_program account exists
-  const hasMintInit = ix.accounts.some(
+  const hasMintInit = accounts.some(
     (a) => a.accountType === "mint" && a.constraints.some((c) => c.type === "init")
   );
-  const hasTokenProgram = ix.accounts.some((a) => a.accountType === "token-program");
+  const hasTokenProgram = accounts.some((a) => a.accountType === "token-program");
   const extraFields = hasMintInit && !hasTokenProgram
     ? "\n    pub token_program: &'info Program<Token>,"
     : "";
+
+  for (const block of pluginBlocks) {
+    for (const warning of block.warnings) {
+      warns.push({ message: warning, nodeId: ix.id });
+    }
+  }
 
   const content = `${importLines.join("\n")}
 

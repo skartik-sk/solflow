@@ -560,9 +560,9 @@ Most account validations can be set either via flags on the Account node or via 
 | `i128` | `i128` | `i128` | `i128` | `i128` |
 | `f32` | `f32` | `f32` | `f32` | `f32` |
 | `f64` | `f64` | `f64` | `f64` | `f64` |
-| `String` | `String` | (via manual deserialization) | `String<'a, N>` | `String` |
+| `String` | `String` | length-prefixed parser | `String<'a, N>` | `String` |
 | `Pubkey` | `Pubkey` | `Address` | `Address` | `Address` |
-| `{ vec: T }` | `Vec<T>` | (manual deserialization) | `Vec<'a, T, N>` | `Vec<T>` |
+| `{ vec: T }` | `Vec<T>` | length-prefixed parser | `Vec<'a, T, N>` | `Vec<T>` |
 | `{ option: T }` | `Option<T>` | `Option<T>` | `Option<T>` | `Option<T>` |
 | `{ array: [T, N] }` | `[T; N]` | `[T; N]` | `[T; N]` | `[T; N]` |
 

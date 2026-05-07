@@ -8,6 +8,7 @@ import { prisma } from "@solflow/db";
 import { createHmac } from "crypto";
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const usedNonces = new Map<string, number>();
 
 function getAuthSecret(): string {
   const secret = process.env.AUTH_SECRET;
@@ -24,12 +25,23 @@ export async function generateNonce(): Promise<string> {
   return `${timestamp}.${hmac}`;
 }
 
-async function verifyNonce(nonce: string): Promise<boolean> {
+function pruneUsedNonces(now = Date.now()): void {
+  for (const [nonce, expiresAt] of usedNonces) {
+    if (expiresAt <= now) usedNonces.delete(nonce);
+  }
+}
+
+export async function verifyNonce(nonce: string): Promise<boolean> {
   try {
+    const now = Date.now();
+    pruneUsedNonces(now);
+    if (usedNonces.has(nonce)) return false;
+
     const [timestamp, hmac] = nonce.split(".");
     if (!timestamp || !hmac) return false;
 
-    if (Date.now() - parseInt(timestamp, 10) > NONCE_TTL_MS) return false;
+    const issuedAt = parseInt(timestamp, 10);
+    if (!Number.isFinite(issuedAt) || now - issuedAt > NONCE_TTL_MS) return false;
 
     const secret = getAuthSecret();
     const expectedHmac = createHmac("sha256", secret).update(timestamp).digest("hex");
@@ -46,10 +58,16 @@ async function verifyNonce(nonce: string): Promise<boolean> {
   }
 }
 
-async function invalidateNonce(nonce: string): Promise<void> {
-  // Stateless nonce: relies on timestamp expiration instead of explicit deletion
+export async function consumeNonce(nonce: string): Promise<boolean> {
+  if (!(await verifyNonce(nonce))) return false;
+  const issuedAt = parseInt(nonce.split(".")[0] ?? "", 10);
+  usedNonces.set(nonce, issuedAt + NONCE_TTL_MS);
+  return true;
 }
 
+function messageHasLine(message: string, expected: string): boolean {
+  return message.split(/\r?\n/).some((line) => line.trim() === expected);
+}
 
 export const SolanaWalletProvider = Credentials({
   id: "solana-wallet",
@@ -71,12 +89,13 @@ export const SolanaWalletProvider = Credentials({
 
     if (!publicKey || !signature || !message || !nonce) return null;
 
-    // 1. Verify the nonce is valid and unexpired
+    // 1. Verify the nonce is valid, unexpired, and unused
     const nonceValid = await verifyNonce(nonce);
     if (!nonceValid) return null;
 
-    // 2. Verify the signed message contains the nonce
-    if (!message.includes(nonce)) return null;
+    // 2. Verify the signed message binds both the wallet and the exact nonce line
+    if (!messageHasLine(message, publicKey)) return null;
+    if (!messageHasLine(message, `Nonce: ${nonce}`)) return null;
 
     // 3. Verify the Ed25519 signature
     try {
@@ -95,8 +114,8 @@ export const SolanaWalletProvider = Credentials({
       return null;
     }
 
-    // 4. Invalidate nonce to prevent replay attacks
-    await invalidateNonce(nonce);
+    // 4. Consume nonce to prevent replay attacks in the current runtime
+    if (!(await consumeNonce(nonce))) return null;
 
     // 5. Upsert user by wallet address
     const user = await prisma.user.upsert({

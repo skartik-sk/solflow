@@ -699,7 +699,6 @@ async function syncKeys(projectPath: string, adapter: FrameworkAdapter): Promise
 
     try {
       const keypairData = JSON.parse(readFileSync(keypairPath, "utf-8"));
-      const publicKey = keypairData.publicKey || Buffer.from(keypairData).slice(32).toString("base64");
       // Keypair is byte array — public key is last 32 bytes
       const bytes = Array.isArray(keypairData) ? keypairData : keypairData.secretKey;
       if (!bytes) continue;
@@ -711,7 +710,7 @@ async function syncKeys(projectPath: string, adapter: FrameworkAdapter): Promise
       // Patch declare_id! in lib.rs
       const libRsPath = join(basePath, "src", "lib.rs");
       if (existsSync(libRsPath)) {
-        let content = readFileSync(libRsPath, "utf-8");
+        const content = readFileSync(libRsPath, "utf-8");
         const updated = content.replace(
           /declare_id!\("([^"]+)"\)/g,
           `declare_id!("${programId}")`

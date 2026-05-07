@@ -10,7 +10,6 @@ import { auth } from "@solflow/auth";
 import {
   Layers,
   Star,
-  Download,
   GitFork,
   ArrowLeft,
   Tag,
@@ -483,7 +482,6 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
               </h3>
               <div className="flex items-center gap-3">
                 {listing.author.image ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={listing.author.image}
                     alt={listing.author.name ?? "Author"}

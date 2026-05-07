@@ -350,13 +350,124 @@ export const splTokenPlugin: SolFlowPlugin = {
       return { bodyCode: "", accounts: [], imports: [] };
     },
 
-    pinocchio: (_nodeData, _context) => {
-      // Pinocchio version uses raw CPI calls
-      return {
-        bodyCode: "// TODO: pinocchio SPL Token CPI",
-        accounts: [],
-        imports: [],
-      };
+    pinocchio: (nodeData, _context) => {
+      const amount = typeof nodeData.amount === "number" ? nodeData.amount : 0;
+      if (nodeData.integrationId === "create-mint") {
+        const decimals = typeof nodeData.decimals === "number" ? nodeData.decimals : 9;
+        return {
+          bodyCode: `
+            use pinocchio_token::instructions::InitializeMint;
+            InitializeMint {
+                mint,
+                decimals: ${decimals},
+                mint_authority: mint_authority.address(),
+                freeze_authority: None,
+            }.invoke()?;
+          `,
+          accounts: [
+            { name: "mint", type: "mint", isMut: true, isSigner: true },
+            { name: "payer", type: "signer", isMut: true, isSigner: true },
+            { name: "mint_authority", type: "signer", isSigner: true },
+            { name: "token_program", type: "token-program" },
+            { name: "system_program", type: "system-program" },
+            { name: "rent", type: "rent" },
+          ],
+          imports: ["use pinocchio_token::instructions::InitializeMint;"],
+        };
+      }
+      if (nodeData.integrationId === "mint-tokens") {
+        return {
+          bodyCode: `
+            use pinocchio_token::instructions::MintTo;
+            MintTo {
+                mint,
+                account: destination,
+                mint_authority: authority,
+                multisig_signers: &[] as &[AccountView],
+                amount: ${amount},
+            }.invoke()?;
+          `,
+          accounts: [
+            { name: "mint", type: "mint", isMut: true },
+            { name: "destination", type: "token-account", isMut: true },
+            { name: "authority", type: "signer", isSigner: true },
+            { name: "token_program", type: "token-program" },
+          ],
+          imports: ["use pinocchio_token::instructions::MintTo;"],
+        };
+      }
+      if (nodeData.integrationId === "transfer") {
+        return {
+          bodyCode: `
+            use pinocchio_token::instructions::Transfer as TokenTransfer;
+            TokenTransfer {
+                from: source,
+                to: destination,
+                authority,
+                multisig_signers: &[] as &[AccountView],
+                amount: ${amount},
+            }.invoke()?;
+          `,
+          accounts: [
+            { name: "source", type: "token-account", isMut: true },
+            { name: "destination", type: "token-account", isMut: true },
+            { name: "authority", type: "signer", isSigner: true },
+            { name: "token_program", type: "token-program" },
+          ],
+          imports: ["use pinocchio_token::instructions::Transfer as TokenTransfer;"],
+        };
+      }
+      return { bodyCode: "", accounts: [], imports: [] };
+    },
+    quasar: (nodeData, _context) => {
+      const amount = typeof nodeData.amount === "number" ? nodeData.amount : 0;
+      if (nodeData.integrationId === "create-mint") {
+        return {
+          bodyCode: "",
+          accounts: [
+            { name: "mint", type: "mint", isMut: true, isSigner: true },
+            { name: "payer", type: "signer", isMut: true, isSigner: true },
+            { name: "mint_authority", type: "signer", isSigner: true },
+            { name: "token_program", type: "token-program" },
+            { name: "system_program", type: "system-program" },
+            { name: "rent", type: "rent" },
+          ],
+          imports: ["use quasar_spl::*;"],
+        };
+      }
+      if (nodeData.integrationId === "mint-tokens") {
+        return {
+          bodyCode: `
+            ctx.accounts.token_program
+                .mint_to(ctx.accounts.mint, ctx.accounts.destination, ctx.accounts.authority, ${amount})
+                .invoke()?;
+          `,
+          accounts: [
+            { name: "mint", type: "mint", isMut: true },
+            { name: "destination", type: "token-account", isMut: true },
+            { name: "authority", type: "signer", isSigner: true },
+            { name: "token_program", type: "token-program" },
+          ],
+          imports: ["use quasar_spl::*;"],
+        };
+      }
+      if (nodeData.integrationId === "transfer") {
+        return {
+          bodyCode: `
+            ctx.accounts.token_program
+                .transfer(ctx.accounts.source, ctx.accounts.destination, ctx.accounts.authority, ${amount})
+                .invoke()?;
+          `,
+          accounts: [
+            { name: "source", type: "token-account", isMut: true },
+            { name: "destination", type: "token-account", isMut: true },
+            { name: "authority", type: "signer", isSigner: true },
+            { name: "token_program", type: "token-program" },
+          ],
+          imports: ["use quasar_spl::*;"],
+        };
+      }
+      return { bodyCode: "", accounts: [], imports: [] };
     },
   },
 };

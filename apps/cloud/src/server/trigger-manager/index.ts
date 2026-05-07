@@ -3,7 +3,7 @@
 
 import { Queue, type Queue as QueueType } from "bullmq";
 import { prisma } from "@solflow/db";
-import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
+import { registerBuiltinNodes } from "@solflow/cloud-nodes";
 import { queueExecution } from "../execution-worker/queue";
 import { nanoid } from "nanoid";
 import {

@@ -134,7 +134,6 @@ export default function CloudLandingPage() {
   const [hoverNode, setHoverNode] = useState<NodeId | null>(null);
   const [activeLine, setActiveLine] = useState(0);
   const [activeNode, setActiveNode] = useState<NodeId | null>(null);
-  const [cycleIndex, setCycleIndex] = useState(0);
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<DragState | null>(null);
 
@@ -152,7 +151,6 @@ export default function CloudLandingPage() {
     const schedule = (id: NodeId, i: number) => {
       const t = setTimeout(() => {
         setActiveNode(id);
-        setCycleIndex(i);
         timers.delete(t);
       }, (i + 1) * 2500);
       timers.add(t);

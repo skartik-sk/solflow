@@ -115,8 +115,6 @@ const NODE_DEFS: NodeDef[] = [
   },
 ];
 
-const CATEGORIES = Array.from(new Set(NODE_DEFS.map((n) => n.category)));
-
 export function NodePalette() {
   const {
     paletteSearch,

@@ -32,7 +32,7 @@ export function setWebSocketServer(server: WebSocketServer): void {
   wss.on("close", () => clearInterval(heartbeat));
 
   wss.on("connection", (ws: WebSocket) => {
-    let subscribedJobs: string[] = [];
+    const subscribedJobs: string[] = [];
     (ws as any).isAlive = true;
     ws.on("pong", () => { (ws as any).isAlive = true; });
 

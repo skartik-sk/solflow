@@ -232,11 +232,6 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       const client = getVanillaClient();
       const resp = await client.test.run.mutate({ projectId, testCases, runtime });
 
-      if (resp.runId === "stub") {
-        set({ testStatus: "passed" });
-        return;
-      }
-
       set({ testRunId: resp.runId });
 
       if ("resultItems" in resp && Array.isArray(resp.resultItems)) {
@@ -516,7 +511,7 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       });
 
       // Subscribe to real-time deploy status via WebSocket
-      const { connectWS, onWSMessage: onWS, subscribeToJob, isDeployStatus } =
+      const { connectWS, onWSMessage: onWS, subscribeToJob } =
         await import("@/lib/ws");
       connectWS();
 

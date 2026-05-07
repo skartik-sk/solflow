@@ -2,7 +2,7 @@
 // Provides the outer shell: header with icon + label, handles, selection ring.
 
 import React, { memo } from "react";
-import { Handle, Position, type NodeProps } from "@xyflow/react";
+import { Handle, Position } from "@xyflow/react";
 import { cn } from "@solflow/ui/lib/utils";
 
 // ─── Handle type tokens ──────────────────────────────────────────────

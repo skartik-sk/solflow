@@ -105,7 +105,7 @@ function parseAccountFields(body: string): ParsedAccount[] {
 
     // Collect #[account(...)] attributes — handle multi-line by accumulating
     if (trimmed.startsWith("#[account")) {
-      let attrText = trimmed;
+      const attrText = trimmed;
       if (!isCompleteAttr(attrText)) {
         accumulating = attrText;
         continue;

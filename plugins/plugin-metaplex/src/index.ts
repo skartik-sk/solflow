@@ -240,10 +240,39 @@ export const metaplexPlugin: SolFlowPlugin = {
         };
       }
       if (nodeData.integrationId === "create-collection") {
+        const name = JSON.stringify(typeof nodeData.name === "string" ? nodeData.name : "SolStudio Collection");
+        const symbol = JSON.stringify(typeof nodeData.symbol === "string" ? nodeData.symbol : "COLL");
+        const uri = JSON.stringify(typeof nodeData.uri === "string" ? nodeData.uri : "");
         return {
           bodyCode: `
-            // Create collection NFT — uses same metadata CPI as mint-nft
-            // with is_collection = true in DataV2
+            let metadata_program = ctx.accounts.metadata_program.to_account_info();
+            let metadata = ctx.accounts.metadata.to_account_info();
+            let mint = ctx.accounts.mint.to_account_info();
+            let authority = ctx.accounts.authority.to_account_info();
+            let payer = ctx.accounts.payer.to_account_info();
+            let system_program = ctx.accounts.system_program.to_account_info();
+            let rent = ctx.accounts.rent.to_account_info();
+            let data = DataV2 {
+                name: ${name}.to_string(),
+                symbol: ${symbol}.to_string(),
+                uri: ${uri}.to_string(),
+                seller_fee_basis_points: 0,
+                creators: None,
+                collection: None,
+                uses: None,
+            };
+            CreateMetadataAccountV3CpiBuilder::new(&metadata_program)
+                .metadata(&metadata)
+                .mint(&mint)
+                .mint_authority(&authority)
+                .payer(&payer)
+                .update_authority(&authority, true)
+                .system_program(&system_program)
+                .rent(Some(&rent))
+                .data(data)
+                .is_mutable(true)
+                .collection_details(Some(CollectionDetails::V1 { size: 0 }))
+                .invoke()?;
           `,
           accounts: [
             {
@@ -259,26 +288,121 @@ export const metaplexPlugin: SolFlowPlugin = {
               isMut: true,
               isSigner: true,
             },
+            { name: "authority", type: "signer", isMut: false, isSigner: true },
+            { name: "payer", type: "signer", isMut: true, isSigner: true },
             {
               name: "metadata_program",
               type: "program",
               address: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
             },
+            { name: "system_program", type: "program" },
+            { name: "rent", type: "sysvar" },
           ],
           imports: [
-            "use mpl_token_metadata::instructions::CreateMetadataAccountsV3;",
-            "use mpl_token_metadata::types::DataV2;",
+            "use anchor_spl::token::Mint;",
+            "use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;",
+            "use mpl_token_metadata::types::{CollectionDetails, DataV2};",
           ],
         };
       }
       return { bodyCode: "", accounts: [], imports: [] };
     },
-    pinocchio: (_nodeData, _context) => {
-      // Pinocchio uses raw CPI patterns
+    pinocchio: (nodeData, _context) => {
+      const isCollection = nodeData.integrationId === "create-collection";
+      const name = JSON.stringify(typeof nodeData.name === "string" ? nodeData.name : isCollection ? "SolStudio Collection" : "SolStudio NFT");
+      const symbol = JSON.stringify(typeof nodeData.symbol === "string" ? nodeData.symbol : isCollection ? "COLL" : "SOLST");
+      const uri = JSON.stringify(typeof nodeData.uri === "string" ? nodeData.uri : "");
+      const sellerFeeBasisPoints = typeof nodeData.sellerFeeBasisPoints === "number" ? nodeData.sellerFeeBasisPoints : 0;
+      const isMutable = typeof nodeData.isMutable === "boolean" ? nodeData.isMutable : true;
+      const collectionDetails = isCollection ? "Some(CollectionDetails::V1 { size: 0 })" : "None";
       return {
-        bodyCode: "// TODO: pinocchio Metaplex CPI",
-        accounts: [],
-        imports: [],
+        bodyCode: `
+          use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;
+          use mpl_token_metadata::types::{CollectionDetails, DataV2};
+          let data = DataV2 {
+              name: ${name}.to_string(),
+              symbol: ${symbol}.to_string(),
+              uri: ${uri}.to_string(),
+              seller_fee_basis_points: ${sellerFeeBasisPoints},
+              creators: None,
+              collection: None,
+              uses: None,
+          };
+          CreateMetadataAccountV3CpiBuilder::new(metadata_program)
+              .metadata(metadata)
+              .mint(mint)
+              .mint_authority(authority)
+              .payer(payer)
+              .update_authority(authority, true)
+              .system_program(system_program)
+              .rent(Some(rent))
+              .data(data)
+              .is_mutable(${isMutable})
+              .collection_details(${collectionDetails})
+              .invoke()?;
+        `,
+        accounts: [
+          { name: "metadata", type: "unchecked-account", isMut: true },
+          { name: "mint", type: "mint", isMut: true },
+          { name: "authority", type: "signer", isSigner: true },
+          { name: "payer", type: "signer", isMut: true, isSigner: true },
+          { name: "metadata_program", type: "program" },
+          { name: "system_program", type: "system-program" },
+          { name: "rent", type: "rent" },
+        ],
+        imports: [
+          "use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;",
+          "use mpl_token_metadata::types::{CollectionDetails, DataV2};",
+        ],
+      };
+    },
+    quasar: (nodeData, _context) => {
+      const isCollection = nodeData.integrationId === "create-collection";
+      const name = JSON.stringify(typeof nodeData.name === "string" ? nodeData.name : isCollection ? "SolStudio Collection" : "SolStudio NFT");
+      const symbol = JSON.stringify(typeof nodeData.symbol === "string" ? nodeData.symbol : isCollection ? "COLL" : "SOLST");
+      const uri = JSON.stringify(typeof nodeData.uri === "string" ? nodeData.uri : "");
+      const sellerFeeBasisPoints = typeof nodeData.sellerFeeBasisPoints === "number" ? nodeData.sellerFeeBasisPoints : 0;
+      const isMutable = typeof nodeData.isMutable === "boolean" ? nodeData.isMutable : true;
+      const collectionDetails = isCollection ? "Some(CollectionDetails::V1 { size: 0 })" : "None";
+      return {
+        bodyCode: `
+          use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;
+          use mpl_token_metadata::types::{CollectionDetails, DataV2};
+          let data = DataV2 {
+              name: ${name}.to_string(),
+              symbol: ${symbol}.to_string(),
+              uri: ${uri}.to_string(),
+              seller_fee_basis_points: ${sellerFeeBasisPoints},
+              creators: None,
+              collection: None,
+              uses: None,
+          };
+          CreateMetadataAccountV3CpiBuilder::new(ctx.accounts.metadata_program)
+              .metadata(ctx.accounts.metadata)
+              .mint(ctx.accounts.mint)
+              .mint_authority(ctx.accounts.authority)
+              .payer(ctx.accounts.payer)
+              .update_authority(ctx.accounts.authority, true)
+              .system_program(ctx.accounts.system_program)
+              .rent(Some(ctx.accounts.rent))
+              .data(data)
+              .is_mutable(${isMutable})
+              .collection_details(${collectionDetails})
+              .invoke()?;
+        `,
+        accounts: [
+          { name: "metadata", type: "unchecked-account", isMut: true },
+          { name: "mint", type: "mint", isMut: true },
+          { name: "authority", type: "signer", isSigner: true },
+          { name: "payer", type: "signer", isMut: true, isSigner: true },
+          { name: "metadata_program", type: "program" },
+          { name: "system_program", type: "system-program" },
+          { name: "rent", type: "rent" },
+        ],
+        imports: [
+          "use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;",
+          "use mpl_token_metadata::types::{CollectionDetails, DataV2};",
+        ],
       };
     },
   },

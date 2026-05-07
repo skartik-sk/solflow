@@ -156,11 +156,49 @@ export const pythPlugin: SolFlowPlugin = {
       imports: ["use pyth_solana_receiver_sdk::price_update::PriceUpdateV2;"],
     }),
 
-    pinocchio: (_nodeData, _context) => ({
-      bodyCode: "// TODO: pinocchio Pyth oracle read",
-      accounts: [],
-      imports: [],
-    }),
+    pinocchio: (nodeData, _context) => {
+      const outputVar = typeof nodeData.outputVar === "string" && /^[a-z_][a-z0-9_]*$/.test(nodeData.outputVar)
+        ? nodeData.outputVar
+        : "price";
+      return {
+        bodyCode: `
+          let ${outputVar}_data = price_feed.try_borrow()?;
+          if ${outputVar}_data.len() < 240 {
+              return Err(ProgramError::InvalidAccountData);
+          }
+          let ${outputVar} = i64::from_le_bytes(
+              ${outputVar}_data[208..216].try_into().map_err(|_| ProgramError::InvalidAccountData)?
+          );
+          let ${outputVar}_conf = u64::from_le_bytes(
+              ${outputVar}_data[216..224].try_into().map_err(|_| ProgramError::InvalidAccountData)?
+          );
+          let ${outputVar}_expo = i32::from_le_bytes(
+              ${outputVar}_data[224..228].try_into().map_err(|_| ProgramError::InvalidAccountData)?
+          );
+        `,
+        accounts: [{ name: "price_feed", type: "unchecked-account" }],
+        imports: [],
+      };
+    },
+
+    quasar: (nodeData, _context) => {
+      const outputVar = typeof nodeData.outputVar === "string" && /^[a-z_][a-z0-9_]*$/.test(nodeData.outputVar)
+        ? nodeData.outputVar
+        : "price";
+      return {
+        bodyCode: `
+          let ${outputVar}_data = ctx.accounts.price_feed.try_borrow_data()?;
+          if ${outputVar}_data.len() < 240 {
+              return Err(ProgramError::InvalidAccountData);
+          }
+          let ${outputVar} = i64::from_le_bytes(${outputVar}_data[208..216].try_into().map_err(|_| ProgramError::InvalidAccountData)?);
+          let ${outputVar}_conf = u64::from_le_bytes(${outputVar}_data[216..224].try_into().map_err(|_| ProgramError::InvalidAccountData)?);
+          let ${outputVar}_expo = i32::from_le_bytes(${outputVar}_data[224..228].try_into().map_err(|_| ProgramError::InvalidAccountData)?);
+        `,
+        accounts: [{ name: "price_feed", type: "unchecked-account" }],
+        imports: [],
+      };
+    },
   },
 };
 

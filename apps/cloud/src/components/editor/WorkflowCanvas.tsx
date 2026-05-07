@@ -2,7 +2,7 @@
 
 // WorkflowCanvas — React Flow canvas for the cloud workflow editor.
 
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -44,7 +44,6 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
 function ExecutionOverlayLayer() {
   const nodes = useWorkflowStore((s) => s.nodes);
   const nodeResults = useExecutionStore((s) => s.nodeResults);
-  const { fitView } = useReactFlow();
 
   if (nodeResults.size === 0) return null;
 

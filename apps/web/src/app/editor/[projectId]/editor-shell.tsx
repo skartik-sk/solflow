@@ -27,7 +27,7 @@ import { TransactionBuilderPanel } from "@/components/editor/TransactionBuilderP
 import { ErrorBoundary } from "@/components/editor/ErrorBoundary";
 import type { Node, Edge } from "@xyflow/react";
 import { toast } from "sonner";
-import type { AuditExportFormat, AuditReport } from "@solflow/audit";
+import type { AuditExportFormat, AuditFinding, AuditReport } from "@solflow/audit";
 
 // React Flow can't be SSR'd — load it dynamically with no SSR.
 const FlowCanvas = dynamic(
@@ -142,7 +142,6 @@ export function EditorShell({
       useCodeStore.getState().clear();
     };
     // Run once on mount only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // ─── Audit: run instant audit on demand (button click) ──────
@@ -498,7 +497,7 @@ function AuditPanel({
   framework: "anchor" | "pinocchio" | "quasar";
   onGoToNode?: (nodeId: string) => void;
   onGoToCode?: (target: { nodeId?: string; token?: string }) => void;
-  onFix?: (finding: import("@solflow/audit").AuditFinding) => void;
+  onFix?: (finding: AuditFinding) => void;
   onFullAuditResult?: (report: AuditReport) => void;
   onRunInstantAudit?: () => void;
 }) {
@@ -523,7 +522,7 @@ function AuditPanel({
       const result = await client.audit.run.mutate({ projectId });
       if (onFullAuditResult && result.findings) {
         onFullAuditResult({
-          findings: result.findings as import("@solflow/audit").AuditFinding[],
+          findings: result.findings as AuditFinding[],
           score: result.score ?? 100,
           summary: result.summary ?? {
             critical: 0,

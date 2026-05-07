@@ -59,6 +59,7 @@ import type {
   LogicOperation,
   Field,
   Seed,
+  SolanaType,
 } from "./schema";
 import { ProgramIRSchema } from "./schema";
 
@@ -591,7 +592,7 @@ function normalizeInstructionArgs(data: Record<string, unknown>): Instruction["a
   const raw = (data.args ?? data.instructionData ?? []) as Array<Record<string, unknown>>;
   return raw.map((a) => ({
     name: a.name as string,
-    type: normalizeType(a.type) as import("./schema").SolanaType,
+    type: normalizeType(a.type) as SolanaType,
     description: a.description as string | undefined,
   }));
 }

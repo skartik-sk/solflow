@@ -13,15 +13,6 @@ import { broadcastToJob } from "@/lib/ws-broadcaster";
 import { runGeneratedProjectTests } from "@/server/test-runner/local-test-runner";
 import type { GeneratedTestRuntime } from "@/server/test-runner/local-test-runner";
 
-// Local alias for Prisma JSON field values (Prisma client is ungenerated/stubbed)
-type PrismaJsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | PrismaJsonValue[]
-  | { [key: string]: PrismaJsonValue };
-
 // ─── generateDefaultTests ────────────────────────────────────────────────────
 // Per docs/architecture/09-compilation-deployment.md → Auto-Generated Test Scaffolding.
 
@@ -307,9 +298,6 @@ export const testRouter = router({
   status: protectedProcedure
     .input(z.object({ runId: z.string() }))
     .query(async ({ ctx, input }) => {
-      if (input.runId === "stub") {
-        return { runId: "stub", status: "idle", results: [] };
-      }
       const run = await ctx.prisma.testRun.findFirst({
         where: {
           id: input.runId,

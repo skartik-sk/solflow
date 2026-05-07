@@ -1,9 +1,9 @@
-// Stub router — user profile & settings
-// Full implementation deferred to Phase 3.
+// User profile, settings, and wallet-linking router.
 
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
+import { consumeNonce, verifyNonce } from "@solflow/auth";
 import { PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
@@ -44,22 +44,25 @@ export const userRouter = router({
         publicKey: z.string().min(32),
         signature: z.string().min(1),
         message: z.string().min(1),
-        nonce: z.string().uuid(),
+        nonce: z.string().min(1),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const { publicKey, signature, message, nonce } = input;
 
-      // Replay guard: message must end with the nonce (standard Solana sign-in format)
-      // This prevents crafted messages that embed the nonce as a substring
-      const expectedSuffix = `Nonce: ${nonce}`;
-      if (!message.trim().endsWith(expectedSuffix)) {
+      const messageHasLine = (expected: string) =>
+        message.split(/\r?\n/).some((line) => line.trim() === expected);
+
+      if (!(await verifyNonce(nonce))) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Nonce mismatch" });
       }
 
       // Reject if message is suspiciously long (limits attack surface)
       if (message.length > 512) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Message too long" });
+      }
+      if (!messageHasLine(publicKey) || !messageHasLine(`Nonce: ${nonce}`)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Message mismatch" });
       }
 
       // Verify Ed25519 signature
@@ -84,6 +87,10 @@ export const userRouter = router({
           code: "BAD_REQUEST",
           message: "Invalid public key or signature",
         });
+      }
+
+      if (!(await consumeNonce(nonce))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Nonce already used" });
       }
 
       // Check the wallet isn't already linked to a different account

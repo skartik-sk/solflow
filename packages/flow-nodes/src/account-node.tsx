@@ -4,7 +4,6 @@
 // and out to Constraint (right) / State (left).
 
 import React, { memo } from "react";
-import { Row } from "./shared-row";
 import { Position, type NodeProps } from "@xyflow/react";
 import { Wallet } from "lucide-react";
 import { BaseNodeShell } from "./base-node";

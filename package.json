@@ -26,7 +26,8 @@
     "turbo": "^2.5.0",
     "prettier": "^3.5.0",
     "@solflow/eslint-config": "workspace:*",
-    "@solflow/tsconfig": "workspace:*"
+    "@solflow/tsconfig": "workspace:*",
+    "eslint": "^9.0.0"
   },
   "packageManager": "bun@1.3.10"
 }

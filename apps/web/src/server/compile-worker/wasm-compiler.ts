@@ -15,7 +15,6 @@ import {
   writeFile,
   readFile,
   rm,
-  writeFile as writeFileCb,
 } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -142,24 +141,7 @@ function flattenForCloudBuild(
   const programModuleMatch = libRs.match(
     /#\[program\]\s*pub mod \w+ \{([\s\S]*?)\n\}/,
   );
-  let programBody = programModuleMatch ? programModuleMatch[1].trim() : "";
-
-  // Replace `instructions::name::handler(ctx, args)` with inlined handler body
-  for (const instrContent of instructions) {
-    const handlerMatch = instrContent.match(
-      /pub fn handler\(ctx: Context<(\w+)>[^)]*\)(?:\s*->\s*Result<\(\)>)?\s*\{([\s\S]*?)\n\}/,
-    );
-    if (handlerMatch) {
-      const ctxName = handlerMatch[1];
-      let body = handlerMatch[2].trim();
-      // Replace `instructions::xxx::handler(ctx...)` calls in program body with direct body
-      const callRegex = new RegExp(
-        `instructions::\\w+::handler\\(ctx[^)]*\\)`,
-        "g",
-      );
-      // We'll replace the whole fn body in the program module
-    }
-  }
+  const programBody = programModuleMatch ? programModuleMatch[1].trim() : "";
 
   // Simpler approach: just replace module calls with direct inline
   // For each instruction file, extract the handler function body and Accounts struct
@@ -179,7 +161,7 @@ function flattenForCloudBuild(
     if (handlerMatch) {
       const ctxName = handlerMatch[1];
       const args = handlerMatch[2].trim();
-      let body = handlerMatch[3].trim();
+      const body = handlerMatch[3].trim();
       handlerBodies.set(ctxName, { body, args, ctxName });
     }
 
@@ -277,10 +259,6 @@ function flattenForCloudBuild(
   }
 
   return [["/src/lib.rs", parts.join("\n")]];
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

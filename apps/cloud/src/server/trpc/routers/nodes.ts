@@ -1,6 +1,5 @@
 import { router, publicProcedure } from "../trpc";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
-import type { NodeCategory } from "@solflow/cloud-nodes";
 
 registerBuiltinNodes();
 

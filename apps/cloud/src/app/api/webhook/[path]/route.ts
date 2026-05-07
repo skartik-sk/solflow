@@ -1,6 +1,7 @@
 // Webhook Route Handler — receives incoming webhook requests and triggers workflows.
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest} from "next/server";
+import { NextResponse } from "next/server";
 import {
   clientIpFromHeaders,
   rateLimitHeaders,

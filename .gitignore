@@ -62,3 +62,4 @@ codex-session.jsonl
 
 # Local-only helper scripts
 .local/
+hyperframes/

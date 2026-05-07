@@ -14,7 +14,7 @@
 //
 // This generator is browser-safe (no fs, no Node.js builtins).
 
-import type { ProgramIR, Instruction, Account, Field, LogicOperation, Seed } from '@solflow/ir';
+import type { ProgramIR, Instruction, Account, Field, Integration, LogicOperation, Seed } from '@solflow/ir';
 import type { GeneratedFile, CodegenWarning, CodegenError } from '../../index';
 import {
   solanaTypeToRust,
@@ -50,13 +50,6 @@ export function generatePinocchio(ir: ProgramIR): {
   const version     = ir.program.version;
   const programId   = ir.program.programId; // base58 public key (may be undefined)
 
-  for (const integration of ir.integrations) {
-    warnings.push({
-      message: `Plugin integration "${integration.pluginId}:${integration.integrationId}" is not generated for Pinocchio yet`,
-      nodeId: integration.id,
-    });
-  }
-
   // Determine if any instruction uses CPI operations (including init via CreateAccount)
   const usesCpi = ir.instructions.some((ix) =>
     ix.body.some((op) =>
@@ -69,6 +62,8 @@ export function generatePinocchio(ir: ProgramIR): {
     ix.accounts.some((a) =>
       a.constraints.some((c) => c.type === 'init' || c.type === 'init-if-needed')
     )
+  ) || ir.integrations.some((integration) =>
+    integration.pluginId === 'spl-token' || integration.pluginId === 'metaplex'
   );
 
   // Determine if any instruction references SPL tokens
@@ -80,7 +75,7 @@ export function generatePinocchio(ir: ProgramIR): {
       a.accountType === 'token-program' ||
       a.accountType === 'associated-token-program'
     )
-  );
+  ) || ir.integrations.some((integration) => integration.pluginId === 'spl-token');
 
   // Sort deterministically
   const instructions = [...ir.instructions].sort((a, b) => a.name.localeCompare(b.name));
@@ -97,7 +92,7 @@ export function generatePinocchio(ir: ProgramIR): {
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesCpi, usesSpl),
+    content: generateCargoToml(programName, version, usesCpi, usesSpl, ir.integrations),
     language: 'toml',
   });
 
@@ -211,7 +206,13 @@ function formatDiscriminator(disc: number[]): string {
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
 
-function generateCargoToml(name: string, version: string, usesCpi: boolean, usesSpl: boolean): string {
+function generateCargoToml(
+  name: string,
+  version: string,
+  usesCpi: boolean,
+  usesSpl: boolean,
+  integrations: Integration[],
+): string {
   const kebab = toKebabCase(name);
 
   // pinocchio-system is needed for system program CPI (Transfer, CreateAccount, etc.)
@@ -222,6 +223,12 @@ function generateCargoToml(name: string, version: string, usesCpi: boolean, uses
   // pinocchio-token 0.6 is compatible with pinocchio 0.11 (uses AccountView)
   const tokenDep = usesSpl
     ? '\npinocchio-token = "0.6"'
+    : '';
+  const pythDep = integrations.some((integration) => integration.pluginId === 'pyth')
+    ? '\npyth-sdk-solana = "0.10"'
+    : '';
+  const metaplexDep = integrations.some((integration) => integration.pluginId === 'metaplex')
+    ? '\nmpl-token-metadata = "4.1"'
     : '';
 
   // pinocchio version: 0.11 with pinocchio-token 0.6 (uses AccountView API)
@@ -245,7 +252,7 @@ default = []
 
 [dependencies]
 ${pinocchioDep}
-solana-address = { version = "2.0", features = ["decode"] }${systemDep}${tokenDep}
+solana-address = { version = "2.0", features = ["decode"] }${systemDep}${tokenDep}${pythDep}${metaplexDep}
 
 [profile.release]
 opt-level = "z"
@@ -341,8 +348,15 @@ function generateInstructionRs(
 ): { content: string; warns: CodegenWarning[]; errs: CodegenError[] } {
   const warns: CodegenWarning[] = [];
   const errs: CodegenError[]   = [];
+  const pluginBlocks = integrationsForInstruction(ir, ix).map((integration) =>
+    renderPinocchioIntegration(integration),
+  );
+  const accounts = withPluginAccounts(
+    ix.accounts,
+    pluginBlocks.flatMap((block) => block.accounts),
+  );
 
-  if (ix.accounts.length === 0) {
+  if (accounts.length === 0) {
     warns.push({ message: `Instruction "${ix.name}" has no accounts`, nodeId: ix.id });
   }
 
@@ -353,25 +367,35 @@ function generateInstructionRs(
 
   // Build account→stateType mapping so set-field and validation use correct struct names
   const accountToStateType = new Map<string, string>();
-  for (const a of ix.accounts) {
+  for (const a of accounts) {
     if (a.stateType) accountToStateType.set(a.name, a.stateType);
   }
 
   // Build account destructuring
-  const accountNames = ix.accounts.map((a) => a.name);
+  const accountNames = accounts.map((a) => a.name);
   const destructure  = accountNames.length > 0
     ? `    let [${accountNames.join(', ')}, _remaining @ ..] = accounts else {\n        return Err(ProgramError::NotEnoughAccountKeys);\n    };\n`
     : '';
 
   // Build validation checks
-  const validationLines = buildValidationChecks(ix.accounts, errorEnum, accountToStateType);
+  const validationLines = buildValidationChecks(accounts, errorEnum, accountToStateType);
 
   // Parse instruction args
   const argParseLines = buildArgParsing(ix.args);
   const hasArgs = ix.args.length > 0;
 
   // Build body
-  const bodyLines = buildInstructionBody(ix, ir.program.name, accountToStateType);
+  const beforeBody = pluginBlocks
+    .filter((block) => block.position === 'before-body')
+    .flatMap((block) => block.bodyLines);
+  const afterBody = pluginBlocks
+    .filter((block) => block.position === 'after-body')
+    .flatMap((block) => block.bodyLines);
+  const bodyLines = [
+    ...beforeBody,
+    ...buildInstructionBody(ix, ir.program.name, accountToStateType),
+    ...afterBody,
+  ];
 
   // State imports — import states referenced in the body OR in seeds validation
   const usedStates = new Set<string>();
@@ -379,7 +403,7 @@ function generateInstructionRs(
     collectUsedStates(op, accountToStateType, usedStates);
   }
   // Also check seeds constraints for state references (e.g. VaultState::bump)
-  for (const a of ix.accounts) {
+  for (const a of accounts) {
     for (const c of a.constraints) {
       if (c.type === 'seeds' && c.bump) {
         // Check if bump references a state field (e.g. "vault.bump")
@@ -393,7 +417,8 @@ function generateInstructionRs(
   }
 
   // Check if Clock is used in the body
-  const usesClock = ix.body.some((op) => JSON.stringify(op).includes('Clock::get()'));
+  const usesClock = ix.body.some((op) => JSON.stringify(op).includes('Clock::get()')) ||
+    pluginBlocks.some((block) => block.bodyLines.some((line) => line.includes('Clock::get()')));
 
   const imports: string[] = [
     'use pinocchio::{',
@@ -414,14 +439,20 @@ function generateInstructionRs(
     imports.push(`use crate::errors::${errorEnum};`);
   }
   // Check if any mint account has set-field operations (needs pinocchio_token::state::Mint)
-  const mintSetFields = ix.accounts.some((a) =>
+  const mintSetFields = accounts.some((a) =>
     a.accountType === 'mint' && ix.body.some((op) => op.type === 'set-field' && op.account === a.name)
   );
   if (mintSetFields) {
     imports.push('use pinocchio_token::state::Mint;');
   }
+  for (const block of pluginBlocks) {
+    imports.push(...block.imports);
+    for (const warning of block.warnings) {
+      warns.push({ message: warning, nodeId: ix.id });
+    }
+  }
 
-  const content = `${imports.join('\n')}
+  const content = `${unique(imports).join('\n')}
 
 pub fn process(
     program_id: &Address,
@@ -437,6 +468,268 @@ ${bodyLines.map((l) => `    ${l}`).join('\n')}
 
   return { content, warns, errs };
 }
+
+interface PinocchioPluginBlock {
+  position: Integration['attachedTo']['position'];
+  imports: string[];
+  bodyLines: string[];
+  accounts: Account[];
+  warnings: string[];
+}
+
+function integrationsForInstruction(ir: ProgramIR, ix: Instruction): Integration[] {
+  return ir.integrations.filter((integration) =>
+    integration.attachedTo.instructionId === ix.id
+  );
+}
+
+function withPluginAccounts(baseAccounts: Account[], pluginAccounts: Account[]): Account[] {
+  const seen = new Set(baseAccounts.map((account) => account.name));
+  const merged = [...baseAccounts];
+  for (const account of pluginAccounts) {
+    if (seen.has(account.name)) continue;
+    seen.add(account.name);
+    merged.push(account);
+  }
+  return merged;
+}
+
+function pluginAccount(
+  name: string,
+  accountType: Account['accountType'],
+  constraints: Account['constraints'] = [],
+  stateType?: string,
+): Account {
+  return {
+    id: `plugin-${name}`,
+    name,
+    accountType,
+    stateType,
+    constraints,
+  };
+}
+
+function renderPinocchioIntegration(integration: Integration): PinocchioPluginBlock {
+  const position = integration.attachedTo.position;
+  const empty: PinocchioPluginBlock = {
+    position,
+    imports: [],
+    bodyLines: [],
+    accounts: [],
+    warnings: [],
+  };
+
+  if (integration.pluginId === 'spl-token') {
+    return renderPinocchioSplTokenIntegration(integration, integration.config);
+  }
+  if (integration.pluginId === 'pyth') {
+    return renderPinocchioPythIntegration(integration, integration.config);
+  }
+  if (integration.pluginId === 'metaplex') {
+    return renderPinocchioMetaplexIntegration(integration, integration.config);
+  }
+
+  return {
+    ...empty,
+    warnings: [
+      `Plugin integration "${integration.pluginId}:${integration.integrationId}" does not have Pinocchio codegen yet`,
+    ],
+  };
+}
+
+function renderPinocchioSplTokenIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): PinocchioPluginBlock {
+  const position = integration.attachedTo.position;
+  const amount = numberLiteral(config.amount, '0');
+
+  if (integration.integrationId === 'create-mint') {
+    const decimals = numberLiteral(config.decimals, '9');
+    return {
+      position,
+      imports: [],
+      bodyLines: [
+        '{',
+        '    use pinocchio_token::instructions::InitializeMint;',
+        '    InitializeMint {',
+        '        mint,',
+        `        decimals: ${decimals},`,
+        '        mint_authority: mint_authority.address(),',
+        '        freeze_authority: None,',
+        '    }',
+        '    .invoke()?;',
+        '}',
+      ],
+      accounts: [
+        pluginAccount('mint', 'mint', [{ type: 'mut' }, { type: 'signer' }]),
+        pluginAccount('payer', 'signer', [{ type: 'mut' }, { type: 'signer' }]),
+        pluginAccount('mint_authority', 'signer', [{ type: 'signer' }]),
+        pluginAccount('token_program', 'token-program'),
+        pluginAccount('system_program', 'system-program'),
+        pluginAccount('rent', 'rent'),
+      ],
+      warnings: [],
+    };
+  }
+
+  if (integration.integrationId === 'mint-tokens') {
+    return {
+      position,
+      imports: [],
+      bodyLines: [
+        '{',
+        '    use pinocchio_token::instructions::MintTo;',
+        '    MintTo {',
+        '        mint,',
+        '        account: destination,',
+        '        mint_authority: authority,',
+        '        multisig_signers: &[] as &[AccountView],',
+        `        amount: ${amount},`,
+        '    }',
+        '    .invoke()?;',
+        '}',
+      ],
+      accounts: [
+        pluginAccount('mint', 'mint', [{ type: 'mut' }]),
+        pluginAccount('destination', 'token-account', [{ type: 'mut' }]),
+        pluginAccount('authority', 'signer', [{ type: 'signer' }]),
+        pluginAccount('token_program', 'token-program'),
+      ],
+      warnings: [],
+    };
+  }
+
+  if (integration.integrationId === 'transfer') {
+    return {
+      position,
+      imports: [],
+      bodyLines: [
+        '{',
+        '    use pinocchio_token::instructions::Transfer as TokenTransfer;',
+        '    TokenTransfer {',
+        '        from: source,',
+        '        to: destination,',
+        '        authority,',
+        '        multisig_signers: &[] as &[AccountView],',
+        `        amount: ${amount},`,
+        '    }',
+        '    .invoke()?;',
+        '}',
+      ],
+      accounts: [
+        pluginAccount('source', 'token-account', [{ type: 'mut' }]),
+        pluginAccount('destination', 'token-account', [{ type: 'mut' }]),
+        pluginAccount('authority', 'signer', [{ type: 'signer' }]),
+        pluginAccount('token_program', 'token-program'),
+      ],
+      warnings: [],
+    };
+  }
+
+  return {
+    position,
+    imports: [],
+    bodyLines: [],
+    accounts: [],
+    warnings: [
+      `SPL Token integration "${integration.integrationId}" does not have Pinocchio codegen yet`,
+    ],
+  };
+}
+
+function renderPinocchioPythIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): PinocchioPluginBlock {
+  const outputVar = safeRustIdentifier(config.outputVar, 'price');
+  const maxAge = numberLiteral(config.maxAge, '30');
+
+  return {
+    position: integration.attachedTo.position,
+    imports: [],
+    bodyLines: [
+      '{',
+      `    let ${outputVar}_data = price_feed.try_borrow()?;`,
+      `    if ${outputVar}_data.len() < 240 {`,
+      '        return Err(ProgramError::InvalidAccountData);',
+      '    }',
+      `    let ${outputVar} = i64::from_le_bytes(`,
+      `        ${outputVar}_data[208..216].try_into().map_err(|_| ProgramError::InvalidAccountData)?`,
+      '    );',
+      `    let ${outputVar}_conf = u64::from_le_bytes(`,
+      `        ${outputVar}_data[216..224].try_into().map_err(|_| ProgramError::InvalidAccountData)?`,
+      '    );',
+      `    let ${outputVar}_expo = i32::from_le_bytes(`,
+      `        ${outputVar}_data[224..228].try_into().map_err(|_| ProgramError::InvalidAccountData)?`,
+      '    );',
+      `    let _${outputVar}_max_age_seconds = ${maxAge};`,
+      '}',
+    ],
+    accounts: [
+      pluginAccount('price_feed', 'unchecked-account', [
+        { type: 'safety-comment', comment: 'Pyth price feed account; raw layout checked before reads' },
+      ]),
+    ],
+    warnings: [],
+  };
+}
+
+function renderPinocchioMetaplexIntegration(
+  integration: Integration,
+  config: Record<string, unknown>,
+): PinocchioPluginBlock {
+  const isCollection = integration.integrationId === 'create-collection';
+  const name = stringLiteral(config.name, isCollection ? 'SolStudio Collection' : 'SolStudio NFT');
+  const symbol = stringLiteral(config.symbol, isCollection ? 'COLL' : 'SOLST');
+  const uri = stringLiteral(config.uri, '');
+  const sellerFeeBasisPoints = numberLiteral(config.sellerFeeBasisPoints, '0');
+  const isMutable = booleanLiteral(config.isMutable, true);
+  const collectionDetails = isCollection ? 'Some(CollectionDetails::V1 { size: 0 })' : 'None';
+
+  return {
+    position: integration.attachedTo.position,
+    imports: [],
+    bodyLines: [
+      '{',
+      '    use mpl_token_metadata::instructions::CreateMetadataAccountV3CpiBuilder;',
+      '    use mpl_token_metadata::types::{CollectionDetails, DataV2};',
+      '    let data = DataV2 {',
+      `        name: ${name}.to_string(),`,
+      `        symbol: ${symbol}.to_string(),`,
+      `        uri: ${uri}.to_string(),`,
+      `        seller_fee_basis_points: ${sellerFeeBasisPoints},`,
+      '        creators: None,',
+      '        collection: None,',
+      '        uses: None,',
+      '    };',
+      '    CreateMetadataAccountV3CpiBuilder::new(metadata_program)',
+      '        .metadata(metadata)',
+      '        .mint(mint)',
+      '        .mint_authority(authority)',
+      '        .payer(payer)',
+      '        .update_authority(authority, true)',
+      '        .system_program(system_program)',
+      '        .rent(Some(rent))',
+      '        .data(data)',
+      `        .is_mutable(${isMutable})`,
+      `        .collection_details(${collectionDetails})`,
+      '        .invoke()?;',
+      '}',
+    ],
+    accounts: [
+      pluginAccount('metadata', 'unchecked-account', [{ type: 'mut' }]),
+      pluginAccount('mint', 'mint', [{ type: 'mut' }]),
+      pluginAccount('authority', 'signer', [{ type: 'signer' }]),
+      pluginAccount('payer', 'signer', [{ type: 'mut' }, { type: 'signer' }]),
+      pluginAccount('metadata_program', 'program'),
+      pluginAccount('system_program', 'system-program'),
+      pluginAccount('rent', 'rent'),
+    ],
+    warnings: [],
+  };
+}
+
 
 // ─── Account validation ───────────────────────────────────────────────────────
 
@@ -644,12 +937,50 @@ function buildArgParsing(args: Instruction['args']): string {
     const rustType = pinocchioType(arg.type);
 
     if (size > 0) {
+      if (typeof arg.type === 'object' && 'option' in (arg.type as object)) {
+        const innerType = (arg.type as { option: unknown }).option as import("@solflow/ir").SolanaType;
+        const innerSize = getTypeSize(innerType);
+        const innerRust = pinocchioType(innerType);
+        const optOffset = offset === -1 ? dynamicVarName : String(offset);
+        lines.push(`    if data.len() < ${optOffset} + ${size} {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
+        lines.push(`    let ${arg.name} = match data[${optOffset}] {`);
+        lines.push(`        0 => None,`);
+        lines.push(`        1 => Some(${pinocchioFixedValueExpr(innerRust, `${optOffset} + 1`, innerSize)}),`);
+        lines.push(`        _ => return Err(ProgramError::InvalidInstructionData),`);
+        lines.push(`    };`);
+        if (offset === -1) {
+          dynamicVarName = `${optOffset} + ${size}`;
+        } else {
+          offset += size;
+        }
+        continue;
+      }
       if (offset === -1) {
         // After a dynamic arg, use the tracked variable to calculate offset
         lines.push(`    let ${arg.name}_start = ${dynamicVarName};`);
-        lines.push(`    let ${arg.name} = ${rustType}::from_le_bytes(`);
-        lines.push(`        data[${arg.name}_start..${arg.name}_start + ${size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
-        lines.push(`    );`);
+        lines.push(`    if data.len() < ${arg.name}_start + ${size} {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
+        if (rustType === 'bool') {
+          lines.push(`    let ${arg.name} = data[${arg.name}_start] != 0;`);
+        } else if (rustType === 'Address') {
+          lines.push(`    let ${arg.name}: &Address = unsafe {`);
+          lines.push(`        &*(data[${arg.name}_start..${arg.name}_start + 32].as_ptr() as *const Address)`);
+          lines.push(`    };`);
+        } else if (rustType === 'u64' || rustType === 'i64' ||
+          rustType === 'u32' || rustType === 'i32' ||
+          rustType === 'u128' || rustType === 'i128' ||
+          rustType === 'u16' || rustType === 'i16' ||
+          rustType === 'u8' || rustType === 'i8' ||
+          rustType === 'f32' || rustType === 'f64') {
+          lines.push(`    let ${arg.name} = ${rustType}::from_le_bytes(`);
+          lines.push(`        data[${arg.name}_start..${arg.name}_start + ${size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+          lines.push(`    );`);
+        } else {
+          lines.push(`    let ${arg.name}: &[u8] = &data[${arg.name}_start..${arg.name}_start + ${size}];`);
+        }
         dynamicVarName = `${arg.name}_start + ${size}`;
         offset = -1; // Keep tracking as dynamic
         continue;
@@ -675,20 +1006,24 @@ function buildArgParsing(args: Instruction['args']): string {
         lines.push(`    );`);
       } else {
         // Fixed-size unknown — try from_le_bytes for numeric-like types
-        lines.push(`    let ${arg.name}_bytes = &data[${offset}..${offset + size}];`);
-        lines.push(`    // TODO: deserialize ${arg.name}: ${rustType} from ${size} bytes`);
+        lines.push(`    let ${arg.name}: &[u8] = &data[${offset}..${offset + size}];`);
       }
       offset += size;
     } else {
       // Dynamic-size types
       if (typeof arg.type === 'string' && arg.type === 'String') {
-        const startOffset = offset === -1 ? dynamicVarName : String(offset);
         const lenOffset = offset === -1 ? `${dynamicVarName}` : String(offset);
+        lines.push(`    if data.len() < ${lenOffset} + 4 {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
         lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
         lines.push(`        data[${lenOffset}..${lenOffset} + 4].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    ) as usize;`);
         lines.push(`    let ${arg.name}_start = ${lenOffset} + 4;`);
         lines.push(`    let ${arg.name}_end = ${arg.name}_start + ${arg.name}_len;`);
+        lines.push(`    if data.len() < ${arg.name}_end {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
         lines.push(`    let ${arg.name} = core::str::from_utf8(`);
         lines.push(`        &data[${arg.name}_start..${arg.name}_end]`);
         lines.push(`    ).map_err(|_| ProgramError::InvalidInstructionData)?;`);
@@ -696,12 +1031,22 @@ function buildArgParsing(args: Instruction['args']): string {
         offset = -1;
       } else if (typeof arg.type === 'object' && 'vec' in (arg.type as object)) {
         const lenOffset = offset === -1 ? dynamicVarName : String(offset);
+        const innerType = (arg.type as { vec: unknown }).vec as import("@solflow/ir").SolanaType;
+        const innerSize = getTypeSize(innerType);
+        const itemSize = innerSize > 0 ? String(innerSize) : "1";
+        lines.push(`    if data.len() < ${lenOffset} + 4 {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
         lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
         lines.push(`        data[${lenOffset}..${lenOffset} + 4].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
         lines.push(`    ) as usize;`);
         lines.push(`    let ${arg.name}_start = ${lenOffset} + 4;`);
-        lines.push(`    let ${arg.name}_end = ${arg.name}_start + ${arg.name}_len;`);
-        lines.push(`    let ${arg.name}_data = &data[${arg.name}_start..${arg.name}_end];`);
+        lines.push(`    let ${arg.name}_byte_len = ${arg.name}_len.checked_mul(${itemSize}).ok_or(ProgramError::InvalidInstructionData)?;`);
+        lines.push(`    let ${arg.name}_end = ${arg.name}_start + ${arg.name}_byte_len;`);
+        lines.push(`    if data.len() < ${arg.name}_end {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
+        lines.push(`    let ${arg.name}: &[u8] = &data[${arg.name}_start..${arg.name}_end];`);
         dynamicVarName = `${arg.name}_end`;
         offset = -1;
       } else if (typeof arg.type === 'object' && 'option' in (arg.type as object)) {
@@ -725,17 +1070,72 @@ function buildArgParsing(args: Instruction['args']): string {
             dynamicVarName = `${optOffset} + 1 + ${innerSize}`;
           }
         } else {
-          lines.push(`    // TODO: deserialize ${arg.name}: Option<${rustType}> — inner type is dynamic`);
+          const optOffset = offset >= 0 ? String(offset) : dynamicVarName;
+          lines.push(`    if data.len() < ${optOffset} + 1 {`);
+          lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+          lines.push(`    }`);
+          lines.push(`    let (${arg.name}, ${arg.name}_next) = match data[${optOffset}] {`);
+          lines.push(`        0 => (None, ${optOffset} + 1),`);
+          lines.push(`        1 => {`);
+          lines.push(`            if data.len() < ${optOffset} + 5 {`);
+          lines.push(`                return Err(ProgramError::InvalidInstructionData);`);
+          lines.push(`            }`);
+          lines.push(`            let ${arg.name}_len = u32::from_le_bytes(`);
+          lines.push(`                data[${optOffset} + 1..${optOffset} + 5].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+          lines.push(`            ) as usize;`);
+          lines.push(`            let ${arg.name}_start = ${optOffset} + 5;`);
+          lines.push(`            let ${arg.name}_end = ${arg.name}_start + ${arg.name}_len;`);
+          lines.push(`            if data.len() < ${arg.name}_end {`);
+          lines.push(`                return Err(ProgramError::InvalidInstructionData);`);
+          lines.push(`            }`);
+          if (innerType === 'String') {
+            lines.push(`            (Some(core::str::from_utf8(&data[${arg.name}_start..${arg.name}_end]).map_err(|_| ProgramError::InvalidInstructionData)?), ${arg.name}_end)`);
+          } else {
+            lines.push(`            (Some(&data[${arg.name}_start..${arg.name}_end]), ${arg.name}_end)`);
+          }
+          lines.push(`        }`);
+          lines.push(`        _ => return Err(ProgramError::InvalidInstructionData),`);
+          lines.push(`    };`);
+          dynamicVarName = `${arg.name}_next`;
           offset = -1;
         }
       } else {
-        lines.push(`    // WARNING: dynamic-length arg '${arg.name}': ${rustType} — manual deserialization needed`);
+        const lenOffset = offset === -1 ? dynamicVarName : String(offset);
+        lines.push(`    if data.len() < ${lenOffset} + 4 {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
+        lines.push(`    let ${arg.name}_len = u32::from_le_bytes(`);
+        lines.push(`        data[${lenOffset}..${lenOffset} + 4].try_into().map_err(|_| ProgramError::InvalidInstructionData)?`);
+        lines.push(`    ) as usize;`);
+        lines.push(`    let ${arg.name}_start = ${lenOffset} + 4;`);
+        lines.push(`    let ${arg.name}_end = ${arg.name}_start + ${arg.name}_len;`);
+        lines.push(`    if data.len() < ${arg.name}_end {`);
+        lines.push(`        return Err(ProgramError::InvalidInstructionData);`);
+        lines.push(`    }`);
+        lines.push(`    let ${arg.name}: &[u8] = &data[${arg.name}_start..${arg.name}_end];`);
+        dynamicVarName = `${arg.name}_end`;
         offset = -1;
       }
     }
   }
 
   return lines.join('\n');
+}
+
+function pinocchioFixedValueExpr(rustType: string, startExpr: string, size: number): string {
+  if (rustType === 'bool') return `data[${startExpr}] != 0`;
+  if (rustType === 'Address') {
+    return `unsafe { &*(data[${startExpr}..${startExpr} + 32].as_ptr() as *const Address) }`;
+  }
+  if (rustType === 'u64' || rustType === 'i64' ||
+    rustType === 'u32' || rustType === 'i32' ||
+    rustType === 'u128' || rustType === 'i128' ||
+    rustType === 'u16' || rustType === 'i16' ||
+    rustType === 'u8' || rustType === 'i8' ||
+    rustType === 'f32' || rustType === 'f64') {
+    return `${rustType}::from_le_bytes(data[${startExpr}..${startExpr} + ${size}].try_into().map_err(|_| ProgramError::InvalidInstructionData)?)`;
+  }
+  return `&data[${startExpr}..${startExpr} + ${size}]`;
 }
 
 // ─── Instruction body ─────────────────────────────────────────────────────────
@@ -1329,6 +1729,29 @@ function generateConstantsRs(constants: ProgramIR['constants']): string {
   return constants
     .map((c) => `pub const ${c.name}: ${pinocchioType(c.type)} = ${c.value};`)
     .join('\n') + '\n';
+}
+
+function numberLiteral(value: unknown, fallback: string): string {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? String(value)
+    : fallback;
+}
+
+function booleanLiteral(value: unknown, fallback: boolean): string {
+  return typeof value === 'boolean' ? String(value) : String(fallback);
+}
+
+function stringLiteral(value: unknown, fallback: string): string {
+  return JSON.stringify(typeof value === 'string' ? value : fallback);
+}
+
+function safeRustIdentifier(value: unknown, fallback: string): string {
+  if (typeof value !== 'string') return fallback;
+  return /^[a-z_][a-z0-9_]*$/.test(value) ? value : fallback;
+}
+
+function unique<T>(items: T[]): T[] {
+  return [...new Set(items)];
 }
 
 // ─── src/utils.rs ─────────────────────────────────────────────────────────────

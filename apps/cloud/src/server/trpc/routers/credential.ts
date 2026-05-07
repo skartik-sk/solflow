@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { Prisma } from "@solflow/db";
+import type { Prisma } from "@solflow/db";
 import { encryptString } from "@solflow/cloud-wallet";
 import { router, protectedProcedure } from "../trpc";
 import { cloudCredentialPublicSelect } from "../public-selects";

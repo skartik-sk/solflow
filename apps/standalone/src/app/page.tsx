@@ -20,11 +20,8 @@ import {
   Rocket,
   CheckCircle,
   XCircle,
-  Shield,
   Settings,
-  Globe,
   Wallet,
-  X,
   RefreshCw,
 } from "lucide-react";
 import { useFlowStore } from "@/web/store/flow-store";
@@ -939,7 +936,7 @@ function SourceCodePanel({
     try {
       const data = await fetchSourceFiles();
       setFiles(data.files);
-      setOriginalContent((prev) => {
+      setOriginalContent(() => {
         const next: Record<string, string> = {};
         for (const f of data.files) next[f.path] = f.content;
         return next;
@@ -1195,8 +1192,6 @@ function PanelPlaceholder({ text }: { text: string }) {
 }
 
 // ─── Types ─────────────────────────────────────────────────────────────
-
-type BuildStatus2 = "idle" | "running" | "success" | "error";
 
 interface AuditFindingData {
   ruleId: string;
