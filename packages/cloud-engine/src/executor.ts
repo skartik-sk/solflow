@@ -20,12 +20,13 @@ type OutputBuckets = Map<string, WorkflowItem[]>;
 type DAG = ReturnType<typeof buildDAG>;
 
 const DEFAULT_TIMEOUT_SECONDS = 300;
+const MAX_TIMEOUT_SECONDS = 15 * 60;
 
 function timeoutMs(timeoutSeconds: unknown): number {
   const seconds = Number(timeoutSeconds);
-  return Number.isFinite(seconds) && seconds > 0
-    ? seconds * 1000
-    : DEFAULT_TIMEOUT_SECONDS * 1000;
+  const normalized =
+    Number.isFinite(seconds) && seconds > 0 ? seconds : DEFAULT_TIMEOUT_SECONDS;
+  return Math.min(normalized, MAX_TIMEOUT_SECONDS) * 1000;
 }
 
 function maxAttempts(def: WorkflowDefinition): number {
@@ -76,7 +77,9 @@ export class WorkflowExecutor {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      this.abortController?.abort(`Workflow timed out after ${def.settings.timeout} seconds`);
+      this.abortController?.abort(
+        `Workflow timed out after ${def.settings.timeout} seconds`,
+      );
     }, timeoutMs(def.settings?.timeout));
 
     try {
@@ -90,8 +93,16 @@ export class WorkflowExecutor {
 
         await Promise.all(
           batch.map((nodeId) =>
-            this.executeNode(nodeId, def, executionId, dag, nodeResults, outputData, this.abortController!.signal)
-          )
+            this.executeNode(
+              nodeId,
+              def,
+              executionId,
+              dag,
+              nodeResults,
+              outputData,
+              this.abortController!.signal,
+            ),
+          ),
         );
 
         if (def.settings.onError === "stop" && this.hasNodeError(nodeResults)) {
@@ -100,25 +111,38 @@ export class WorkflowExecutor {
         }
       }
 
-      await this.markUnexecutedNodesSkipped(def, sorted, nodeResults, timedOut
-        ? "Execution timed out before node ran"
-        : this.aborted
-          ? "Execution was cancelled before node ran"
-          : "Skipped because workflow stopped before node ran");
+      await this.markUnexecutedNodesSkipped(
+        def,
+        sorted,
+        nodeResults,
+        timedOut
+          ? "Execution timed out before node ran"
+          : this.aborted
+            ? "Execution was cancelled before node ran"
+            : "Skipped because workflow stopped before node ran",
+      );
 
       const hasError = Array.from(nodeResults.values()).some(
-        (r) => r.status === "error"
+        (r) => r.status === "error",
       );
 
       return {
         executionId,
         workflowId: def.id,
-        status: timedOut ? "timeout" : this.aborted ? "cancelled" : hasError ? "error" : "success",
+        status: timedOut
+          ? "timeout"
+          : this.aborted
+            ? "cancelled"
+            : hasError
+              ? "error"
+              : "success",
         nodeResults,
         startedAt,
         completedAt: Date.now(),
         duration: Date.now() - startedAt,
-        error: timedOut ? `Workflow timed out after ${def.settings.timeout} seconds` : undefined,
+        error: timedOut
+          ? `Workflow timed out after ${def.settings.timeout} seconds`
+          : undefined,
       };
     } catch (err) {
       return {
@@ -169,7 +193,11 @@ export class WorkflowExecutor {
 
     const inputs: WorkflowItem[][] = [];
     const upstreamEdges = this.upstreamEdges(dag, nodeId);
-    const skipReason = this.getDependencySkipReason(upstreamEdges, nodeResults, def.settings.onError);
+    const skipReason = this.getDependencySkipReason(
+      upstreamEdges,
+      nodeResults,
+      def.settings.onError,
+    );
     if (skipReason) {
       const now = Date.now();
       const result: NodeExecutionResult = {
@@ -194,13 +222,39 @@ export class WorkflowExecutor {
       inputs.push(this.resolveOutputBucket(upstreamOutput, sourceHandle));
     }
 
-    const params = resolveExpressions(wfNode.data, inputs) as Record<string, unknown>;
+    const params = resolveExpressions(wfNode.data, inputs) as Record<
+      string,
+      unknown
+    >;
 
-    const nodeLogs: { timestamp: number; level: string; message: string; data?: unknown }[] = [];
+    const nodeLogs: {
+      timestamp: number;
+      level: string;
+      message: string;
+      data?: unknown;
+    }[] = [];
     const logger: NodeLogger = {
-      info: (msg, data) => nodeLogs.push({ timestamp: Date.now(), level: "info", message: msg, data }),
-      warn: (msg, data) => nodeLogs.push({ timestamp: Date.now(), level: "warn", message: msg, data }),
-      error: (msg, data) => nodeLogs.push({ timestamp: Date.now(), level: "error", message: msg, data }),
+      info: (msg, data) =>
+        nodeLogs.push({
+          timestamp: Date.now(),
+          level: "info",
+          message: msg,
+          data,
+        }),
+      warn: (msg, data) =>
+        nodeLogs.push({
+          timestamp: Date.now(),
+          level: "warn",
+          message: msg,
+          data,
+        }),
+      error: (msg, data) =>
+        nodeLogs.push({
+          timestamp: Date.now(),
+          level: "error",
+          message: msg,
+          data,
+        }),
     };
 
     const ctx: NodeExecutionContext = {
@@ -232,9 +286,15 @@ export class WorkflowExecutor {
     await this.emitNodeStart(runningResult);
 
     try {
-      const output = await this.executeWithRetry(nodeDef, ctx, def, nodeLogs, () => {
-        attempts += 1;
-      });
+      const output = await this.executeWithRetry(
+        nodeDef,
+        ctx,
+        def,
+        nodeLogs,
+        () => {
+          attempts += 1;
+        },
+      );
       const normalizedOutput = this.normalizeOutput(output, nodeDef);
       outputData.set(nodeId, normalizedOutput);
       const completedAt = Date.now();
@@ -243,7 +303,9 @@ export class WorkflowExecutor {
         nodeType: wfNode.type,
         status: "success",
         inputSnapshot: this.safeSnapshot(inputs),
-        outputSnapshot: this.safeSnapshot(this.snapshotOutput(normalizedOutput, nodeDef)),
+        outputSnapshot: this.safeSnapshot(
+          this.snapshotOutput(normalizedOutput, nodeDef),
+        ),
         duration: completedAt - startTime,
         attempts,
         logs: nodeLogs,
@@ -253,7 +315,9 @@ export class WorkflowExecutor {
       nodeResults.set(nodeId, result);
       await this.emitNodeFinish(result);
     } catch (err) {
-      const message = signal.aborted ? abortMessage(signal) : (err as Error).message;
+      const message = signal.aborted
+        ? abortMessage(signal)
+        : (err as Error).message;
       const completedAt = Date.now();
       const result: NodeExecutionResult = {
         nodeId,
@@ -272,7 +336,10 @@ export class WorkflowExecutor {
       await this.emitNodeFinish(result);
 
       if (def.settings.onError === "branch") {
-        outputData.set(nodeId, this.errorOutputBuckets(nodeId, wfNode.type, message, inputs));
+        outputData.set(
+          nodeId,
+          this.errorOutputBuckets(nodeId, wfNode.type, message, inputs),
+        );
       }
     }
   }
@@ -281,7 +348,12 @@ export class WorkflowExecutor {
     nodeDef: CloudNodeDefinition,
     ctx: NodeExecutionContext,
     def: WorkflowDefinition,
-    logs: { timestamp: number; level: string; message: string; data?: unknown }[],
+    logs: {
+      timestamp: number;
+      level: string;
+      message: string;
+      data?: unknown;
+    }[],
     onAttempt: () => void,
   ): Promise<WorkflowItem[] | WorkflowItem[][]> {
     const attempts = maxAttempts(def);
@@ -304,7 +376,10 @@ export class WorkflowExecutor {
           timestamp: Date.now(),
           level: "warn",
           message: `Attempt ${attempt} failed; retrying`,
-          data: { error: error instanceof Error ? error.message : String(error), nextAttempt: attempt + 1 },
+          data: {
+            error: error instanceof Error ? error.message : String(error),
+            nextAttempt: attempt + 1,
+          },
         });
 
         await this.sleep(delayMs, ctx.signal);
@@ -318,18 +393,25 @@ export class WorkflowExecutor {
     if (ms <= 0) return Promise.resolve();
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(resolve, ms);
-      signal.addEventListener("abort", () => {
-        clearTimeout(timeout);
-        reject(new Error(abortMessage(signal)));
-      }, { once: true });
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeout);
+          reject(new Error(abortMessage(signal)));
+        },
+        { once: true },
+      );
     });
   }
 
-  private upstreamEdges(dag: DAG, nodeId: string): Array<{ source: string; sourceHandle?: string }> {
+  private upstreamEdges(
+    dag: DAG,
+    nodeId: string,
+  ): Array<{ source: string; sourceHandle?: string }> {
     return Array.from(dag.entries()).flatMap(([source, edges]) =>
       edges
         .filter((edge) => edge.target === nodeId)
-        .map((edge) => ({ source, sourceHandle: edge.sourceHandle }))
+        .map((edge) => ({ source, sourceHandle: edge.sourceHandle })),
     );
   }
 
@@ -341,8 +423,13 @@ export class WorkflowExecutor {
     for (const edge of upstreamEdges) {
       const upstream = nodeResults.get(edge.source);
       if (!upstream) continue;
-      if (upstream.status !== "error" && upstream.status !== "skipped") continue;
-      if (onError === "branch" && upstream.status === "error" && edge.sourceHandle === "error") {
+      if (upstream.status !== "error" && upstream.status !== "skipped")
+        continue;
+      if (
+        onError === "branch" &&
+        upstream.status === "error" &&
+        edge.sourceHandle === "error"
+      ) {
         continue;
       }
       return `Skipped because upstream node ${edge.source} ${upstream.status}`;
@@ -376,7 +463,9 @@ export class WorkflowExecutor {
   }
 
   private hasNodeError(nodeResults: Map<string, NodeExecutionResult>): boolean {
-    return Array.from(nodeResults.values()).some((result) => result.status === "error");
+    return Array.from(nodeResults.values()).some(
+      (result) => result.status === "error",
+    );
   }
 
   private async markUnexecutedNodesSkipped(

@@ -48,7 +48,12 @@ export type WorkflowSimulationReport = {
   route: string[];
   requiredCredentials: string[];
   walletDeltas: Array<{ asset: string; change: string; reason: string }>;
-  transactionPlan: Array<{ nodeId: string; type: string; label: string; effect: string }>;
+  transactionPlan: Array<{
+    nodeId: string;
+    type: string;
+    label: string;
+    effect: string;
+  }>;
   warnings: string[];
   blockers: string[];
 };
@@ -119,6 +124,12 @@ const EXTERNAL_ACTIONS = new Set([
   "action:metaplex-search-assets",
   "action:squads-proposal",
   "output:webhook",
+]);
+
+const RUN_OUTPUT_ACTIONS = new Set([
+  "output:display",
+  "output:log",
+  "output:result",
 ]);
 
 const CREDENTIAL_NODE_TYPES = new Set([
@@ -192,6 +203,9 @@ const NODE_LABELS: Record<string, string> = {
   "logic:if-else": "If / Else",
   "logic:wait": "Wait",
   "output:webhook": "Webhook Output",
+  "output:display": "Display Output",
+  "output:log": "Run Log",
+  "output:result": "Workflow Result",
 };
 
 function nodeConfig(node: WorkflowNodeInput): Record<string, unknown> {
@@ -244,12 +258,16 @@ function jupiterOperation(node: WorkflowNodeInput): string {
 function isWalletAction(node: WorkflowNodeInput): boolean {
   if (WALLET_ACTIONS.has(node.type)) return true;
   return (
-    (node.type === "action:jupiter-swap" && jupiterOperation(node) === "swap-direct-send") ||
+    (node.type === "action:jupiter-swap" &&
+      jupiterOperation(node) === "swap-direct-send") ||
     node.type === "action:jupiter-swap-execute"
   );
 }
 
-function buildRoute(nodes: WorkflowNodeInput[], edges: WorkflowEdgeInput[]): string[] {
+function buildRoute(
+  nodes: WorkflowNodeInput[],
+  edges: WorkflowEdgeInput[],
+): string[] {
   if (nodes.length === 0) return [];
   const incoming = new Map(nodes.map((node) => [node.id, 0]));
   const byId = new Map(nodes.map((node) => [node.id, node]));
@@ -292,7 +310,10 @@ function requiredCredentialLabels(nodes: WorkflowNodeInput[]): string[] {
         const data = nodeConfig(node);
         if (hasMeaningfulValue(data.credentialId)) return [];
         if (node.type === "output:webhook") return ["webhook endpoint"];
-        if (node.type.startsWith("action:jupiter-") || node.type === "action:jupiter-swap") {
+        if (
+          node.type.startsWith("action:jupiter-") ||
+          node.type === "action:jupiter-swap"
+        ) {
           return ["Jupiter API key for production rate limits"];
         }
         if (node.type === "action:ai-agent") return ["AI provider key"];
@@ -313,65 +334,89 @@ function requiredCredentialLabels(nodes: WorkflowNodeInput[]): string[] {
         ) {
           return ["Helius or DAS RPC"];
         }
-        if (node.type === "action:switchboard-price") return ["Switchboard API"];
+        if (node.type === "action:switchboard-price")
+          return ["Switchboard API"];
         if (node.type === "action:squads-proposal") return ["Squads API"];
         return [];
       }),
   );
 }
 
-function walletDeltasFor(nodes: WorkflowNodeInput[]): WorkflowSimulationReport["walletDeltas"] {
+function walletDeltasFor(
+  nodes: WorkflowNodeInput[],
+): WorkflowSimulationReport["walletDeltas"] {
   return nodes.flatMap((node) => {
     const data = nodeConfig(node);
     if (node.type === "action:jupiter-swap") {
       const operation = jupiterOperation(node);
       if (operation !== "swap-direct-send") return [];
-      return [{
-        asset: String(data.inputMint || "input mint"),
-        change: `-${String(data.amount || "configured amount")}`,
-        reason: "Jupiter direct swap input",
-      }, {
-        asset: String(data.outputMint || "output mint"),
-        change: "+swap output",
-        reason: "Jupiter direct swap output",
-      }];
+      return [
+        {
+          asset: String(data.inputMint || "input mint"),
+          change: `-${String(data.amount || "configured amount")}`,
+          reason: "Jupiter direct swap input",
+        },
+        {
+          asset: String(data.outputMint || "output mint"),
+          change: "+swap output",
+          reason: "Jupiter direct swap output",
+        },
+      ];
     }
-    if (node.type === "action:jupiter-swap-order" || node.type === "action:jupiter-swap-build") {
-      return [{
-        asset: String(data.inputMint || "input mint"),
-        change: `-${String(data.amount || "configured amount")}`,
-        reason: "Jupiter quoted input",
-      }, {
-        asset: String(data.outputMint || "output mint"),
-        change: "+quoted output",
-        reason: "Jupiter quoted output",
-      }];
+    if (
+      node.type === "action:jupiter-swap-order" ||
+      node.type === "action:jupiter-swap-build"
+    ) {
+      return [
+        {
+          asset: String(data.inputMint || "input mint"),
+          change: `-${String(data.amount || "configured amount")}`,
+          reason: "Jupiter quoted input",
+        },
+        {
+          asset: String(data.outputMint || "output mint"),
+          change: "+quoted output",
+          reason: "Jupiter quoted output",
+        },
+      ];
     }
     if (node.type === "action:jupiter-swap-execute") {
-      return [{
-        asset: "order input",
-        change: "-signed order input",
-        reason: "Jupiter order execution",
-      }, {
-        asset: "order output",
-        change: "+executed order output",
-        reason: "Jupiter order execution",
-      }];
+      return [
+        {
+          asset: "order input",
+          change: "-signed order input",
+          reason: "Jupiter order execution",
+        },
+        {
+          asset: "order output",
+          change: "+executed order output",
+          reason: "Jupiter order execution",
+        },
+      ];
     }
     if (node.type === "action:token-transfer") {
-      return [{
-        asset: String(data.mint || "SOL / token mint"),
-        change: `-${String(data.amount || "configured amount")}`,
-        reason: "Token transfer",
-      }];
+      return [
+        {
+          asset: String(data.mint || "SOL / token mint"),
+          change: `-${String(data.amount || "configured amount")}`,
+          reason: "Token transfer",
+        },
+      ];
     }
     return [];
   });
 }
 
-function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationReport["transactionPlan"] {
+function transactionPlanFor(
+  nodes: WorkflowNodeInput[],
+): WorkflowSimulationReport["transactionPlan"] {
   return nodes
-    .filter((node) => isWalletAction(node) || EXTERNAL_ACTIONS.has(node.type))
+    .filter(
+      (node) =>
+        isWalletAction(node) ||
+        EXTERNAL_ACTIONS.has(node.type) ||
+        RUN_OUTPUT_ACTIONS.has(node.type),
+    )
     .map((node) => {
       const data = nodeConfig(node);
       let effect = "Calls an external service";
@@ -406,6 +451,12 @@ function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationRepor
         effect = `Simulates and signs a transfer to ${String(data.recipient || "configured recipient")}`;
       } else if (node.type === "output:webhook") {
         effect = `Sends execution payload to ${String(data.url || "configured webhook")}`;
+      } else if (node.type === "output:display") {
+        effect = `Displays ${String(data.title || "workflow output")} in run results`;
+      } else if (node.type === "output:log") {
+        effect = "Writes a message to the run logs";
+      } else if (node.type === "output:result") {
+        effect = `Captures ${String(data.name || "workflow result")} as final run output`;
       } else if (node.type === "action:pyth-price") {
         effect = `Reads Pyth price feed ${String(data.feedId || "configured feed")}`;
       } else if (node.type === "action:pyth-feed-search") {
@@ -448,7 +499,12 @@ function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationRepor
       } else if (node.type === "action:squads-proposal") {
         effect = "Creates an approval proposal payload";
       }
-      return { nodeId: node.id, type: node.type, label: nodeLabel(node.type), effect };
+      return {
+        nodeId: node.id,
+        type: node.type,
+        label: nodeLabel(node.type),
+        effect,
+      };
     });
 }
 
@@ -460,35 +516,68 @@ export function createSimulationReport(
   const edges = Array.isArray(definition.edges) ? definition.edges : [];
   const safety = settings.safety ?? {};
   const walletActions = nodes.filter(isWalletAction).length;
-  const externalCalls = nodes.filter((node) => EXTERNAL_ACTIONS.has(node.type)).length;
-  const triggerTypes = uniqueSorted(nodes.filter((node) => node.type.startsWith("trigger:")).map((node) => node.type));
+  const externalCalls = nodes.filter((node) =>
+    EXTERNAL_ACTIONS.has(node.type),
+  ).length;
+  const triggerTypes = uniqueSorted(
+    nodes
+      .filter((node) => node.type.startsWith("trigger:"))
+      .map((node) => node.type),
+  );
   const blockers: string[] = [];
   const warnings: string[] = [];
 
-  if (nodes.length === 0) blockers.push("Add at least one trigger and one action before running.");
-  if (nodes.length > 0 && triggerTypes.length === 0) warnings.push("No trigger node found. Manual runs may not emit initial input.");
-  if (nodes.length > 1 && edges.length === 0) warnings.push("Nodes are not connected, so only root nodes may run.");
+  if (nodes.length === 0)
+    blockers.push("Add at least one trigger and one action before running.");
+  if (nodes.length > 0 && triggerTypes.length === 0)
+    warnings.push(
+      "No trigger node found. Manual runs may not emit initial input.",
+    );
+  if (nodes.length > 1 && edges.length === 0)
+    warnings.push("Nodes are not connected, so only root nodes may run.");
   if (walletActions > 0 && safety.simulationRequired === false) {
-    blockers.push("Wallet actions require transaction simulation before signing.");
+    blockers.push(
+      "Wallet actions require transaction simulation before signing.",
+    );
   }
-  if (walletActions > 0 && safety.manualApprovalRequired === false && safety.walletAutomationAllowed !== true) {
-    warnings.push("Manual approval is disabled, but wallet automation is not explicitly allowed.");
+  if (
+    walletActions > 0 &&
+    safety.manualApprovalRequired === false &&
+    safety.walletAutomationAllowed !== true
+  ) {
+    warnings.push(
+      "Manual approval is disabled, but wallet automation is not explicitly allowed.",
+    );
   }
-  if (walletActions > 0 && safety.walletAutomationAllowed === true && !hasMeaningfulValue(safety.spendLimitLamports)) {
-    warnings.push("Automated wallet actions should define a native SOL spend limit.");
+  if (
+    walletActions > 0 &&
+    safety.walletAutomationAllowed === true &&
+    !hasMeaningfulValue(safety.spendLimitLamports)
+  ) {
+    warnings.push(
+      "Automated wallet actions should define a native SOL spend limit.",
+    );
   }
-  if (externalCalls > 0 && !(safety.webhookAllowlist?.length)) {
-    warnings.push("Consider adding an allowlist for webhook and API destinations.");
+  if (externalCalls > 0 && !safety.webhookAllowlist?.length) {
+    warnings.push(
+      "Consider adding an allowlist for webhook and API destinations.",
+    );
   }
 
   const requiredCredentials = requiredCredentialLabels(nodes);
   if (requiredCredentials.length > 0) {
-    warnings.push(`Configure credentials or endpoints for: ${requiredCredentials.join(", ")}.`);
+    warnings.push(
+      `Configure credentials or endpoints for: ${requiredCredentials.join(", ")}.`,
+    );
   }
 
   let riskLevel: WorkflowSimulationReport["riskLevel"] = "low";
   if (walletActions > 0 || warnings.length > 2) riskLevel = "medium";
-  if (blockers.length > 0 || (walletActions > 1 && safety.walletAutomationAllowed === true)) riskLevel = "high";
+  if (
+    blockers.length > 0 ||
+    (walletActions > 1 && safety.walletAutomationAllowed === true)
+  )
+    riskLevel = "high";
 
   const estimatedFeeLamports = walletActions * 5_000;
   return {
@@ -526,7 +615,12 @@ function baseSettings(): WorkflowSettingsInput {
   };
 }
 
-function edge(id: string, source: string, target: string, sourceHandle?: string): WorkflowEdgeInput {
+function edge(
+  id: string,
+  source: string,
+  target: string,
+  sourceHandle?: string,
+): WorkflowEdgeInput {
   return { id, source, target, sourceHandle };
 }
 
@@ -548,64 +642,175 @@ function workflowDraft(
   };
 }
 
-export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDraft {
+export function buildAssistantWorkflowDraft(
+  prompt: string,
+): AssistantWorkflowDraft {
   const text = prompt.toLowerCase();
 
-  if (text.includes("nft") || text.includes("metadata") || text.includes("asset")) {
+  if (
+    text.includes("nft") ||
+    text.includes("metadata") ||
+    text.includes("asset")
+  ) {
     return workflowDraft(
       "nft-asset-watch",
       "NFT Asset Watch",
       "Read Metaplex asset metadata through DAS-compatible RPC and send notable changes to a webhook.",
       ["nft", "metaplex", "helius", "watch"],
       [
-        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        { id: "asset", type: "action:metaplex-get-asset", position: { x: 340, y: 180 }, data: { assetId: "YOUR_ASSET_ID", credentialId: "" } },
-        { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/nft-asset", method: "POST", body: "{{ $json.metaplexAsset }}" } },
+        {
+          id: "trigger",
+          type: "trigger:manual",
+          position: { x: 80, y: 180 },
+          data: {},
+        },
+        {
+          id: "asset",
+          type: "action:metaplex-get-asset",
+          position: { x: 340, y: 180 },
+          data: { assetId: "YOUR_ASSET_ID", credentialId: "" },
+        },
+        {
+          id: "notify",
+          type: "output:webhook",
+          position: { x: 620, y: 180 },
+          data: {
+            url: "https://example.com/ops/nft-asset",
+            method: "POST",
+            body: "{{ $json.metaplexAsset }}",
+          },
+        },
       ],
       [edge("e1", "trigger", "asset"), edge("e2", "asset", "notify")],
     );
   }
 
-  if (text.includes("wallet activity") || text.includes("wallet alert") || text.includes("signature")) {
+  if (
+    text.includes("wallet activity") ||
+    text.includes("wallet alert") ||
+    text.includes("signature")
+  ) {
     return workflowDraft(
       "wallet-activity-alert",
       "Wallet Activity Alert",
       "Poll recent wallet signatures and notify an operations webhook when activity is detected.",
       ["wallet", "activity", "helius", "alert"],
       [
-        { id: "trigger", type: "trigger:cron", position: { x: 80, y: 180 }, data: { cronExpression: "*/5 * * * *", timezone: "UTC" } },
-        { id: "activity", type: "action:helius-wallet-activity", position: { x: 340, y: 180 }, data: { address: "YOUR_WALLET_ADDRESS", limit: 10, credentialId: "", rpcUrl: "" } },
-        { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/wallet-activity", method: "POST", body: "{{ $json.helius }}" } },
+        {
+          id: "trigger",
+          type: "trigger:cron",
+          position: { x: 80, y: 180 },
+          data: { cronExpression: "*/5 * * * *", timezone: "UTC" },
+        },
+        {
+          id: "activity",
+          type: "action:helius-wallet-activity",
+          position: { x: 340, y: 180 },
+          data: {
+            address: "YOUR_WALLET_ADDRESS",
+            limit: 10,
+            credentialId: "",
+            rpcUrl: "",
+          },
+        },
+        {
+          id: "notify",
+          type: "output:webhook",
+          position: { x: 620, y: 180 },
+          data: {
+            url: "https://example.com/ops/wallet-activity",
+            method: "POST",
+            body: "{{ $json.helius }}",
+          },
+        },
       ],
       [edge("e1", "trigger", "activity"), edge("e2", "activity", "notify")],
     );
   }
 
-  if (text.includes("treasury") || text.includes("squads") || text.includes("approval")) {
+  if (
+    text.includes("treasury") ||
+    text.includes("squads") ||
+    text.includes("approval")
+  ) {
     return workflowDraft(
       "treasury-approval",
       "Treasury Approval Flow",
       "Query treasury token accounts and prepare a Squads-compatible approval handoff.",
       ["treasury", "squads", "token", "approval"],
       [
-        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        { id: "accounts", type: "action:token-account-query", position: { x: 340, y: 180 }, data: { owner: "YOUR_TREASURY_OWNER", tokenProgram: "spl", credentialId: "", rpcUrl: "" } },
-        { id: "proposal", type: "action:squads-proposal", position: { x: 620, y: 180 }, data: { apiUrl: "https://example.com/squads/proposals", multisig: "YOUR_SQUADS_MULTISIG", title: "Review treasury token accounts", payload: { tokenAccounts: "{{ $json.tokenAccounts }}" }, credentialId: "" } },
+        {
+          id: "trigger",
+          type: "trigger:manual",
+          position: { x: 80, y: 180 },
+          data: {},
+        },
+        {
+          id: "accounts",
+          type: "action:token-account-query",
+          position: { x: 340, y: 180 },
+          data: {
+            owner: "YOUR_TREASURY_OWNER",
+            tokenProgram: "spl",
+            credentialId: "",
+            rpcUrl: "",
+          },
+        },
+        {
+          id: "proposal",
+          type: "action:squads-proposal",
+          position: { x: 620, y: 180 },
+          data: {
+            apiUrl: "https://example.com/squads/proposals",
+            multisig: "YOUR_SQUADS_MULTISIG",
+            title: "Review treasury token accounts",
+            payload: { tokenAccounts: "{{ $json.tokenAccounts }}" },
+            credentialId: "",
+          },
+        },
       ],
       [edge("e1", "trigger", "accounts"), edge("e2", "accounts", "proposal")],
     );
   }
 
-  if (text.includes("token discovery") || text.includes("trending token") || text.includes("top traded")) {
+  if (
+    text.includes("token discovery") ||
+    text.includes("trending token") ||
+    text.includes("top traded")
+  ) {
     return workflowDraft(
       "jupiter-token-discovery",
       "Jupiter Token Discovery",
       "Read Jupiter Tokens V2 category data and send top token metadata to a webhook.",
       ["jupiter", "tokens", "discovery", "market"],
       [
-        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        { id: "tokens", type: "action:jupiter-token-category", position: { x: 340, y: 180 }, data: { tokenCategory: "toptraded", tokenInterval: "24h", tokenLimit: 25, credentialId: "" } },
-        { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/jupiter-token-discovery", method: "POST", body: "{{ $json.jupiter }}" } },
+        {
+          id: "trigger",
+          type: "trigger:manual",
+          position: { x: 80, y: 180 },
+          data: {},
+        },
+        {
+          id: "tokens",
+          type: "action:jupiter-token-category",
+          position: { x: 340, y: 180 },
+          data: {
+            tokenCategory: "toptraded",
+            tokenInterval: "24h",
+            tokenLimit: 25,
+            credentialId: "",
+          },
+        },
+        {
+          id: "notify",
+          type: "output:webhook",
+          position: { x: 620, y: 180 },
+          data: {
+            url: "https://example.com/ops/jupiter-token-discovery",
+            method: "POST",
+            body: "{{ $json.jupiter }}",
+          },
+        },
       ],
       [edge("e1", "trigger", "tokens"), edge("e2", "tokens", "notify")],
     );
@@ -618,12 +823,45 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
       "Watch SPL Token or Token-2022 accounts for an owner and notify when balances are present.",
       ["spl-token", "token-2022", "watcher"],
       [
-        { id: "trigger", type: "trigger:cron", position: { x: 80, y: 180 }, data: { cronExpression: "*/15 * * * *", timezone: "UTC" } },
-        { id: "accounts", type: "action:token-account-query", position: { x: 340, y: 180 }, data: { owner: "YOUR_OWNER_ADDRESS", tokenProgram: "spl", credentialId: "", rpcUrl: "" } },
-        { id: "branch", type: "logic:if-else", position: { x: 600, y: 180 }, data: { field: "tokenAccounts.count", operator: "gt", value: "0" } },
-        { id: "notify", type: "output:webhook", position: { x: 860, y: 120 }, data: { url: "https://example.com/ops/token-accounts", method: "POST", body: "{{ $json.tokenAccounts }}" } },
+        {
+          id: "trigger",
+          type: "trigger:cron",
+          position: { x: 80, y: 180 },
+          data: { cronExpression: "*/15 * * * *", timezone: "UTC" },
+        },
+        {
+          id: "accounts",
+          type: "action:token-account-query",
+          position: { x: 340, y: 180 },
+          data: {
+            owner: "YOUR_OWNER_ADDRESS",
+            tokenProgram: "spl",
+            credentialId: "",
+            rpcUrl: "",
+          },
+        },
+        {
+          id: "branch",
+          type: "logic:if-else",
+          position: { x: 600, y: 180 },
+          data: { field: "tokenAccounts.count", operator: "gt", value: "0" },
+        },
+        {
+          id: "notify",
+          type: "output:webhook",
+          position: { x: 860, y: 120 },
+          data: {
+            url: "https://example.com/ops/token-accounts",
+            method: "POST",
+            body: "{{ $json.tokenAccounts }}",
+          },
+        },
       ],
-      [edge("e1", "trigger", "accounts"), edge("e2", "accounts", "branch"), edge("e3", "branch", "notify", "true")],
+      [
+        edge("e1", "trigger", "accounts"),
+        edge("e2", "accounts", "branch"),
+        edge("e3", "branch", "notify", "true"),
+      ],
     );
   }
 
@@ -634,13 +872,56 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
       "Fetch market price, check a guard condition, then prepare a simulated Jupiter swap and webhook summary.",
       ["jupiter", "swap", "dca", "price"],
       [
-        { id: "trigger", type: "trigger:cron", position: { x: 80, y: 200 }, data: { cronExpression: "0 */6 * * *", timezone: "UTC" } },
-        { id: "price", type: "action:price-fetch", position: { x: 330, y: 200 }, data: { token: "So11111111111111111111111111111111111111112", source: "dexscreener" } },
-        { id: "guard", type: "logic:if-else", position: { x: 580, y: 200 }, data: { field: "price", operator: "lt", value: "180" } },
-        { id: "swap", type: "action:jupiter-swap-order", position: { x: 830, y: 120 }, data: { inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", outputMint: "So11111111111111111111111111111111111111112", amount: "1000000", slippageBps: 50, walletAddress: "YOUR_TAKER_ADDRESS" } },
-        { id: "notify", type: "output:webhook", position: { x: 1080, y: 120 }, data: { url: "https://example.com/ops/swap-summary", method: "POST", body: "{{ $json }}" } },
+        {
+          id: "trigger",
+          type: "trigger:cron",
+          position: { x: 80, y: 200 },
+          data: { cronExpression: "0 */6 * * *", timezone: "UTC" },
+        },
+        {
+          id: "price",
+          type: "action:price-fetch",
+          position: { x: 330, y: 200 },
+          data: {
+            token: "So11111111111111111111111111111111111111112",
+            source: "dexscreener",
+          },
+        },
+        {
+          id: "guard",
+          type: "logic:if-else",
+          position: { x: 580, y: 200 },
+          data: { field: "price", operator: "lt", value: "180" },
+        },
+        {
+          id: "swap",
+          type: "action:jupiter-swap-order",
+          position: { x: 830, y: 120 },
+          data: {
+            inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            outputMint: "So11111111111111111111111111111111111111112",
+            amount: "1000000",
+            slippageBps: 50,
+            walletAddress: "YOUR_TAKER_ADDRESS",
+          },
+        },
+        {
+          id: "notify",
+          type: "output:webhook",
+          position: { x: 1080, y: 120 },
+          data: {
+            url: "https://example.com/ops/swap-summary",
+            method: "POST",
+            body: "{{ $json }}",
+          },
+        },
       ],
-      [edge("e1", "trigger", "price"), edge("e2", "price", "guard"), edge("e3", "guard", "swap", "true"), edge("e4", "swap", "notify")],
+      [
+        edge("e1", "trigger", "price"),
+        edge("e2", "price", "guard"),
+        edge("e3", "guard", "swap", "true"),
+        edge("e4", "swap", "notify"),
+      ],
     );
   }
 
@@ -650,24 +931,63 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
     "Fetch a token price on a schedule, branch on a threshold, and notify an operations webhook.",
     ["price", "alert", "monitoring"],
     [
-      { id: "trigger", type: "trigger:cron", position: { x: 80, y: 180 }, data: { cronExpression: "*/5 * * * *", timezone: "UTC" } },
-      { id: "price", type: "action:price-fetch", position: { x: 340, y: 180 }, data: { token: "So11111111111111111111111111111111111111112", source: "dexscreener" } },
-      { id: "branch", type: "logic:if-else", position: { x: 600, y: 180 }, data: { field: "price", operator: "gt", value: "200" } },
-      { id: "notify", type: "output:webhook", position: { x: 860, y: 120 }, data: { url: "https://example.com/ops/price-alert", method: "POST", body: '{"text":"SOL price alert: {{ $json.price }}"}' } },
+      {
+        id: "trigger",
+        type: "trigger:cron",
+        position: { x: 80, y: 180 },
+        data: { cronExpression: "*/5 * * * *", timezone: "UTC" },
+      },
+      {
+        id: "price",
+        type: "action:price-fetch",
+        position: { x: 340, y: 180 },
+        data: {
+          token: "So11111111111111111111111111111111111111112",
+          source: "dexscreener",
+        },
+      },
+      {
+        id: "branch",
+        type: "logic:if-else",
+        position: { x: 600, y: 180 },
+        data: { field: "price", operator: "gt", value: "200" },
+      },
+      {
+        id: "notify",
+        type: "output:webhook",
+        position: { x: 860, y: 120 },
+        data: {
+          url: "https://example.com/ops/price-alert",
+          method: "POST",
+          body: '{"text":"SOL price alert: {{ $json.price }}"}',
+        },
+      },
     ],
-    [edge("e1", "trigger", "price"), edge("e2", "price", "branch"), edge("e3", "branch", "notify", "true")],
+    [
+      edge("e1", "trigger", "price"),
+      edge("e2", "price", "branch"),
+      edge("e3", "branch", "notify", "true"),
+    ],
   );
 }
 
-export function evaluateCloudTemplateCertification(template: TemplateLike): CloudTemplateCertification {
-  const nodeTypes = template.nodeTypes ?? template.definition?.nodes?.map((node) => node.type) ?? [];
+export function evaluateCloudTemplateCertification(
+  template: TemplateLike,
+): CloudTemplateCertification {
+  const nodeTypes =
+    template.nodeTypes ??
+    template.definition?.nodes?.map((node) => node.type) ??
+    [];
   const settings = template.settings ?? {};
   const safety = settings.safety ?? {};
   const hasTrigger = nodeTypes.some((type) => type.startsWith("trigger:"));
   const hasAction = nodeTypes.some((type) => type.startsWith("action:"));
-  const hasOutput = nodeTypes.some((type) => type.startsWith("output:") || type === "action:squads-proposal");
-  const walletAction = template.definition?.nodes?.some(isWalletAction)
-    ?? nodeTypes.some((type) => WALLET_ACTIONS.has(type));
+  const hasOutput = nodeTypes.some(
+    (type) => type.startsWith("output:") || type === "action:squads-proposal",
+  );
+  const walletAction =
+    template.definition?.nodes?.some(isWalletAction) ??
+    nodeTypes.some((type) => WALLET_ACTIONS.has(type));
   const protocolNode = nodeTypes.some((type) =>
     [
       "action:jupiter-swap",
@@ -711,7 +1031,9 @@ export function evaluateCloudTemplateCertification(template: TemplateLike): Clou
     },
     {
       label: "Audited",
-      passed: safety.simulationRequired !== false && safety.manualApprovalRequired !== false,
+      passed:
+        safety.simulationRequired !== false &&
+        safety.manualApprovalRequired !== false,
       detail: "Keeps simulation and manual approval enabled by default.",
     },
     {
@@ -726,7 +1048,9 @@ export function evaluateCloudTemplateCertification(template: TemplateLike): Clou
     },
   ];
 
-  const missing = badges.filter((badge) => !badge.passed).map((badge) => badge.label);
+  const missing = badges
+    .filter((badge) => !badge.passed)
+    .map((badge) => badge.label);
   return {
     certified: missing.length === 0,
     badges,
@@ -737,7 +1061,9 @@ export function evaluateCloudTemplateCertification(template: TemplateLike): Clou
 export function redactPreviewValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactPreviewValue);
   if (!value || typeof value !== "object") return value ?? null;
-  return Object.entries(value as Record<string, unknown>).reduce<Record<string, unknown>>((acc, [key, child]) => {
+  return Object.entries(value as Record<string, unknown>).reduce<
+    Record<string, unknown>
+  >((acc, [key, child]) => {
     const lower = key.toLowerCase();
     if (
       lower.includes("credential") ||

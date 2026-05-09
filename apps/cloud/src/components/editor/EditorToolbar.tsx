@@ -21,7 +21,13 @@ import {
   Share2,
   ShieldCheck,
 } from "lucide-react";
-import { useWorkflowStore, useUndo, useRedo, useCanUndo, useCanRedo } from "@/store/workflow-store";
+import {
+  useWorkflowStore,
+  useUndo,
+  useRedo,
+  useCanUndo,
+  useCanRedo,
+} from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { useExecutionStore } from "@/store/execution-store";
 import { trpc } from "@/lib/trpc/client";
@@ -166,7 +172,9 @@ export function EditorToolbar() {
         toast.success("Preflight ready");
       }
     } catch (err) {
-      toast.error(`Preflight failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(
+        `Preflight failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   };
 
@@ -207,7 +215,7 @@ export function EditorToolbar() {
     addLog("info", "Manual run requested");
 
     try {
-      if (workflowId.startsWith("mock-") || !workflowId.includes("-")) {
+      if (workflowId.startsWith("mock-")) {
         throw new Error("Workflow must be saved before it can run");
       }
 
@@ -216,7 +224,10 @@ export function EditorToolbar() {
         setIsRunning(false);
         return;
       }
-      addLog("info", `Preflight complete: ${simulation.report.riskLevel} risk, ${simulation.report.estimatedFeeSol} SOL estimated fee`);
+      addLog(
+        "info",
+        `Preflight complete: ${simulation.report.riskLevel} risk, ${simulation.report.estimatedFeeSol} SOL estimated fee`,
+      );
       for (const warning of simulation.report.warnings) {
         addLog("warn", `Preflight warning: ${warning}`);
       }
@@ -224,7 +235,9 @@ export function EditorToolbar() {
         addLog("error", `Preflight blocker: ${blocker}`);
       }
       if (simulation.report.blocked) {
-        throw new Error(`Preflight blocked run: ${simulation.report.blockers.join(" ")}`);
+        throw new Error(
+          `Preflight blocked run: ${simulation.report.blockers.join(" ")}`,
+        );
       }
 
       await utils.client.workflow.update.mutate({
@@ -245,7 +258,9 @@ export function EditorToolbar() {
       const seenNodeLogs = new Set<string>();
       const pollInterval = setInterval(async () => {
         try {
-          const result = await utils.client.execution.get.query({ id: executionId });
+          const result = await utils.client.execution.get.query({
+            id: executionId,
+          });
           if (!result) return;
 
           // Update node statuses from DB results
@@ -258,21 +273,31 @@ export function EditorToolbar() {
                 error: nr.error ?? undefined,
                 duration: nr.duration ?? undefined,
                 logs: Array.isArray(nr.logs) ? nr.logs : [],
-                startedAt: nr.startedAt ? new Date(nr.startedAt).getTime() : undefined,
-                completedAt: nr.completedAt ? new Date(nr.completedAt).getTime() : undefined,
+                startedAt: nr.startedAt
+                  ? new Date(nr.startedAt).getTime()
+                  : undefined,
+                completedAt: nr.completedAt
+                  ? new Date(nr.completedAt).getTime()
+                  : undefined,
               };
               const nodeLogKey = `${nr.nodeId}:${nr.status}`;
               if (nr.status === "COMPLETED") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "success" });
                 if (!seenNodeLogs.has(nodeLogKey)) {
                   seenNodeLogs.add(nodeLogKey);
-                  addLog("info", `${nr.nodeType} completed (${nr.duration ?? 0}ms)`);
+                  addLog(
+                    "info",
+                    `${nr.nodeType} completed (${nr.duration ?? 0}ms)`,
+                  );
                 }
               } else if (nr.status === "FAILED") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "error" });
                 if (!seenNodeLogs.has(nodeLogKey)) {
                   seenNodeLogs.add(nodeLogKey);
-                  addLog("error", `${nr.nodeType} failed: ${nr.error ?? "Unknown error"}`);
+                  addLog(
+                    "error",
+                    `${nr.nodeType} failed: ${nr.error ?? "Unknown error"}`,
+                  );
                 }
               } else if (nr.status === "RUNNING") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "running" });
@@ -284,13 +309,19 @@ export function EditorToolbar() {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "skipped" });
                 if (!seenNodeLogs.has(nodeLogKey)) {
                   seenNodeLogs.add(nodeLogKey);
-                  addLog("warn", `${nr.nodeType} skipped: ${nr.error ?? "Dependency skipped"}`);
+                  addLog(
+                    "warn",
+                    `${nr.nodeType} skipped: ${nr.error ?? "Dependency skipped"}`,
+                  );
                 }
               } else if (nr.status === "WAITING") {
                 setNodeResult(nr.nodeId, { ...baseResult, status: "running" });
                 if (!seenNodeLogs.has(nodeLogKey)) {
                   seenNodeLogs.add(nodeLogKey);
-                  addLog("warn", `${nr.nodeType} waiting: ${nr.error ?? "Manual approval required"}`);
+                  addLog(
+                    "warn",
+                    `${nr.nodeType} waiting: ${nr.error ?? "Manual approval required"}`,
+                  );
                 }
               }
             }
@@ -304,7 +335,8 @@ export function EditorToolbar() {
             result.status === "TIMED_OUT"
           ) {
             clearInterval(pollInterval);
-            const finalStatus = result.status === "COMPLETED" ? "success" : "error";
+            const finalStatus =
+              result.status === "COMPLETED" ? "success" : "error";
             completeExecution(finalStatus);
             addLog("info", `Workflow execution ${finalStatus}`);
             openBottomPanelTab("executions");
@@ -351,7 +383,11 @@ export function EditorToolbar() {
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           title={paletteOpen ? "Close palette" : "Open palette"}
         >
-          {paletteOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+          {paletteOpen ? (
+            <PanelLeftClose size={14} />
+          ) : (
+            <PanelLeftOpen size={14} />
+          )}
         </button>
 
         <div className="flex items-center gap-1.5">
@@ -359,7 +395,10 @@ export function EditorToolbar() {
             {workflowName}
           </h1>
           {isDirty && (
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" title="Unsaved changes" />
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0"
+              title="Unsaved changes"
+            />
           )}
         </div>
 
@@ -368,9 +407,15 @@ export function EditorToolbar() {
         </span>
         <span
           className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-            isActive ? "bg-emerald-500/10 text-emerald-300" : "bg-muted text-muted-foreground"
+            isActive
+              ? "bg-emerald-500/10 text-emerald-300"
+              : "bg-muted text-muted-foreground"
           }`}
-          title={isActive ? "Triggers are active" : "Manual runs still work while inactive"}
+          title={
+            isActive
+              ? "Triggers are active"
+              : "Manual runs still work while inactive"
+          }
         >
           {isActive ? "Triggers active" : "Manual run mode"}
         </span>
@@ -403,7 +448,11 @@ export function EditorToolbar() {
           className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
           title="Save workflow"
         >
-          {saveWorkflow.isPending ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+          {saveWorkflow.isPending ? (
+            <Loader2 size={12} className="animate-spin" />
+          ) : (
+            <Save size={12} />
+          )}
           Save
         </button>
 
@@ -427,7 +476,7 @@ export function EditorToolbar() {
           } disabled:opacity-50`}
           title={isActive ? "Deactivate workflow" : "Activate workflow"}
         >
-          {(activate.isPending || deactivate.isPending) ? (
+          {activate.isPending || deactivate.isPending ? (
             <Loader2 size={12} className="animate-spin" />
           ) : isActive ? (
             <PowerOff size={12} />
@@ -439,7 +488,9 @@ export function EditorToolbar() {
 
         <button
           onClick={handlePreflight}
-          disabled={!workflowId || simulateWorkflow.isPending || nodes.length === 0}
+          disabled={
+            !workflowId || simulateWorkflow.isPending || nodes.length === 0
+          }
           className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
           title="Preflight workflow before running"
         >
@@ -453,7 +504,12 @@ export function EditorToolbar() {
 
         <button
           onClick={handleRun}
-          disabled={isRunning || runExecution.isPending || simulateWorkflow.isPending || nodes.length === 0}
+          disabled={
+            isRunning ||
+            runExecution.isPending ||
+            simulateWorkflow.isPending ||
+            nodes.length === 0
+          }
           className="flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
           title="Run workflow"
         >
@@ -470,7 +526,11 @@ export function EditorToolbar() {
           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
           title={propertiesOpen ? "Close properties" : "Open properties"}
         >
-          {propertiesOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+          {propertiesOpen ? (
+            <PanelRightClose size={14} />
+          ) : (
+            <PanelRightOpen size={14} />
+          )}
         </button>
       </div>
     </div>

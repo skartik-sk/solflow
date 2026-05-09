@@ -3,7 +3,14 @@
 // ExecutionPanel — bottom panel showing execution logs and node output.
 
 import React from "react";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Copy, ShieldCheck } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  ShieldCheck,
+} from "lucide-react";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { useExecutionStore } from "@/store/execution-store";
 import type { NodeExecutionResult } from "@/store/execution-store";
@@ -48,9 +55,15 @@ export function ExecutionPanel() {
   const [outputView, setOutputView] = React.useState<OutputView>("output");
   const latestLog = logs.at(-1);
   const resultValues = Array.from(nodeResults.values());
-  const completedCount = resultValues.filter((result) => result.status === "success").length;
-  const failedCount = resultValues.filter((result) => result.status === "error").length;
-  const warningCount = (simulationReport?.warnings.length ?? 0) + (simulationReport?.blockers.length ?? 0);
+  const completedCount = resultValues.filter(
+    (result) => result.status === "success",
+  ).length;
+  const failedCount = resultValues.filter(
+    (result) => result.status === "error",
+  ).length;
+  const warningCount =
+    (simulationReport?.warnings.length ?? 0) +
+    (simulationReport?.blockers.length ?? 0);
   const selectedOutputResult =
     resultValues.find((result) => result.nodeId === selectedOutputNodeId) ??
     resultValues.find((result) => result.output !== undefined) ??
@@ -65,7 +78,12 @@ export function ExecutionPanel() {
     if (selectedOutputNodeId !== selectedOutputResult.nodeId) {
       setSelectedOutputNodeId(selectedOutputResult.nodeId);
     }
-  }, [nodeResults, resultValues.length, selectedOutputNodeId, selectedOutputResult]);
+  }, [
+    nodeResults,
+    resultValues.length,
+    selectedOutputNodeId,
+    selectedOutputResult,
+  ]);
 
   if (!bottomPanelOpen) {
     return (
@@ -82,11 +100,18 @@ export function ExecutionPanel() {
             </button>
             <span className={`h-2 w-2 rounded-full ${statusDot(status)}`} />
             <span className="shrink-0 text-[11px] text-muted-foreground">
-              {status === "running" ? "Running" : status === "success" ? "Completed" : status === "error" ? "Failed" : "Idle"}
+              {status === "running"
+                ? "Running"
+                : status === "success"
+                  ? "Completed"
+                  : status === "error"
+                    ? "Failed"
+                    : "Idle"}
             </span>
             {resultValues.length > 0 && (
               <span className="shrink-0 text-[11px] text-muted-foreground/70">
-                {completedCount} ok{failedCount ? `, ${failedCount} failed` : ""}
+                {completedCount} ok
+                {failedCount ? `, ${failedCount} failed` : ""}
               </span>
             )}
             {warningCount > 0 && (
@@ -95,19 +120,23 @@ export function ExecutionPanel() {
               </span>
             )}
             <span className="truncate font-mono text-[11px] text-muted-foreground/60">
-              {latestLog ? latestLog.message : "Run or Preflight to see node logs, warnings, errors, and output."}
+              {latestLog
+                ? latestLog.message
+                : "Run or Preflight to see node logs, warnings, errors, and output."}
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
-            {(["executions", "simulation", "logs", "output"] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => openBottomPanelTab(tab)}
-                className="h-7 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {TAB_LABELS[tab]}
-              </button>
-            ))}
+            {(["executions", "simulation", "logs", "output"] as const).map(
+              (tab) => (
+                <button
+                  key={tab}
+                  onClick={() => openBottomPanelTab(tab)}
+                  className="h-7 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {TAB_LABELS[tab]}
+                </button>
+              ),
+            )}
           </div>
         </div>
       </div>
@@ -119,19 +148,21 @@ export function ExecutionPanel() {
       {/* Tab bar */}
       <div className="flex items-center justify-between border-b border-border px-2">
         <div className="flex items-center gap-1">
-          {(["executions", "simulation", "logs", "output"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setBottomPanelTab(tab)}
-              className={`px-2.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
-                bottomPanelTab === tab
-                  ? "text-foreground border-b-2 border-primary"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {TAB_LABELS[tab]}
-            </button>
-          ))}
+          {(["executions", "simulation", "logs", "output"] as const).map(
+            (tab) => (
+              <button
+                key={tab}
+                onClick={() => setBottomPanelTab(tab)}
+                className={`px-2.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                  bottomPanelTab === tab
+                    ? "text-foreground border-b-2 border-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {TAB_LABELS[tab]}
+              </button>
+            ),
+          )}
           {status === "running" && (
             <span className="ml-2 flex items-center gap-1 text-[10px] text-blue-400">
               <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse" />
@@ -148,7 +179,11 @@ export function ExecutionPanel() {
         <div className="flex items-center gap-2">
           {executionId && (
             <button
-              onClick={() => navigator.clipboard.writeText(`solstudio cloud execution ${executionId}`)}
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  `solstudio cloud execution ${executionId}`,
+                )
+              }
               className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
               title="Copy execution repro command"
             >
@@ -171,7 +206,9 @@ export function ExecutionPanel() {
         {bottomPanelTab === "logs" && (
           <div className="space-y-0.5">
             {logs.length === 0 ? (
-              <p className="text-muted-foreground/50">No logs yet. Run the workflow to see output.</p>
+              <p className="text-muted-foreground/50">
+                No logs yet. Run the workflow to see output.
+              </p>
             ) : (
               logs.map((log, i) => (
                 <div key={i} className="flex gap-2">
@@ -192,7 +229,11 @@ export function ExecutionPanel() {
           <div className="space-y-1">
             {nodeResults.size === 0 ? (
               <p className="text-muted-foreground/50">
-                No node results yet. Click Run to queue a manual execution.
+                {status === "running"
+                  ? "Run queued. Waiting for the first node result..."
+                  : status === "error"
+                    ? "No node results were recorded for this failed run. Check the Logs tab for the error."
+                    : "No node results yet. Click Run to queue a manual execution."}
               </p>
             ) : (
               Array.from(nodeResults.values()).map((result) => (
@@ -207,11 +248,17 @@ export function ExecutionPanel() {
                       </span>
                       <span className="text-[10px] text-muted-foreground/50">
                         {result.nodeId.slice(0, 10)}...
-                        {typeof result.duration === "number" ? ` · ${result.duration}ms` : ""}
-                        {result.logs?.length ? ` · ${result.logs.length} logs` : ""}
+                        {typeof result.duration === "number"
+                          ? ` · ${result.duration}ms`
+                          : ""}
+                        {result.logs?.length
+                          ? ` · ${result.logs.length} logs`
+                          : ""}
                       </span>
                     </div>
-                    <span className={`text-[10px] font-medium ${statusColor(result.status)}`}>
+                    <span
+                      className={`text-[10px] font-medium ${statusColor(result.status)}`}
+                    >
                       {result.status}
                     </span>
                   </div>
@@ -230,16 +277,33 @@ export function ExecutionPanel() {
           <div className="space-y-2 font-sans">
             {!simulationReport ? (
               <p className="font-mono text-muted-foreground/50">
-                No preflight yet. Click Preflight or Run to check risk, warnings, blockers, and planned effects.
+                No preflight yet. Click Preflight or Run to check risk,
+                warnings, blockers, and planned effects.
               </p>
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-                  <SimulationMetric label="Risk" value={simulationReport.riskLevel} tone={simulationReport.riskLevel} />
-                  <SimulationMetric label="Fee" value={`${simulationReport.estimatedFeeSol} SOL`} />
-                  <SimulationMetric label="Nodes" value={`${simulationReport.nodeCount}`} />
-                  <SimulationMetric label="Wallet actions" value={`${simulationReport.walletActions}`} />
-                  <SimulationMetric label="External calls" value={`${simulationReport.externalCalls}`} />
+                  <SimulationMetric
+                    label="Risk"
+                    value={simulationReport.riskLevel}
+                    tone={simulationReport.riskLevel}
+                  />
+                  <SimulationMetric
+                    label="Fee"
+                    value={`${simulationReport.estimatedFeeSol} SOL`}
+                  />
+                  <SimulationMetric
+                    label="Nodes"
+                    value={`${simulationReport.nodeCount}`}
+                  />
+                  <SimulationMetric
+                    label="Wallet actions"
+                    value={`${simulationReport.walletActions}`}
+                  />
+                  <SimulationMetric
+                    label="External calls"
+                    value={`${simulationReport.externalCalls}`}
+                  />
                 </div>
 
                 {simulationReport.route.length > 0 && (
@@ -257,7 +321,8 @@ export function ExecutionPanel() {
                   </div>
                 )}
 
-                {(simulationReport.blockers.length > 0 || simulationReport.warnings.length > 0) && (
+                {(simulationReport.blockers.length > 0 ||
+                  simulationReport.warnings.length > 0) && (
                   <div className="grid gap-2 md:grid-cols-2">
                     {simulationReport.blockers.length > 0 && (
                       <SimulationNotice
@@ -285,33 +350,59 @@ export function ExecutionPanel() {
                     </p>
                     <div className="space-y-1">
                       {simulationReport.walletDeltas.map((delta, index) => (
-                        <div key={index} className="grid grid-cols-[120px_120px_1fr] gap-2 text-[11px]">
-                          <span className="truncate font-mono text-muted-foreground">{delta.asset}</span>
-                          <span className={delta.change.startsWith("-") ? "text-red-300" : "text-emerald-300"}>
+                        <div
+                          key={index}
+                          className="grid grid-cols-[120px_120px_1fr] gap-2 text-[11px]"
+                        >
+                          <span className="truncate font-mono text-muted-foreground">
+                            {delta.asset}
+                          </span>
+                          <span
+                            className={
+                              delta.change.startsWith("-")
+                                ? "text-red-300"
+                                : "text-emerald-300"
+                            }
+                          >
                             {delta.change}
                           </span>
-                          <span className="text-muted-foreground">{delta.reason}</span>
+                          <span className="text-muted-foreground">
+                            {delta.reason}
+                          </span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
 
-                {simulationReport.transactionPlan.length > 0 && (
-                  <div className="rounded-md border border-border bg-background p-2">
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                      Planned effects
-                    </p>
+                <div className="rounded-md border border-border bg-background p-2">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Planned effects
+                  </p>
+                  {simulationReport.transactionPlan.length > 0 ? (
                     <div className="space-y-1">
                       {simulationReport.transactionPlan.map((item) => (
-                        <div key={`${item.nodeId}-${item.type}`} className="text-[11px]">
-                          <span className="font-medium text-foreground">{item.label}</span>
-                          <span className="text-muted-foreground"> - {item.effect}</span>
+                        <div
+                          key={`${item.nodeId}-${item.type}`}
+                          className="text-[11px]"
+                        >
+                          <span className="font-medium text-foreground">
+                            {item.label}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {" "}
+                            - {item.effect}
+                          </span>
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <p className="font-mono text-[11px] text-muted-foreground/60">
+                      No transaction or wallet effects planned. This run only
+                      reads data unless a later node is added.
+                    </p>
+                  )}
+                </div>
               </>
             )}
           </div>
@@ -356,7 +447,8 @@ function OutputInspector({
   onSelectView: (view: OutputView) => void;
 }) {
   const payload = formatOutputPayload(selectedResult, outputView);
-  const hasPayload = payload !== null && payload !== undefined && payload !== "";
+  const hasPayload =
+    payload !== null && payload !== undefined && payload !== "";
 
   const handleCopy = async () => {
     if (!selectedResult || typeof navigator === "undefined") return;
@@ -398,11 +490,15 @@ function OutputInspector({
           ))}
         </div>
 
-        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${statusColor(selectedResult?.status ?? "idle")}`}>
+        <span
+          className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${statusColor(selectedResult?.status ?? "idle")}`}
+        >
           {selectedResult?.status ?? "idle"}
         </span>
         {typeof selectedResult?.duration === "number" && (
-          <span className="text-[10px] text-muted-foreground">{selectedResult.duration}ms</span>
+          <span className="text-[10px] text-muted-foreground">
+            {selectedResult.duration}ms
+          </span>
         )}
         <button
           type="button"
@@ -418,7 +514,9 @@ function OutputInspector({
 
       {hasPayload ? (
         <pre className="min-h-[145px] flex-1 overflow-auto rounded-md bg-background p-2 font-mono text-[11px] leading-relaxed">
-          {typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)}
+          {typeof payload === "string"
+            ? payload
+            : JSON.stringify(payload, null, 2)}
         </pre>
       ) : (
         <div className="flex min-h-[145px] flex-1 items-center rounded-md border border-dashed border-border bg-background p-3 font-mono text-[11px] text-muted-foreground/60">
@@ -429,7 +527,10 @@ function OutputInspector({
   );
 }
 
-function formatOutputPayload(result: NodeExecutionResult | undefined, view: OutputView): unknown {
+function formatOutputPayload(
+  result: NodeExecutionResult | undefined,
+  view: OutputView,
+): unknown {
   if (!result) return null;
   if (view === "output") return result.output ?? null;
   if (view === "input") return result.input ?? null;
@@ -441,8 +542,12 @@ function formatOutputPayload(result: NodeExecutionResult | undefined, view: Outp
       nodeType: result.nodeType,
       status: result.status,
       durationMs: result.duration ?? null,
-      startedAt: result.startedAt ? new Date(result.startedAt).toISOString() : null,
-      completedAt: result.completedAt ? new Date(result.completedAt).toISOString() : null,
+      startedAt: result.startedAt
+        ? new Date(result.startedAt).toISOString()
+        : null,
+      completedAt: result.completedAt
+        ? new Date(result.completedAt).toISOString()
+        : null,
     };
   }
   return {
@@ -496,7 +601,9 @@ function SimulationMetric({
       <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
         {label}
       </p>
-      <p className={`mt-0.5 truncate text-xs font-semibold ${toneClass}`}>{value}</p>
+      <p className={`mt-0.5 truncate text-xs font-semibold ${toneClass}`}>
+        {value}
+      </p>
     </div>
   );
 }

@@ -2,9 +2,16 @@ import { prisma } from "@solflow/db";
 import {
   getExecutionQueueHealth,
   isExecutionWorkerRunning,
+  startExecutionWorker,
 } from "./execution-worker/queue";
-import { isCronWorkerRunning } from "./trigger-manager/cron-worker";
-import { getCloudRuntimeMode } from "./runtime-mode";
+import {
+  isCronWorkerRunning,
+  startCronWorker,
+} from "./trigger-manager/cron-worker";
+import {
+  getCloudRuntimeMode,
+  shouldRunWorkersInThisProcess,
+} from "./runtime-mode";
 
 export type HealthState = "ok" | "degraded" | "down";
 
@@ -40,6 +47,8 @@ export interface CloudHealthReport {
 }
 
 export async function getCloudHealthReport(): Promise<CloudHealthReport> {
+  ensureEmbeddedWorkersForHealth();
+
   const [db, queueHealth] = await Promise.all([
     checkDb(),
     getExecutionQueueHealth(),
@@ -51,11 +60,14 @@ export async function getCloudHealthReport(): Promise<CloudHealthReport> {
   };
   const runtimeMode = getCloudRuntimeMode();
   const expectsLocalWorkers = runtimeMode !== "api";
-  const workerStatus = expectsLocalWorkers && !(workers.execution && workers.cron)
-    ? "degraded"
-    : "ok";
+  const workerStatus =
+    expectsLocalWorkers && !(workers.execution && workers.cron)
+      ? "degraded"
+      : "ok";
   const redisStatus: HealthState = queueHealth.redis.ok ? "ok" : "down";
-  const executionQueueStatus: HealthState = queueHealth.redis.ok ? "ok" : "down";
+  const executionQueueStatus: HealthState = queueHealth.redis.ok
+    ? "ok"
+    : "down";
 
   const checks: CloudHealthReport["checks"] = {
     db,
@@ -89,6 +101,13 @@ export async function getCloudHealthReport(): Promise<CloudHealthReport> {
     uptimeSeconds: Math.round(process.uptime()),
     checks,
   };
+}
+
+function ensureEmbeddedWorkersForHealth(): void {
+  if (!shouldRunWorkersInThisProcess()) return;
+  if (!process.env.DATABASE_URL) return;
+  startExecutionWorker();
+  startCronWorker();
 }
 
 export function summarizeHealth(states: HealthState[]): HealthState {

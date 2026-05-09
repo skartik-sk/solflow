@@ -6,6 +6,29 @@ import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
 
+const MAX_WAIT_MS = 5 * 60 * 1000;
+
+function abortMessage(signal: AbortSignal): string {
+  if (signal.reason instanceof Error) return signal.reason.message;
+  if (typeof signal.reason === "string") return signal.reason;
+  return "Wait aborted";
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new Error(abortMessage(signal)));
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        reject(new Error(abortMessage(signal)));
+      },
+      { once: true },
+    );
+  });
+}
+
 // ─── Visual Component ──────────────────────────────────────────────────────
 
 export const WaitNode = memo(function WaitNode({
@@ -73,10 +96,17 @@ export const waitDef: CloudNodeDefinition = {
     if (unit === "minutes") ms = duration * 60 * 1000;
     if (unit === "hours") ms = duration * 3600 * 1000;
 
-    // Cap wait at 5 minutes for safety
-    ms = Math.min(ms, 5 * 60 * 1000);
+    // Cap waits so one node cannot hold a production worker forever.
+    const requestedMs = ms;
+    ms = Math.min(ms, MAX_WAIT_MS);
+    if (requestedMs !== ms) {
+      ctx.logger.warn("Wait duration capped for worker safety", {
+        requestedMs,
+        cappedMs: ms,
+      });
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, ms));
+    await sleep(ms, ctx.signal);
 
     const inputItems = ctx.inputs?.[0] ?? [];
     return inputItems.length > 0

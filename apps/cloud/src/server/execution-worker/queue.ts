@@ -5,9 +5,19 @@ import { Queue, Worker, type Job } from "bullmq";
 import { prisma } from "@solflow/db";
 import { WorkflowExecutor } from "@solflow/cloud-engine";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
-import type { CredentialOperations, WalletOperations } from "@solflow/cloud-nodes";
-import { decryptString, WalletSigner, type EncryptedKey } from "@solflow/cloud-wallet";
-import type { NodeExecutionResult, WorkflowSettings } from "@solflow/cloud-engine";
+import type {
+  CredentialOperations,
+  WalletOperations,
+} from "@solflow/cloud-nodes";
+import {
+  decryptString,
+  WalletSigner,
+  type EncryptedKey,
+} from "@solflow/cloud-wallet";
+import type {
+  NodeExecutionResult,
+  WorkflowSettings,
+} from "@solflow/cloud-engine";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
 // Ensure nodes are registered
@@ -20,15 +30,25 @@ export interface ExecutionJobData {
   workflowId: string;
 }
 
+const MAX_WORKFLOW_TIMEOUT_SECONDS = 15 * 60;
+
 function getRpcUrl(network: string): string {
   switch (network) {
     case "devnet":
-      return process.env.DEVNET_RPC_URL ?? process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
+      return (
+        process.env.DEVNET_RPC_URL ??
+        process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
+        "https://api.devnet.solana.com"
+      );
     case "localnet":
       return process.env.LOCALNET_RPC_URL ?? "http://127.0.0.1:8899";
     case "mainnet":
     default:
-      return process.env.MAINNET_RPC_URL ?? process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.mainnet-beta.solana.com";
+      return (
+        process.env.MAINNET_RPC_URL ??
+        process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
+        "https://api.mainnet-beta.solana.com"
+      );
   }
 }
 
@@ -41,27 +61,39 @@ function getMasterKey(): string {
 }
 
 function normalizeWorkflowSettings(raw: unknown): WorkflowSettings {
-  const settings = raw && typeof raw === "object" ? raw as Record<string, any> : {};
-  const retryPolicy = settings.retryPolicy && typeof settings.retryPolicy === "object"
-    ? settings.retryPolicy as Record<string, unknown>
-    : {};
+  const settings =
+    raw && typeof raw === "object" ? (raw as Record<string, any>) : {};
+  const retryPolicy =
+    settings.retryPolicy && typeof settings.retryPolicy === "object"
+      ? (settings.retryPolicy as Record<string, unknown>)
+      : {};
   const onError = ["stop", "continue", "branch"].includes(settings.onError)
-    ? settings.onError as WorkflowSettings["onError"]
+    ? (settings.onError as WorkflowSettings["onError"])
     : "stop";
 
   return {
-    timeout: Number.isFinite(Number(settings.timeout)) && Number(settings.timeout) > 0
-      ? Number(settings.timeout)
-      : 300,
+    timeout: Math.min(
+      Number.isFinite(Number(settings.timeout)) && Number(settings.timeout) > 0
+        ? Number(settings.timeout)
+        : 300,
+      MAX_WORKFLOW_TIMEOUT_SECONDS,
+    ),
     retryPolicy: {
-      maxAttempts: Number.isFinite(Number(retryPolicy.maxAttempts)) && Number(retryPolicy.maxAttempts) > 0
-        ? Math.floor(Number(retryPolicy.maxAttempts))
-        : 1,
-      delayMs: Number.isFinite(Number(retryPolicy.delayMs)) && Number(retryPolicy.delayMs) >= 0
-        ? Math.floor(Number(retryPolicy.delayMs))
-        : 0,
+      maxAttempts:
+        Number.isFinite(Number(retryPolicy.maxAttempts)) &&
+        Number(retryPolicy.maxAttempts) > 0
+          ? Math.floor(Number(retryPolicy.maxAttempts))
+          : 1,
+      delayMs:
+        Number.isFinite(Number(retryPolicy.delayMs)) &&
+        Number(retryPolicy.delayMs) >= 0
+          ? Math.floor(Number(retryPolicy.delayMs))
+          : 0,
     },
-    defaultWalletId: typeof settings.defaultWalletId === "string" ? settings.defaultWalletId : undefined,
+    defaultWalletId:
+      typeof settings.defaultWalletId === "string"
+        ? settings.defaultWalletId
+        : undefined,
     onError,
     safety: normalizeSafetyControls(settings.safety),
   };
@@ -84,7 +116,8 @@ function normalizeSafetyControls(raw: unknown): WorkflowSettings["safety"] {
     manualApprovalRequired: safety.manualApprovalRequired !== false,
     walletAutomationAllowed: safety.walletAutomationAllowed === true,
     spendLimitLamports: finiteNumber(safety.spendLimitLamports),
-    maxSlippageBps: finiteNumber(safety.maxSlippageBps) ?? defaults.maxSlippageBps,
+    maxSlippageBps:
+      finiteNumber(safety.maxSlippageBps) ?? defaults.maxSlippageBps,
     allowedMints: stringList(safety.allowedMints),
     webhookAllowlist: stringList(safety.webhookAllowlist),
   };
@@ -140,8 +173,12 @@ async function writeNodeExecution(
     duration: nodeResult.duration,
     error: nodeResult.error,
     logs: nodeResult.logs as any,
-    startedAt: nodeResult.startedAt ? new Date(nodeResult.startedAt) : undefined,
-    completedAt: nodeResult.completedAt ? new Date(nodeResult.completedAt) : undefined,
+    startedAt: nodeResult.startedAt
+      ? new Date(nodeResult.startedAt)
+      : undefined,
+    completedAt: nodeResult.completedAt
+      ? new Date(nodeResult.completedAt)
+      : undefined,
   };
 
   if (existing) {
@@ -179,7 +216,11 @@ export async function queueExecution(
   workflowId: string,
 ): Promise<string> {
   const queue = getExecutionQueue();
-  const job = await queue.add("execute", { executionId, workflowId }, { jobId: executionId });
+  const job = await queue.add(
+    "execute",
+    { executionId, workflowId },
+    { jobId: executionId },
+  );
   return job.id ?? executionId;
 }
 
@@ -225,7 +266,11 @@ function createWalletOperations(workflow: {
   return {
     async signAndSend(tx, walletId) {
       const { wallet, signer, encryptedKey } = await loadWallet(walletId);
-      const signature = await signer.signAndSend(tx as Parameters<WalletSigner["signAndSend"]>[0], wallet.id, encryptedKey);
+      const signature = await signer.signAndSend(
+        tx as Parameters<WalletSigner["signAndSend"]>[0],
+        wallet.id,
+        encryptedKey,
+      );
       await prisma.cloudWallet.update({
         where: { id: wallet.id },
         data: { lastUsedAt: new Date() },
@@ -234,7 +279,11 @@ function createWalletOperations(workflow: {
     },
     async signTransaction(tx, walletId) {
       const { wallet, signer, encryptedKey } = await loadWallet(walletId);
-      const signed = await signer.signTransaction(tx as Parameters<WalletSigner["signTransaction"]>[0], wallet.id, encryptedKey);
+      const signed = await signer.signTransaction(
+        tx as Parameters<WalletSigner["signTransaction"]>[0],
+        wallet.id,
+        encryptedKey,
+      );
       await prisma.cloudWallet.update({
         where: { id: wallet.id },
         data: { lastUsedAt: new Date() },
@@ -243,7 +292,11 @@ function createWalletOperations(workflow: {
     },
     async simulate(tx, walletId) {
       const { wallet, signer, encryptedKey } = await loadWallet(walletId);
-      return signer.simulate(tx as Parameters<WalletSigner["simulate"]>[0], wallet.id, encryptedKey);
+      return signer.simulate(
+        tx as Parameters<WalletSigner["simulate"]>[0],
+        wallet.id,
+        encryptedKey,
+      );
     },
     async getPublicKey(walletId) {
       const { wallet, signer, encryptedKey } = await loadWallet(walletId);
@@ -274,12 +327,15 @@ function createCredentialOperations(workflow: {
         );
       }
 
-      const decrypted = decryptString({
-        encrypted: credential.encryptedData,
-        iv: credential.dataIv,
-        tag: credential.dataTag,
-        salt: credential.dataSalt,
-      }, getMasterKey());
+      const decrypted = decryptString(
+        {
+          encrypted: credential.encryptedData,
+          iv: credential.dataIv,
+          tag: credential.dataTag,
+          salt: credential.dataSalt,
+        },
+        getMasterKey(),
+      );
 
       await prisma.cloudCredential.update({
         where: { id: credential.id },
@@ -324,9 +380,21 @@ export function startExecutionWorker(): void {
         select: { definitionSnapshot: true, triggerData: true },
       });
 
-      const definition = (execution?.definitionSnapshot ?? workflow.definition) as {
-        nodes: Array<{ id: string; type: string; data: Record<string, unknown>; position: { x: number; y: number } }>;
-        edges: Array<{ id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }>;
+      const definition = (execution?.definitionSnapshot ??
+        workflow.definition) as {
+        nodes: Array<{
+          id: string;
+          type: string;
+          data: Record<string, unknown>;
+          position: { x: number; y: number };
+        }>;
+        edges: Array<{
+          id: string;
+          source: string;
+          target: string;
+          sourceHandle?: string;
+          targetHandle?: string;
+        }>;
       };
 
       // Mark execution as running
@@ -338,19 +406,24 @@ export function startExecutionWorker(): void {
       const walletOps = createWalletOperations(workflow);
       const credentialOps = createCredentialOperations(workflow);
 
-      const executor = new WorkflowExecutor(cloudNodeRegistry, walletOps, credentialOps, {
-        async onNodeStart(nodeResult) {
-          await writeNodeExecution(executionId, nodeResult);
+      const executor = new WorkflowExecutor(
+        cloudNodeRegistry,
+        walletOps,
+        credentialOps,
+        {
+          async onNodeStart(nodeResult) {
+            await writeNodeExecution(executionId, nodeResult);
+          },
+          async onNodeFinish(nodeResult) {
+            await writeNodeExecution(executionId, nodeResult);
+          },
         },
-        async onNodeFinish(nodeResult) {
-          await writeNodeExecution(executionId, nodeResult);
-        },
-      });
+      );
 
       const settings = normalizeWorkflowSettings(workflow.settings);
       const triggerData =
         execution?.triggerData && typeof execution.triggerData === "object"
-          ? execution.triggerData as Record<string, unknown>
+          ? (execution.triggerData as Record<string, unknown>)
           : {};
       if (triggerData.walletAutomationApproved === true) {
         settings.safety = {
@@ -373,13 +446,14 @@ export function startExecutionWorker(): void {
       );
 
       // Update execution record with results
-      const status = result.status === "success"
-        ? "COMPLETED"
-        : result.status === "cancelled"
-          ? "CANCELLED"
-          : result.status === "timeout"
-            ? "TIMED_OUT"
-            : "FAILED";
+      const status =
+        result.status === "success"
+          ? "COMPLETED"
+          : result.status === "cancelled"
+            ? "CANCELLED"
+            : result.status === "timeout"
+              ? "TIMED_OUT"
+              : "FAILED";
       const nodeCount = definition.nodes.length;
       const successCount = Array.from(result.nodeResults.values()).filter(
         (r) => r.status === "success",
@@ -387,17 +461,19 @@ export function startExecutionWorker(): void {
       const errorCount = Array.from(result.nodeResults.values()).filter(
         (r) => r.status === "error",
       ).length;
-      const nodeTimeline = Array.from(result.nodeResults.entries()).map(([nodeId, nodeResult]) => ({
-        nodeId,
-        nodeType: nodeResult.nodeType,
-        status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
-        duration: nodeResult.duration,
-        attempts: nodeResult.attempts ?? 0,
-        error: nodeResult.error ?? null,
-        logCount: nodeResult.logs.length,
-        inputBytes: safeJsonByteLength(nodeResult.inputSnapshot),
-        outputBytes: safeJsonByteLength(nodeResult.outputSnapshot),
-      }));
+      const nodeTimeline = Array.from(result.nodeResults.entries()).map(
+        ([nodeId, nodeResult]) => ({
+          nodeId,
+          nodeType: nodeResult.nodeType,
+          status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
+          duration: nodeResult.duration,
+          attempts: nodeResult.attempts ?? 0,
+          error: nodeResult.error ?? null,
+          logCount: nodeResult.logs.length,
+          inputBytes: safeJsonByteLength(nodeResult.inputSnapshot),
+          outputBytes: safeJsonByteLength(nodeResult.outputSnapshot),
+        }),
+      );
 
       await prisma.workflowExecution.update({
         where: { id: executionId },
@@ -441,12 +517,16 @@ export function startExecutionWorker(): void {
   _worker.on("error", createRedisErrorLogger("execution-worker"));
 
   _worker.on("failed", (job, err) => {
-    logExecutionWorkerEvent("job_failed", {
-      jobId: job?.id,
-      executionId: job?.data.executionId,
-      workflowId: job?.data.workflowId,
-      error: err.message,
-    }, "error");
+    logExecutionWorkerEvent(
+      "job_failed",
+      {
+        jobId: job?.id,
+        executionId: job?.data.executionId,
+        workflowId: job?.data.workflowId,
+        error: err.message,
+      },
+      "error",
+    );
   });
 
   _worker.on("completed", (job) => {
@@ -466,7 +546,9 @@ function safeJsonByteLength(value: unknown): number {
   }
 }
 
-function redactSafetyForTimeline(safety: WorkflowSettings["safety"]): Record<string, unknown> | undefined {
+function redactSafetyForTimeline(
+  safety: WorkflowSettings["safety"],
+): Record<string, unknown> | undefined {
   if (!safety) return undefined;
   return {
     simulationRequired: safety.simulationRequired,

@@ -8,6 +8,10 @@ import { CloudBaseNode } from "../components/cloud-base-node";
 
 type AiProvider = "openai" | "anthropic" | "gemini";
 type AiResponseFormat = "text" | "json";
+type AiAgentMode = "single-shot" | "json-decision" | "summarize";
+
+const DEFAULT_AI_TIMEOUT_MS = 60_000;
+const MAX_AI_TIMEOUT_MS = 120_000;
 
 interface AiCallOptions {
   provider: AiProvider;
@@ -29,7 +33,9 @@ interface AiCallResult {
 }
 
 function getEnv(name: string): string | undefined {
-  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  const env = (
+    globalThis as { process?: { env?: Record<string, string | undefined> } }
+  ).process?.env;
   return env?.[name];
 }
 
@@ -52,6 +58,59 @@ function resolveModelForProvider(provider: string, model?: string): string {
     return defaultModelForProvider(provider);
   }
   return model;
+}
+
+function parseTimeoutMs(value: unknown): number {
+  const timeout = Number(value);
+  if (!Number.isFinite(timeout) || timeout <= 0) return DEFAULT_AI_TIMEOUT_MS;
+  return Math.min(Math.floor(timeout), MAX_AI_TIMEOUT_MS);
+}
+
+function abortMessage(signal: AbortSignal): string {
+  if (signal.reason instanceof Error) return signal.reason.message;
+  if (typeof signal.reason === "string") return signal.reason;
+  return "AI Agent request aborted";
+}
+
+function childSignal(
+  parent: AbortSignal,
+  timeoutMs: number,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => {
+    controller.abort(`AI Agent timed out after ${timeoutMs}ms`);
+  }, timeoutMs);
+  const onAbort = () => controller.abort(abortMessage(parent));
+  parent.addEventListener("abort", onAbort, { once: true });
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      parent.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+function modeInstructions(
+  mode: AiAgentMode,
+  responseFormat: AiResponseFormat,
+): string {
+  if (mode === "json-decision") {
+    return "Make a decision from the input. Include decision, reason, confidence, and nextAction fields.";
+  }
+  if (mode === "summarize") {
+    return "Summarize the important workflow input clearly and preserve exact identifiers, token mints, amounts, and errors.";
+  }
+  if (responseFormat === "json") {
+    return "Process the input and return a structured JSON object.";
+  }
+  return "";
+}
+
+function normalizeAgentMode(value: unknown): AiAgentMode {
+  if (value === "json-decision" || value === "summarize") return value;
+  return "single-shot";
 }
 
 function readJsonObject(value: string, provider: AiProvider): unknown {
@@ -77,7 +136,9 @@ function extractOpenAiText(payload: any): string {
 
   const chunks: string[] = [];
   for (const output of Array.isArray(payload.output) ? payload.output : []) {
-    for (const content of Array.isArray(output?.content) ? output.content : []) {
+    for (const content of Array.isArray(output?.content)
+      ? output.content
+      : []) {
       if (typeof content?.text === "string") chunks.push(content.text);
     }
   }
@@ -87,7 +148,9 @@ function extractOpenAiText(payload: any): string {
 
 function extractAnthropicText(payload: any): string {
   return (Array.isArray(payload.content) ? payload.content : [])
-    .filter((block: any) => block?.type === "text" && typeof block.text === "string")
+    .filter(
+      (block: any) => block?.type === "text" && typeof block.text === "string",
+    )
     .map((block: any) => block.text)
     .join("");
 }
@@ -103,14 +166,18 @@ function extractGeminiText(payload: any): string {
 async function callOpenAi(options: AiCallOptions): Promise<AiCallResult> {
   const apiKey = options.apiKey ?? getEnv("OPENAI_API_KEY");
   if (!apiKey) {
-    throw new Error("OPENAI_API_KEY is required to execute the OpenAI AI Agent node");
+    throw new Error(
+      "OPENAI_API_KEY is required to execute the OpenAI AI Agent node",
+    );
   }
 
   const wantsJson = options.responseFormat === "json";
   const instructions = [
     options.systemPrompt.trim(),
     wantsJson ? "Respond only with a valid JSON object." : "",
-  ].filter(Boolean).join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const response = await requireFetch()("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -148,31 +215,38 @@ async function callOpenAi(options: AiCallOptions): Promise<AiCallResult> {
 async function callAnthropic(options: AiCallOptions): Promise<AiCallResult> {
   const apiKey = options.apiKey ?? getEnv("ANTHROPIC_API_KEY");
   if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is required to execute the Anthropic AI Agent node");
+    throw new Error(
+      "ANTHROPIC_API_KEY is required to execute the Anthropic AI Agent node",
+    );
   }
 
   const wantsJson = options.responseFormat === "json";
-  const response = await requireFetch()("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "Content-Type": "application/json",
+  const response = await requireFetch()(
+    "https://api.anthropic.com/v1/messages",
+    {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      signal: options.signal,
+      body: JSON.stringify({
+        model: options.model,
+        max_tokens: options.maxTokens,
+        temperature: options.temperature,
+        ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
+        messages: [
+          {
+            role: "user",
+            content: wantsJson
+              ? `${options.prompt}\n\nRespond only with a valid JSON object.`
+              : options.prompt,
+          },
+        ],
+      }),
     },
-    signal: options.signal,
-    body: JSON.stringify({
-      model: options.model,
-      max_tokens: options.maxTokens,
-      temperature: options.temperature,
-      ...(options.systemPrompt ? { system: options.systemPrompt } : {}),
-      messages: [{
-        role: "user",
-        content: wantsJson
-          ? `${options.prompt}\n\nRespond only with a valid JSON object.`
-          : options.prompt,
-      }],
-    }),
-  });
+  );
 
   if (!response.ok) {
     throw new Error(
@@ -191,16 +265,21 @@ async function callAnthropic(options: AiCallOptions): Promise<AiCallResult> {
 }
 
 async function callGemini(options: AiCallOptions): Promise<AiCallResult> {
-  const apiKey = options.apiKey ?? getEnv("GEMINI_API_KEY") ?? getEnv("GOOGLE_API_KEY");
+  const apiKey =
+    options.apiKey ?? getEnv("GEMINI_API_KEY") ?? getEnv("GOOGLE_API_KEY");
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is required to execute the Gemini AI Agent node");
+    throw new Error(
+      "GEMINI_API_KEY is required to execute the Gemini AI Agent node",
+    );
   }
 
   const wantsJson = options.responseFormat === "json";
   const systemPrompt = [
     options.systemPrompt.trim(),
     wantsJson ? "Respond only with a valid JSON object." : "",
-  ].filter(Boolean).join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const response = await requireFetch()(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(options.model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -209,7 +288,9 @@ async function callGemini(options: AiCallOptions): Promise<AiCallResult> {
       headers: { "Content-Type": "application/json" },
       signal: options.signal,
       body: JSON.stringify({
-        ...(systemPrompt ? { systemInstruction: { parts: [{ text: systemPrompt }] } } : {}),
+        ...(systemPrompt
+          ? { systemInstruction: { parts: [{ text: systemPrompt }] } }
+          : {}),
         contents: [
           {
             role: "user",
@@ -248,16 +329,26 @@ async function callAiProvider(options: AiCallOptions): Promise<AiCallResult> {
   throw new Error(`Unsupported AI provider "${options.provider}"`);
 }
 
-async function resolveAiApiKey(ctx: {
-  params: Record<string, unknown>;
-  credentials?: { get(id: string, allowedTypes?: string[]): Promise<{ type: string; data: Record<string, unknown> }> };
-}, provider: AiProvider): Promise<string | undefined> {
+async function resolveAiApiKey(
+  ctx: {
+    params: Record<string, unknown>;
+    credentials?: {
+      get(
+        id: string,
+        allowedTypes?: string[],
+      ): Promise<{ type: string; data: Record<string, unknown> }>;
+    };
+  },
+  provider: AiProvider,
+): Promise<string | undefined> {
   const credentialId = ctx.params.credentialId as string | undefined;
   if (!credentialId) return undefined;
 
   const credential = await ctx.credentials?.get(credentialId, [provider]);
   if (!credential) {
-    throw new Error("Credential runtime is not available for this AI Agent node");
+    throw new Error(
+      "Credential runtime is not available for this AI Agent node",
+    );
   }
 
   const apiKey = credential.data.apiKey;
@@ -277,7 +368,10 @@ export const AiAgentNode = memo(function AiAgentNode({
   selected?: boolean;
 }) {
   const provider = (data.data?.provider as string) || "openai";
-  const model = resolveModelForProvider(provider, data.data?.model as string | undefined);
+  const model = resolveModelForProvider(
+    provider,
+    data.data?.model as string | undefined,
+  );
 
   return (
     <CloudBaseNode data={data} selected={selected}>
@@ -299,7 +393,8 @@ export const aiAgentDef: CloudNodeDefinition = {
   type: "action:ai-agent",
   label: "AI Agent",
   category: "ai",
-  description: "Call an LLM to process data, make decisions, or generate content.",
+  description:
+    "Call an LLM to process data, make decisions, or generate content.",
   icon: "Bot",
   color: CATEGORY_COLORS.ai,
   properties: [
@@ -316,12 +411,27 @@ export const aiAgentDef: CloudNodeDefinition = {
       ],
     },
     {
+      key: "agentMode",
+      label: "Agent Mode",
+      type: "select",
+      required: false,
+      default: "single-shot",
+      options: [
+        { label: "Single Shot", value: "single-shot" },
+        { label: "JSON Decision", value: "json-decision" },
+        { label: "Summarize", value: "summarize" },
+      ],
+      description:
+        "n8n-style root-node behavior: process, decide, or summarize workflow data.",
+    },
+    {
       key: "credentialId",
       label: "Credential",
       type: "credential",
       required: false,
       credentialTypes: ["openai", "anthropic", "gemini"],
-      description: "Select a saved provider credential, or leave blank to use OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
+      description:
+        "Select a saved provider credential, or leave blank to use OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY.",
     },
     {
       key: "model",
@@ -351,9 +461,20 @@ export const aiAgentDef: CloudNodeDefinition = {
       label: "User Prompt",
       type: "expression",
       required: true,
-      description: "The prompt to send to the LLM. Use {{ $json.field }} to reference data.",
+      description:
+        "The prompt to send to the LLM. Use {{ $json.field }} to reference data.",
       placeholder: "Analyze this token: {{ $json.token }}",
       supportsExpressions: true,
+    },
+    {
+      key: "toolInstructions",
+      label: "Tool Instructions",
+      type: "code",
+      required: false,
+      description:
+        "Describe available SolStudio workflow context or tools the model should reason about. This does not execute tools by itself.",
+      placeholder:
+        "You can reason over previous node JSON. Do not send transactions unless a later wallet node is connected.",
     },
     {
       key: "temperature",
@@ -372,6 +493,15 @@ export const aiAgentDef: CloudNodeDefinition = {
       description: "Maximum response length",
     },
     {
+      key: "requestTimeoutMs",
+      label: "Request Timeout",
+      type: "duration",
+      required: false,
+      default: DEFAULT_AI_TIMEOUT_MS,
+      description:
+        "Maximum AI provider request time in milliseconds. Capped at 120000ms.",
+    },
+    {
       key: "responseFormat",
       label: "Response Format",
       type: "select",
@@ -382,28 +512,65 @@ export const aiAgentDef: CloudNodeDefinition = {
         { label: "JSON Object", value: "json" },
       ],
     },
+    {
+      key: "outputField",
+      label: "Output Field",
+      type: "text",
+      required: false,
+      default: "ai",
+      description: "Field name used to store the AI response in output JSON.",
+    },
+    {
+      key: "includeInput",
+      label: "Include input JSON",
+      type: "boolean",
+      required: false,
+      default: true,
+      description: "Keep incoming node data alongside the AI result.",
+    },
   ],
   inputs: [{ type: "main", label: "input" }],
   outputs: [{ type: "main", label: "output" }],
   defaultData: {
     provider: "openai",
+    agentMode: "single-shot",
     credentialId: "",
     model: "gpt-4o-mini",
     systemPrompt: "",
     prompt: "",
+    toolInstructions: "",
     temperature: 0.7,
     maxTokens: 1024,
+    requestTimeoutMs: DEFAULT_AI_TIMEOUT_MS,
     responseFormat: "text",
+    outputField: "ai",
+    includeInput: true,
   },
   component: AiAgentNode,
   async execute(ctx) {
-    const provider = ((ctx.params.provider as string) || "openai") as AiProvider;
-    const model = resolveModelForProvider(provider, ctx.params.model as string | undefined);
+    const provider = ((ctx.params.provider as string) ||
+      "openai") as AiProvider;
+    const agentMode = normalizeAgentMode(ctx.params.agentMode);
+    const model = resolveModelForProvider(
+      provider,
+      ctx.params.model as string | undefined,
+    );
     const systemPrompt = (ctx.params.systemPrompt as string) || "";
+    const toolInstructions = (ctx.params.toolInstructions as string) || "";
     const prompt = ctx.params.prompt as string;
-    const temperature = Number(ctx.params.temperature) || 0.7;
-    const maxTokens = Number(ctx.params.maxTokens) || 1024;
-    const responseFormat = ((ctx.params.responseFormat as string) || "text") as AiResponseFormat;
+    const temperature = Math.max(
+      0,
+      Math.min(Number(ctx.params.temperature) || 0.7, 2),
+    );
+    const maxTokens = Math.max(
+      1,
+      Math.min(Number(ctx.params.maxTokens) || 1024, 16_384),
+    );
+    const requestTimeoutMs = parseTimeoutMs(ctx.params.requestTimeoutMs);
+    const responseFormat = ((ctx.params.responseFormat as string) ||
+      "text") as AiResponseFormat;
+    const outputField = String(ctx.params.outputField || "ai").trim() || "ai";
+    const includeInput = ctx.params.includeInput !== false;
 
     if (!prompt) {
       throw new Error("Prompt is required");
@@ -417,21 +584,41 @@ export const aiAgentDef: CloudNodeDefinition = {
       throw new Error(`Unsupported AI response format "${responseFormat}"`);
     }
 
-    const result = await callAiProvider({
-      provider,
-      model,
-      systemPrompt,
-      prompt,
-      temperature,
-      maxTokens,
-      responseFormat,
-      signal: ctx.signal,
-      apiKey: await resolveAiApiKey(ctx, provider),
-    });
+    const extraInstructions = [
+      modeInstructions(agentMode, responseFormat),
+      toolInstructions.trim(),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    const requestSignal = childSignal(ctx.signal, requestTimeoutMs);
+    let result: AiCallResult;
+    try {
+      result = await callAiProvider({
+        provider,
+        model,
+        systemPrompt: [systemPrompt.trim(), extraInstructions]
+          .filter(Boolean)
+          .join("\n\n"),
+        prompt,
+        temperature,
+        maxTokens,
+        responseFormat,
+        signal: requestSignal.signal,
+        apiKey: await resolveAiApiKey(ctx, provider),
+      });
+    } catch (error) {
+      if (requestSignal.signal.aborted) {
+        throw new Error(abortMessage(requestSignal.signal));
+      }
+      throw error;
+    } finally {
+      requestSignal.cleanup();
+    }
 
     const ai = {
       provider,
       model,
+      mode: agentMode,
       content: result.content,
       ...(responseFormat === "json" ? { json: result.parsedJson } : {}),
       usage: result.usage,
@@ -442,8 +629,8 @@ export const aiAgentDef: CloudNodeDefinition = {
     return inputItems.map((item) => ({
       ...item,
       json: {
-        ...item.json,
-        ai,
+        ...(includeInput ? item.json : {}),
+        [outputField]: ai,
       },
     }));
   },

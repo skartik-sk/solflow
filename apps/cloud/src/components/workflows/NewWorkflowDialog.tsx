@@ -2,7 +2,15 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowRight, Boxes, Loader2, Play, Workflow, X } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowRight,
+  Boxes,
+  Loader2,
+  Play,
+  Workflow,
+  X,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 
 const STARTER_DEFINITION = {
@@ -22,12 +30,29 @@ const STARTER_DEFINITION = {
         credentialId: "",
       },
     },
+    {
+      id: "show-result",
+      type: "output:result",
+      position: { x: 640, y: 180 },
+      data: {
+        name: "Jupiter price result",
+        status: "success",
+        value: "{{ $json.jupiter }}",
+      },
+    },
   ],
   edges: [
     {
       id: "starter-edge",
       source: "manual-trigger",
       target: "jupiter-price",
+      sourceHandle: "output",
+      targetHandle: "input",
+    },
+    {
+      id: "starter-result-edge",
+      source: "jupiter-price",
+      target: "show-result",
       sourceHandle: "output",
       targetHandle: "input",
     },
@@ -67,7 +92,10 @@ export function NewWorkflowDialog({
   const [selectedTemplateId, setSelectedTemplateId] = useState("starter");
   const [formError, setFormError] = useState<string | null>(null);
 
-  const templatesQuery = trpc.template.list.useQuery({ featured: true, limit: 3 });
+  const templatesQuery = trpc.template.list.useQuery({
+    featured: true,
+    limit: 3,
+  });
   const createWorkflow = trpc.workflow.create.useMutation();
   const forkTemplate = trpc.template.fork.useMutation();
 
@@ -76,8 +104,11 @@ export function NewWorkflowDialog({
     [templatesQuery.data],
   );
   const pending = createWorkflow.isPending || forkTemplate.isPending;
-  const mutationError = createWorkflow.error?.message ?? forkTemplate.error?.message;
-  const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
+  const mutationError =
+    createWorkflow.error?.message ?? forkTemplate.error?.message;
+  const selectedTemplate = templates.find(
+    (template) => template.id === selectedTemplateId,
+  );
   const isModal = mode === "modal";
 
   useEffect(() => {
@@ -111,7 +142,8 @@ export function NewWorkflowDialog({
         selectedTemplateId === "starter"
           ? await createWorkflow.mutateAsync({
               name: trimmedName,
-              description: "Manual starter workflow for testing Jupiter Price API output.",
+              description:
+                "Manual starter workflow for testing Jupiter Price API output in the run panel.",
               definition: STARTER_DEFINITION,
               settings: STARTER_SETTINGS,
               tags: ["manual", "jupiter", "starter"],
@@ -144,7 +176,8 @@ export function NewWorkflowDialog({
             Name it, then choose a starting point
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-            Start with a runnable manual Jupiter Price check or fork one of the top marketplace templates.
+            Start with a runnable manual Jupiter Price check or fork one of the
+            top marketplace templates.
           </p>
         </div>
         <button
@@ -162,7 +195,10 @@ export function NewWorkflowDialog({
       </div>
 
       <section className="rounded-xl border border-border bg-card p-4">
-        <label htmlFor="workflow-name" className="mb-1 block text-xs font-semibold">
+        <label
+          htmlFor="workflow-name"
+          className="mb-1 block text-xs font-semibold"
+        >
           Workflow name
         </label>
         <input
@@ -172,7 +208,9 @@ export function NewWorkflowDialog({
           value={name}
           onChange={(event) => setName(event.target.value)}
           className="h-10 w-full rounded-lg border border-border bg-input px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary"
-          placeholder={selectedTemplate ? selectedTemplate.title : "Cloud workflow name"}
+          placeholder={
+            selectedTemplate ? selectedTemplate.title : "Cloud workflow name"
+          }
           autoFocus
         />
         {formError && <p className="mt-2 text-xs text-red-400">{formError}</p>}
@@ -196,7 +234,7 @@ export function NewWorkflowDialog({
             selected={selectedTemplateId === "starter"}
             icon={<Play size={16} />}
             title="Manual Jupiter Price"
-            description="Runnable starter: Manual Trigger into Jupiter Price."
+            description="Runnable starter: Manual Trigger into Jupiter Price and Workflow Result."
             meta="No wallet required"
             onClick={() => setSelectedTemplateId("starter")}
           />
@@ -252,7 +290,11 @@ export function NewWorkflowDialog({
           disabled={pending || !name.trim()}
           className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
-          {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Workflow className="h-4 w-4" />}
+          {pending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Workflow className="h-4 w-4" />
+          )}
           Create workflow
           {!pending && <ArrowRight className="h-4 w-4" />}
         </button>
@@ -269,7 +311,11 @@ export function NewWorkflowDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+    >
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -311,7 +357,9 @@ function TemplateChoice({
     >
       <span
         className={`mb-3 inline-flex h-8 w-8 items-center justify-center rounded-lg ${
-          selected ? "bg-primary text-primary-foreground" : "bg-primary/10 text-primary"
+          selected
+            ? "bg-primary text-primary-foreground"
+            : "bg-primary/10 text-primary"
         }`}
       >
         {icon}

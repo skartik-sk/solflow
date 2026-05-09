@@ -65,6 +65,9 @@ const ALL_NODE_TYPES = [
   "logic:if-else",
   "logic:wait",
   "output:webhook",
+  "output:display",
+  "output:log",
+  "output:result",
 ];
 
 describe("All nodes registered", () => {
@@ -75,8 +78,8 @@ describe("All nodes registered", () => {
     expect(def!.type).toBe(type);
   });
 
-  it("has exactly 40 nodes", () => {
-    expect(cloudNodeRegistry.getAll()).toHaveLength(40);
+  it("has exactly 43 nodes", () => {
+    expect(cloudNodeRegistry.getAll()).toHaveLength(43);
   });
 });
 
@@ -98,9 +101,14 @@ describe.each(ALL_NODE_TYPES)("Node %s shape", (type) => {
   });
 
   it("has a valid category", () => {
-    expect(["trigger", "action", "transform", "logic", "ai", "output"]).toContain(
-      def.category,
-    );
+    expect([
+      "trigger",
+      "action",
+      "transform",
+      "logic",
+      "ai",
+      "output",
+    ]).toContain(def.category);
   });
 
   it("has a color string", () => {
@@ -116,7 +124,21 @@ describe.each(ALL_NODE_TYPES)("Node %s shape", (type) => {
     for (const prop of def.properties) {
       expect(prop.key).toBeTruthy();
       expect(prop.label).toBeTruthy();
-      expect(["text", "number", "boolean", "select", "json", "pubkey", "address", "expression", "credential", "wallet-select", "code", "date", "duration"]).toContain(prop.type);
+      expect([
+        "text",
+        "number",
+        "boolean",
+        "select",
+        "json",
+        "pubkey",
+        "address",
+        "expression",
+        "credential",
+        "wallet-select",
+        "code",
+        "date",
+        "duration",
+      ]).toContain(prop.type);
     }
   });
 
@@ -144,8 +166,8 @@ describe.each(ALL_NODE_TYPES)("Node %s shape", (type) => {
   it("has execute or trigger or webhook function", () => {
     expect(
       def.execute !== undefined ||
-      def.trigger !== undefined ||
-      def.webhook !== undefined,
+        def.trigger !== undefined ||
+        def.webhook !== undefined,
     ).toBe(true);
   });
 });
@@ -240,10 +262,13 @@ describe("Action nodes", () => {
   it("action:ai-agent has provider and model properties", () => {
     const def = cloudNodeRegistry.get("action:ai-agent")!;
     const provider = def.properties.find((p) => p.key === "provider");
+    const mode = def.properties.find((p) => p.key === "agentMode");
     const model = def.properties.find((p) => p.key === "model");
     expect(provider).toBeDefined();
+    expect(mode).toBeDefined();
     expect(model).toBeDefined();
     expect(provider!.options!.length).toBeGreaterThan(0);
+    expect(mode!.options!.map((o) => o.value)).toContain("json-decision");
     expect(model!.options!.length).toBeGreaterThan(0);
   });
 
@@ -293,6 +318,15 @@ describe("Output nodes", () => {
     const url = def.properties.find((p) => p.key === "url")!;
     expect(url.required).toBe(true);
   });
+
+  it("has display-only output nodes for run-visible results", () => {
+    for (const type of ["output:display", "output:log", "output:result"]) {
+      const def = cloudNodeRegistry.get(type)!;
+      expect(def.category).toBe("output");
+      expect(def.inputs).toEqual([{ type: "main", label: "input" }]);
+      expect(def.execute).toBeDefined();
+    }
+  });
 });
 
 // ─── Execute functions work ─────────────────────────────────────────────────
@@ -305,7 +339,9 @@ describe("Execute functions", () => {
       recentBlockhash: "11111111111111111111111111111111",
       instructions: [],
     }).compileToV0Message();
-    return Buffer.from(new VersionedTransaction(message).serialize()).toString("base64");
+    return Buffer.from(new VersionedTransaction(message).serialize()).toString(
+      "base64",
+    );
   };
 
   const makeCtx = (params: Record<string, unknown> = {}) => ({
@@ -337,28 +373,40 @@ describe("Execute functions", () => {
 
   it("trigger:cron returns cron metadata", async () => {
     const def = cloudNodeRegistry.get("trigger:cron")!;
-    const result = await def.execute!(makeCtx({ cronExpression: "*/5 * * * *", timezone: "UTC" }));
+    const result = await def.execute!(
+      makeCtx({ cronExpression: "*/5 * * * *", timezone: "UTC" }),
+    );
     expect(result[0].json.triggerType).toBe("cron");
     expect(result[0].json.cronExpression).toBe("*/5 * * * *");
   });
 
   it("action:price-fetch fetches DexScreener price data", async () => {
     const def = cloudNodeRegistry.get("action:price-fetch")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify([
-        { pairAddress: "low", priceUsd: "99", liquidity: { usd: 10 } },
-        { pairAddress: "best", priceUsd: "123.45", liquidity: { usd: 1000 } },
-      ]), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify([
+            { pairAddress: "low", priceUsd: "99", liquidity: { usd: 10 } },
+            {
+              pairAddress: "best",
+              priceUsd: "123.45",
+              liquidity: { usd: 1000 },
+            },
+          ]),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      token: "So11111111111111111111111111111111111111112",
-      source: "dexscreener",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        token: "So11111111111111111111111111111111111111112",
+        source: "dexscreener",
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.dexscreener.com/tokens/v1/solana/So11111111111111111111111111111111111111112",
@@ -370,18 +418,21 @@ describe("Execute functions", () => {
   it("action:price-fetch fetches Birdeye price data with API key", async () => {
     process.env.BIRDEYE_API_KEY = "test-key";
     const def = cloudNodeRegistry.get("action:price-fetch")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ data: { value: 42.5 } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: { value: 42.5 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      token: "SOL",
-      source: "birdeye",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        token: "SOL",
+        source: "birdeye",
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://public-api.birdeye.so/defi/price?address=So11111111111111111111111111111111111111112",
@@ -398,11 +449,12 @@ describe("Execute functions", () => {
 
   it("action:price-fetch uses selected Birdeye credential", async () => {
     const def = cloudNodeRegistry.get("action:price-fetch")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ data: { value: 12.25 } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ data: { value: 12.25 } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const getCredential = vi.fn(async () => ({
       id: "cred-1",
@@ -434,24 +486,30 @@ describe("Execute functions", () => {
   it("action:ai-agent calls OpenAI Responses API", async () => {
     process.env.OPENAI_API_KEY = "test-openai";
     const def = cloudNodeRegistry.get("action:ai-agent")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        output_text: "{\"decision\":\"approve\"}",
-        usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            output_text: '{"decision":"approve"}',
+            usage: { input_tokens: 5, output_tokens: 3, total_tokens: 8 },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      provider: "openai",
-      model: "gpt-4o-mini",
-      systemPrompt: "You classify swaps.",
-      prompt: "test prompt",
-      responseFormat: "json",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        systemPrompt: "You classify swaps.",
+        prompt: "test prompt",
+        responseFormat: "json",
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/responses",
@@ -464,11 +522,13 @@ describe("Execute functions", () => {
       }),
     );
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body.model).toBe("gpt-4o-mini");
     expect(body.input).toBe("test prompt");
     expect(body.text.format.type).toBe("json_object");
-    expect((result[0].json as any).ai.content).toBe("{\"decision\":\"approve\"}");
+    expect((result[0].json as any).ai.content).toBe('{"decision":"approve"}');
     expect((result[0].json as any).ai.json).toEqual({ decision: "approve" });
     expect((result[0].json as any).ai.usage.total_tokens).toBe(8);
   });
@@ -476,22 +536,28 @@ describe("Execute functions", () => {
   it("action:ai-agent calls Anthropic Messages API", async () => {
     process.env.ANTHROPIC_API_KEY = "test-anthropic";
     const def = cloudNodeRegistry.get("action:ai-agent")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        content: [{ type: "text", text: "analysis complete" }],
-        usage: { input_tokens: 7, output_tokens: 2 },
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: "text", text: "analysis complete" }],
+            usage: { input_tokens: 7, output_tokens: 2 },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      provider: "anthropic",
-      model: "claude-3-5-haiku-20241022",
-      prompt: "test prompt",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        provider: "anthropic",
+        model: "claude-3-5-haiku-20241022",
+        prompt: "test prompt",
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.anthropic.com/v1/messages",
@@ -505,7 +571,9 @@ describe("Execute functions", () => {
       }),
     );
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body.model).toBe("claude-3-5-haiku-20241022");
     expect(body.messages[0].content).toBe("test prompt");
     expect((result[0].json as any).ai.content).toBe("analysis complete");
@@ -515,24 +583,36 @@ describe("Execute functions", () => {
   it("action:ai-agent calls Gemini Generative Language API", async () => {
     process.env.GEMINI_API_KEY = "test-gemini";
     const def = cloudNodeRegistry.get("action:ai-agent")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: "{\"decision\":\"hold\"}" }] } }],
-        usageMetadata: { promptTokenCount: 6, candidatesTokenCount: 4, totalTokenCount: 10 },
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              { content: { parts: [{ text: '{"decision":"hold"}' }] } },
+            ],
+            usageMetadata: {
+              promptTokenCount: 6,
+              candidatesTokenCount: 4,
+              totalTokenCount: 10,
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      provider: "gemini",
-      model: "gemini-2.0-flash",
-      systemPrompt: "You classify swaps.",
-      prompt: "test prompt",
-      responseFormat: "json",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        provider: "gemini",
+        model: "gemini-2.0-flash",
+        systemPrompt: "You classify swaps.",
+        prompt: "test prompt",
+        responseFormat: "json",
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=test-gemini",
@@ -544,21 +624,24 @@ describe("Execute functions", () => {
       }),
     );
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body.contents[0].parts[0].text).toBe("test prompt");
     expect(body.generationConfig.responseMimeType).toBe("application/json");
-    expect((result[0].json as any).ai.content).toBe("{\"decision\":\"hold\"}");
+    expect((result[0].json as any).ai.content).toBe('{"decision":"hold"}');
     expect((result[0].json as any).ai.json).toEqual({ decision: "hold" });
     expect((result[0].json as any).ai.usage.totalTokenCount).toBe(10);
   });
 
   it("action:ai-agent uses selected provider credential", async () => {
     const def = cloudNodeRegistry.get("action:ai-agent")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ output_text: "credential response" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ output_text: "credential response" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const getCredential = vi.fn(async () => ({
       id: "cred-1",
@@ -582,7 +665,9 @@ describe("Execute functions", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.openai.com/v1/responses",
       expect.objectContaining({
-        headers: expect.objectContaining({ Authorization: "Bearer credential-openai" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer credential-openai",
+        }),
       }),
     );
     expect((result[0].json as any).ai.content).toBe("credential response");
@@ -590,7 +675,9 @@ describe("Execute functions", () => {
 
   it("action:ai-agent throws without prompt", async () => {
     const def = cloudNodeRegistry.get("action:ai-agent")!;
-    await expect(def.execute!(makeCtx({ provider: "openai" }))).rejects.toThrow("Prompt is required");
+    await expect(def.execute!(makeCtx({ provider: "openai" }))).rejects.toThrow(
+      "Prompt is required",
+    );
   });
 
   it("logic:wait has execute function defined", () => {
@@ -598,23 +685,98 @@ describe("Execute functions", () => {
     expect(def.execute).toBeDefined();
   });
 
+  it("logic:wait stops when execution is aborted", async () => {
+    const def = cloudNodeRegistry.get("logic:wait")!;
+    const controller = new AbortController();
+    controller.abort("test abort");
+    await expect(
+      def.execute!({
+        ...makeCtx({ duration: 1, unit: "minutes" }),
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("test abort");
+  });
+
+  it("output:display captures data without HTTP", async () => {
+    const def = cloudNodeRegistry.get("output:display")!;
+    const result = await def.execute!({
+      ...makeCtx({
+        title: "Price",
+        value: { price: 123 },
+        format: "json",
+      }),
+      inputs: [[{ json: { token: "SOL" } }]],
+    });
+
+    expect(result[0].json.display).toMatchObject({
+      title: "Price",
+      format: "json",
+      value: { price: 123 },
+    });
+    expect(result[0].json.token).toBe("SOL");
+  });
+
+  it("output:log writes node logs and keeps the payload", async () => {
+    const def = cloudNodeRegistry.get("output:log")!;
+    const messages: string[] = [];
+    const result = await def.execute!({
+      ...makeCtx({ level: "warn", message: "price warning" }),
+      inputs: [[{ json: { token: "SOL" } }]],
+      logger: {
+        info: () => {},
+        warn: (message) => messages.push(message),
+        error: () => {},
+      },
+    });
+
+    expect(messages).toEqual(["Run log: price warning"]);
+    expect(result[0].json.log).toMatchObject({
+      level: "warn",
+      message: "price warning",
+    });
+    expect(result[0].json.token).toBe("SOL");
+  });
+
+  it("output:result records a final workflow result", async () => {
+    const def = cloudNodeRegistry.get("output:result")!;
+    const result = await def.execute!(
+      makeCtx({
+        name: "Price result",
+        status: "success",
+        value: { price: 123 },
+      }),
+    );
+
+    expect(result[0].json.result).toMatchObject({
+      name: "Price result",
+      status: "success",
+      value: { price: 123 },
+    });
+  });
+
   it("output:webhook sends a real HTTP request through fetch", async () => {
     const def = cloudNodeRegistry.get("output:webhook")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ ok: true }), {
-        status: 201,
-        statusText: "Created",
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: true }), {
+          status: 201,
+          statusText: "Created",
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      url: "https://example.com",
-      method: "POST",
-      headers: { Authorization: "Bearer secret", "Content-Type": "application/json" },
-      body: { hello: "world" },
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        url: "https://example.com",
+        method: "POST",
+        headers: {
+          Authorization: "Bearer secret",
+          "Content-Type": "application/json",
+        },
+        body: { hello: "world" },
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://example.com",
@@ -625,12 +787,16 @@ describe("Execute functions", () => {
     );
     expect((result[0].json as any).httpResponse.status).toBe(201);
     expect((result[0].json as any).httpResponse.body).toEqual({ ok: true });
-    expect((result[0].json as any).httpResponse.headers.Authorization).toBe("[redacted]");
+    expect((result[0].json as any).httpResponse.headers.Authorization).toBe(
+      "[redacted]",
+    );
   });
 
   it("output:webhook throws without url", async () => {
     const def = cloudNodeRegistry.get("output:webhook")!;
-    await expect(def.execute!(makeCtx({ url: "" }))).rejects.toThrow("URL is required");
+    await expect(def.execute!(makeCtx({ url: "" }))).rejects.toThrow(
+      "URL is required",
+    );
   });
 
   it("output:webhook blocks private network targets by default", async () => {
@@ -638,39 +804,49 @@ describe("Execute functions", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(def.execute!(makeCtx({
-      url: "http://169.254.169.254/latest/meta-data",
-      method: "GET",
-    }))).rejects.toThrow("private or local network");
+    await expect(
+      def.execute!(
+        makeCtx({
+          url: "http://169.254.169.254/latest/meta-data",
+          method: "GET",
+        }),
+      ),
+    ).rejects.toThrow("private or local network");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("action:oracle-price fetches and normalizes Pyth price data", async () => {
     const def = cloudNodeRegistry.get("action:oracle-price")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        parsed: [
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            parsed: [
+              {
+                id: "feed-1",
+                price: {
+                  price: "20250000000",
+                  conf: "1200",
+                  expo: -8,
+                  publish_time: 1710000000,
+                },
+              },
+            ],
+          }),
           {
-            id: "feed-1",
-            price: {
-              price: "20250000000",
-              conf: "1200",
-              expo: -8,
-              publish_time: 1710000000,
-            },
+            status: 200,
+            headers: { "content-type": "application/json" },
           },
-        ],
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      provider: "pyth",
-      feedId: "feed-1",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        provider: "pyth",
+        feedId: "feed-1",
+      }),
+    );
 
     expect(String(fetchMock.mock.calls[0][0])).toContain(
       "https://hermes.pyth.network/v2/updates/price/latest",
@@ -696,20 +872,23 @@ describe("Execute functions", () => {
         },
       },
     ];
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify(feedPayload), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(feedPayload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      operation: "feed-search",
-      provider: "pyth",
-      query: "SOL",
-      assetType: "crypto",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        operation: "feed-search",
+        provider: "pyth",
+        query: "SOL",
+        assetType: "crypto",
+      }),
+    );
 
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       "https://hermes.pyth.network/v2/price_feeds?query=SOL&asset_type=crypto",
@@ -725,38 +904,44 @@ describe("Execute functions", () => {
 
   it("action:pyth-latest-prices fetches multiple feed IDs", async () => {
     const def = cloudNodeRegistry.get("action:pyth-latest-prices")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        parsed: [
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            parsed: [
+              {
+                id: "feed-sol",
+                price: {
+                  price: "15000000000",
+                  conf: "1000",
+                  expo: -8,
+                  publish_time: 1710000000,
+                },
+              },
+              {
+                id: "feed-btc",
+                price: {
+                  price: "6500000000000",
+                  conf: "100000",
+                  expo: -8,
+                  publish_time: 1710000001,
+                },
+              },
+            ],
+          }),
           {
-            id: "feed-sol",
-            price: {
-              price: "15000000000",
-              conf: "1000",
-              expo: -8,
-              publish_time: 1710000000,
-            },
+            status: 200,
+            headers: { "content-type": "application/json" },
           },
-          {
-            id: "feed-btc",
-            price: {
-              price: "6500000000000",
-              conf: "100000",
-              expo: -8,
-              publish_time: 1710000001,
-            },
-          },
-        ],
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      feedIds: "feed-sol, feed-btc",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        feedIds: "feed-sol, feed-btc",
+      }),
+    );
 
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       "https://hermes.pyth.network/v2/updates/price/latest?ids[]=feed-sol&ids[]=feed-btc",
@@ -772,11 +957,15 @@ describe("Execute functions", () => {
 
   it("action:helius-rpc calls JSON-RPC with a selected Helius credential", async () => {
     const def = cloudNodeRegistry.get("action:helius-rpc")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ jsonrpc: "2.0", result: { id: "asset-1" } }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ jsonrpc: "2.0", result: { id: "asset-1" } }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     const getCredential = vi.fn(async () => ({
       id: "cred-helius",
@@ -799,7 +988,9 @@ describe("Execute functions", () => {
     expect(String(fetchMock.mock.calls[0][0])).toBe(
       "https://mainnet.helius-rpc.com/?api-key=helius-key",
     );
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body).toMatchObject({
       jsonrpc: "2.0",
       method: "getAsset",
@@ -815,27 +1006,29 @@ describe("Execute functions", () => {
     const def = cloudNodeRegistry.get("action:helius-rpc")!;
     const methodValues = def.properties
       .find((property) => property.key === "method")!
-      .options!
-      .map((option) => option.value);
+      .options!.map((option) => option.value);
 
-    expect(methodValues).toEqual(expect.arrayContaining([
-      "getAssetProof",
-      "getAssetsByAuthority",
-      "getAssetsByCreator",
-      "getAssetsByGroup",
-      "getNftEditions",
-      "getSignaturesForAsset",
-      "searchAssets",
-    ]));
+    expect(methodValues).toEqual(
+      expect.arrayContaining([
+        "getAssetProof",
+        "getAssetsByAuthority",
+        "getAssetsByCreator",
+        "getAssetsByGroup",
+        "getNftEditions",
+        "getSignaturesForAsset",
+        "searchAssets",
+      ]),
+    );
   });
 
   it("action:helius-parse-transaction calls Enhanced Transactions API", async () => {
     const def = cloudNodeRegistry.get("action:helius-parse-transaction")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify([{ signature: "sig-1", type: "SWAP" }]), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ signature: "sig-1", type: "SWAP" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const getCredential = vi.fn(async () => ({
       id: "cred-helius",
@@ -873,11 +1066,12 @@ describe("Execute functions", () => {
 
   it("action:helius-address-transactions filters enhanced history", async () => {
     const def = cloudNodeRegistry.get("action:helius-address-transactions")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify([{ signature: "sig-1", type: "SWAP" }]), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify([{ signature: "sig-1", type: "SWAP" }]), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const getCredential = vi.fn(async () => ({
       id: "cred-helius",
@@ -919,40 +1113,50 @@ describe("Execute functions", () => {
 
   it("action:metaplex-asset can list DAS assets by owner", async () => {
     const def = cloudNodeRegistry.get("action:metaplex-asset")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        result: { total: 1, items: [{ id: "asset-1" }] },
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: { total: 1, items: [{ id: "asset-1" }] },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      operation: "getAssetsByOwner",
-      ownerAddress: "Owner111111111111111111111111111111111111111",
-      page: 2,
-      limit: 25,
-      showFungible: true,
-      showNativeBalance: true,
-      rpcUrl: "https://rpc.example.com",
-    }));
-
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body).toMatchObject({
-      jsonrpc: "2.0",
-      method: "getAssetsByOwner",
-      params: [{
+    const result = await def.execute!(
+      makeCtx({
+        operation: "getAssetsByOwner",
         ownerAddress: "Owner111111111111111111111111111111111111111",
         page: 2,
         limit: 25,
-        displayOptions: {
-          showFungible: true,
-          showNativeBalance: true,
+        showFungible: true,
+        showNativeBalance: true,
+        rpcUrl: "https://rpc.example.com",
+      }),
+    );
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
+    expect(body).toMatchObject({
+      jsonrpc: "2.0",
+      method: "getAssetsByOwner",
+      params: [
+        {
+          ownerAddress: "Owner111111111111111111111111111111111111111",
+          page: 2,
+          limit: 25,
+          displayOptions: {
+            showFungible: true,
+            showNativeBalance: true,
+          },
         },
-      }],
+      ],
     });
     expect((result[0].json as any).metaplexAsset).toMatchObject({
       method: "getAssetsByOwner",
@@ -964,39 +1168,57 @@ describe("Execute functions", () => {
     const cases = [
       {
         type: "action:metaplex-asset-proof",
-        params: { assetId: "Asset111111111111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        params: {
+          assetId: "Asset111111111111111111111111111111111111111",
+          rpcUrl: "https://rpc.example.com",
+        },
         method: "getAssetProof",
       },
       {
         type: "action:metaplex-assets-by-group",
-        params: { groupValue: "Collection111111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        params: {
+          groupValue: "Collection111111111111111111111111111111111",
+          rpcUrl: "https://rpc.example.com",
+        },
         method: "getAssetsByGroup",
       },
       {
         type: "action:metaplex-assets-by-creator",
-        params: { creatorAddress: "Creator1111111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        params: {
+          creatorAddress: "Creator1111111111111111111111111111111111",
+          rpcUrl: "https://rpc.example.com",
+        },
         method: "getAssetsByCreator",
       },
       {
         type: "action:metaplex-assets-by-authority",
-        params: { authorityAddress: "Authority11111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        params: {
+          authorityAddress: "Authority11111111111111111111111111111111",
+          rpcUrl: "https://rpc.example.com",
+        },
         method: "getAssetsByAuthority",
       },
     ];
 
     for (const item of cases) {
       const def = cloudNodeRegistry.get(item.type)!;
-      const fetchMock = vi.fn(async () =>
-        new Response(JSON.stringify({ jsonrpc: "2.0", result: { ok: true } }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+      const fetchMock = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ jsonrpc: "2.0", result: { ok: true } }),
+            {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            },
+          ),
       );
       vi.stubGlobal("fetch", fetchMock);
 
       await def.execute!(makeCtx(item.params));
 
-      const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+      const body = JSON.parse(
+        (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+      );
       expect(body.method).toBe(item.method);
       vi.unstubAllGlobals();
     }
@@ -1004,51 +1226,62 @@ describe("Execute functions", () => {
 
   it("action:token-account-query filters token accounts by mint", async () => {
     const def = cloudNodeRegistry.get("action:token-account-query")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({
-        jsonrpc: "2.0",
-        result: {
-          value: [
-            {
-              pubkey: "match",
-              account: { data: { parsed: { info: { mint: "MintA" } } } },
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            result: {
+              value: [
+                {
+                  pubkey: "match",
+                  account: { data: { parsed: { info: { mint: "MintA" } } } },
+                },
+                {
+                  pubkey: "skip",
+                  account: { data: { parsed: { info: { mint: "MintB" } } } },
+                },
+              ],
             },
-            {
-              pubkey: "skip",
-              account: { data: { parsed: { info: { mint: "MintB" } } } },
-            },
-          ],
-        },
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      owner: "Owner111111111111111111111111111111111111111",
-      mint: "MintA",
-      tokenProgram: "spl",
-      rpcUrl: "https://rpc.example.com",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        owner: "Owner111111111111111111111111111111111111111",
+        mint: "MintA",
+        tokenProgram: "spl",
+        rpcUrl: "https://rpc.example.com",
+      }),
+    );
 
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body.method).toBe("getParsedTokenAccountsByOwner");
     expect(body.params[1]).toEqual({
       programId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     });
     expect((result[0].json as any).tokenAccounts.count).toBe(1);
-    expect((result[0].json as any).tokenAccounts.accounts[0].pubkey).toBe("match");
+    expect((result[0].json as any).tokenAccounts.accounts[0].pubkey).toBe(
+      "match",
+    );
   });
 
   it("action:squads-proposal posts proposal payloads with credential headers", async () => {
     const def = cloudNodeRegistry.get("action:squads-proposal")!;
-    const fetchMock = vi.fn(async () =>
-      new Response(JSON.stringify({ proposalId: "proposal-1" }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ proposalId: "proposal-1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
     );
     const getCredential = vi.fn(async () => ({
       id: "cred-squads",
@@ -1071,7 +1304,10 @@ describe("Execute functions", () => {
       credentials: { get: getCredential },
     });
 
-    expect(getCredential).toHaveBeenCalledWith("cred-squads", ["squads", "webhook"]);
+    expect(getCredential).toHaveBeenCalledWith("cred-squads", [
+      "squads",
+      "webhook",
+    ]);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://example.com/squads/proposals",
       expect.objectContaining({
@@ -1079,7 +1315,9 @@ describe("Execute functions", () => {
         headers: expect.objectContaining({ "X-API-Key": "squads-key" }),
       }),
     );
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body).toMatchObject({
       multisig: "Squads1111111111111111111111111111111111111",
       title: "Review treasury report",
@@ -1105,7 +1343,8 @@ describe("Execute functions", () => {
       wallet: {
         signAndSend,
         simulate,
-        getPublicKey: async () => "8Hj6ScMnKvz8wzco9BT2h8MpbqbnvTdTUVDCeJaUE6kW",
+        getPublicKey: async () =>
+          "8Hj6ScMnKvz8wzco9BT2h8MpbqbnvTdTUVDCeJaUE6kW",
         getBalance: async () => 0,
       },
     });
@@ -1113,7 +1352,9 @@ describe("Execute functions", () => {
     const transaction = signAndSend.mock.calls[0][0] as Transaction;
     expect(transaction).toBeInstanceOf(Transaction);
     expect(transaction.instructions).toHaveLength(1);
-    expect(transaction.instructions[0].programId.equals(SystemProgram.programId)).toBe(true);
+    expect(
+      transaction.instructions[0].programId.equals(SystemProgram.programId),
+    ).toBe(true);
     expect(simulate).toHaveBeenCalledWith(expect.any(Transaction), "wallet-1");
     expect((result[0].json as any).transfer.signature).toBe("transfer-sig");
     expect((result[0].json as any).transfer.type).toBe("sol");
@@ -1132,7 +1373,8 @@ describe("Execute functions", () => {
       }),
       wallet: {
         signAndSend,
-        getPublicKey: async () => "8Hj6ScMnKvz8wzco9BT2h8MpbqbnvTdTUVDCeJaUE6kW",
+        getPublicKey: async () =>
+          "8Hj6ScMnKvz8wzco9BT2h8MpbqbnvTdTUVDCeJaUE6kW",
         getBalance: async () => 0,
       },
     });
@@ -1148,11 +1390,13 @@ describe("Execute functions", () => {
     const def = cloudNodeRegistry.get("transform:filter")!;
     const ctx = {
       ...makeCtx({ field: "price", condition: "gt", value: "100" }),
-      inputs: [[
-        { json: { price: 150 } },
-        { json: { price: 50 } },
-        { json: { price: 200 } },
-      ]],
+      inputs: [
+        [
+          { json: { price: 150 } },
+          { json: { price: 50 } },
+          { json: { price: 200 } },
+        ],
+      ],
     };
     const result = await def.execute!(ctx);
     expect(result).toHaveLength(2);
@@ -1164,12 +1408,9 @@ describe("Execute functions", () => {
     const def = cloudNodeRegistry.get("logic:if-else")!;
     const ctx = {
       ...makeCtx({ field: "price", operator: "gt", value: "100" }),
-      inputs: [[
-        { json: { price: 150 } },
-        { json: { price: 50 } },
-      ]],
+      inputs: [[{ json: { price: 150 } }, { json: { price: 50 } }]],
     };
-    const result = await def.execute!(ctx) as unknown as [any[], any[]];
+    const result = (await def.execute!(ctx)) as unknown as [any[], any[]];
     expect(result[0]).toHaveLength(1);
     expect(result[0][0].json.price).toBe(150);
     expect(result[1]).toHaveLength(1);
@@ -1181,15 +1422,20 @@ describe("Execute functions", () => {
     const pricePayload = {
       So11111111111111111111111111111111111111112: { usdPrice: 150 },
     };
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(pricePayload), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(pricePayload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      tokenIds: "So11111111111111111111111111111111111111112",
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        tokenIds: "So11111111111111111111111111111111111111112",
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112",
@@ -1202,17 +1448,22 @@ describe("Execute functions", () => {
   it("action:jupiter-token-category reads Jupiter Tokens category data", async () => {
     const def = cloudNodeRegistry.get("action:jupiter-token-category")!;
     const tokensPayload = [{ id: "Token111", symbol: "TKN" }];
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(tokensPayload), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(tokensPayload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await def.execute!(makeCtx({
-      tokenCategory: "toptraded",
-      tokenInterval: "24h",
-      tokenLimit: 25,
-    }));
+    const result = await def.execute!(
+      makeCtx({
+        tokenCategory: "toptraded",
+        tokenInterval: "24h",
+        tokenLimit: 25,
+      }),
+    );
 
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.jup.ag/tokens/v2/toptraded/24h?limit=25",
@@ -1232,10 +1483,13 @@ describe("Execute functions", () => {
     const pricePayload = {
       So11111111111111111111111111111111111111112: { usdPrice: 150 },
     };
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(pricePayload), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify(pricePayload), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
     const getCredential = vi.fn(async () => ({
       id: "cred-jupiter",
       label: "Jupiter",
@@ -1273,16 +1527,21 @@ describe("Execute functions", () => {
           headers: { "content-type": "application/json" },
         });
       }
-      return new Response(JSON.stringify([{ id: "Recent111", firstPool: { id: "Pool111" } }]), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify([{ id: "Recent111", firstPool: { id: "Pool111" } }]),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const tagged = await tagDef.execute!(makeCtx({
-      tokenTag: "lst",
-    }));
+    const tagged = await tagDef.execute!(
+      makeCtx({
+        tokenTag: "lst",
+      }),
+    );
     const recent = await recentDef.execute!(makeCtx());
 
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -1327,16 +1586,19 @@ describe("Execute functions", () => {
         });
       }
 
-      return new Response(JSON.stringify({
-        status: "Success",
-        signature: "swap-sig",
-        code: 0,
-        inputAmountResult: "1000000",
-        outputAmountResult: "150000",
-      }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          status: "Success",
+          signature: "swap-sig",
+          code: 0,
+          inputAmountResult: "1000000",
+          outputAmountResult: "150000",
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
     });
     const simulate = vi.fn(async () => ({ err: null, logs: ["ok"] }));
     const signTransaction = vi.fn(async (tx: unknown) => tx);
@@ -1355,7 +1617,8 @@ describe("Execute functions", () => {
         signAndSend: async () => "unused",
         signTransaction,
         simulate,
-        getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
+        getPublicKey: async () =>
+          "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
         getBalance: async () => 0,
       },
     });
@@ -1368,25 +1631,39 @@ describe("Execute functions", () => {
       "https://api.jup.ag/swap/v2/execute",
       expect.objectContaining({ method: "POST" }),
     );
-    const executeBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    const executeBody = JSON.parse(
+      (fetchMock.mock.calls[1][1] as RequestInit).body as string,
+    );
     expect(executeBody.requestId).toBe("req-1");
     expect(executeBody.signedTransaction).toEqual(expect.any(String));
-    expect(simulate).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
-    expect(signTransaction).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
+    expect(simulate).toHaveBeenCalledWith(
+      expect.any(VersionedTransaction),
+      "wallet-1",
+    );
+    expect(signTransaction).toHaveBeenCalledWith(
+      expect.any(VersionedTransaction),
+      "wallet-1",
+    );
     expect((result[0].json as any).swap.signature).toBe("swap-sig");
     expect((result[0].json as any).swap.outAmount).toBe("150000");
   });
 
   it("action:jupiter-swap-execute signs and executes an existing Jupiter order", async () => {
     const def = cloudNodeRegistry.get("action:jupiter-swap-execute")!;
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      status: "Success",
-      signature: "exec-sig",
-      code: 0,
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            status: "Success",
+            signature: "exec-sig",
+            code: 0,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
     const signTransaction = vi.fn(async (tx: unknown) => tx);
     vi.stubGlobal("fetch", fetchMock);
 
@@ -1399,7 +1676,8 @@ describe("Execute functions", () => {
       wallet: {
         signAndSend: async () => "unused",
         signTransaction,
-        getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
+        getPublicKey: async () =>
+          "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
         getBalance: async () => 0,
       },
     });
@@ -1408,10 +1686,15 @@ describe("Execute functions", () => {
       "https://api.jup.ag/swap/v2/execute",
       expect.objectContaining({ method: "POST" }),
     );
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    const body = JSON.parse(
+      (fetchMock.mock.calls[0][1] as RequestInit).body as string,
+    );
     expect(body.requestId).toBe("req-execute");
     expect(body.signedTransaction).toEqual(expect.any(String));
-    expect(signTransaction).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
+    expect(signTransaction).toHaveBeenCalledWith(
+      expect.any(VersionedTransaction),
+      "wallet-1",
+    );
     expect((result[0].json as any).jupiter).toMatchObject({
       operation: "swap-execute",
       signature: "exec-sig",
@@ -1421,32 +1704,44 @@ describe("Execute functions", () => {
 
   it("action:jupiter-swap throws when local transaction simulation reports an error", async () => {
     const def = cloudNodeRegistry.get("action:jupiter-swap")!;
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      inputMint: "So11111111111111111111111111111111111111112",
-      inAmount: "1000000",
-      outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-      outAmount: "150000",
-      transaction: makeSerializedSwapTransaction(),
-      requestId: "req-err",
-    }), { status: 200 }));
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            inputMint: "So11111111111111111111111111111111111111112",
+            inAmount: "1000000",
+            outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            outAmount: "150000",
+            transaction: makeSerializedSwapTransaction(),
+            requestId: "req-err",
+          }),
+          { status: 200 },
+        ),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(def.execute!({
-      ...makeCtx({
-        operation: "swap-direct-send",
-        inputMint: "So11111111111111111111111111111111111111112",
-        outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        amount: 1000000,
-        walletId: "wallet-1",
+    await expect(
+      def.execute!({
+        ...makeCtx({
+          operation: "swap-direct-send",
+          inputMint: "So11111111111111111111111111111111111111112",
+          outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          amount: 1000000,
+          walletId: "wallet-1",
+        }),
+        wallet: {
+          signAndSend: async () => "sig",
+          signTransaction: async (tx: unknown) => tx,
+          simulate: async () => ({
+            err: { InstructionError: [0, "Custom"] },
+            logs: ["bad"],
+          }),
+          getPublicKey: async () =>
+            "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
+          getBalance: async () => 0,
+        },
       }),
-      wallet: {
-        signAndSend: async () => "sig",
-        signTransaction: async (tx: unknown) => tx,
-        simulate: async () => ({ err: { InstructionError: [0, "Custom"] }, logs: ["bad"] }),
-        getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
-        getBalance: async () => 0,
-      },
-    })).rejects.toThrow("transaction simulation failed");
+    ).rejects.toThrow("transaction simulation failed");
   });
 
   it("action:jupiter-price rejects private provider base URLs from credentials", async () => {
@@ -1460,18 +1755,21 @@ describe("Execute functions", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(def.execute!({
-      ...makeCtx({
-        tokenIds: "So11111111111111111111111111111111111111112",
-        credentialId: "cred-1",
+    await expect(
+      def.execute!({
+        ...makeCtx({
+          tokenIds: "So11111111111111111111111111111111111111112",
+          credentialId: "cred-1",
+        }),
+        credentials: { get: getCredential },
+        wallet: {
+          signAndSend: async () => "sig",
+          getPublicKey: async () =>
+            "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
+          getBalance: async () => 0,
+        },
       }),
-      credentials: { get: getCredential },
-      wallet: {
-        signAndSend: async () => "sig",
-        getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
-        getBalance: async () => 0,
-      },
-    })).rejects.toThrow("Provider URL must use https");
+    ).rejects.toThrow("Provider URL must use https");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

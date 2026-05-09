@@ -15,10 +15,7 @@ export { getIconByName } from "./icons";
 
 // Connection validation
 export { isValidCloudConnection, canNodeHaveInputs } from "./connection-rules";
-export {
-  assessCloudSafetyPolicy,
-  assertWalletSafety,
-} from "./security/safety";
+export { assessCloudSafetyPolicy, assertWalletSafety } from "./security/safety";
 export type { CloudSafetyPolicyAssessment } from "./security/safety";
 
 // Node definitions
@@ -39,12 +36,21 @@ export {
   jupiterTokenSearchDef,
   jupiterTokenTagDef,
 } from "./nodes/action-jupiter-swap";
-export { TokenTransferNode, tokenTransferDef } from "./nodes/action-token-transfer";
+export {
+  TokenTransferNode,
+  tokenTransferDef,
+} from "./nodes/action-token-transfer";
 export { CronTriggerNode, cronTriggerDef } from "./nodes/trigger-cron";
 export { WebhookTriggerNode, webhookTriggerDef } from "./nodes/trigger-webhook";
 export { AiAgentNode, aiAgentDef } from "./nodes/action-ai-agent";
 export { WaitNode, waitDef } from "./nodes/logic-wait";
 export { WebhookOutputNode, webhookOutputDef } from "./nodes/output-webhook";
+export {
+  OutputDisplayNode,
+  outputDisplayDef,
+  outputLogDef,
+  outputResultDef,
+} from "./nodes/output-display";
 export {
   HeliusRpcNode,
   MetaplexAssetNode,
@@ -99,6 +105,11 @@ import { aiAgentDef } from "./nodes/action-ai-agent";
 import { waitDef } from "./nodes/logic-wait";
 import { webhookOutputDef } from "./nodes/output-webhook";
 import {
+  outputDisplayDef,
+  outputLogDef,
+  outputResultDef,
+} from "./nodes/output-display";
+import {
   heliusRpcDef,
   heliusAddressTransactionsDef,
   heliusParseTransactionDef,
@@ -142,6 +153,9 @@ export function registerBuiltinNodes(): void {
   cloudNodeRegistry.register(aiAgentDef);
   cloudNodeRegistry.register(waitDef);
   cloudNodeRegistry.register(webhookOutputDef);
+  cloudNodeRegistry.register(outputDisplayDef);
+  cloudNodeRegistry.register(outputLogDef);
+  cloudNodeRegistry.register(outputResultDef);
   cloudNodeRegistry.register(pythPriceDef);
   cloudNodeRegistry.register(pythFeedSearchDef);
   cloudNodeRegistry.register(pythLatestPricesDef);
@@ -177,6 +191,7 @@ import { WebhookTriggerNode } from "./nodes/trigger-webhook";
 import { AiAgentNode } from "./nodes/action-ai-agent";
 import { WaitNode } from "./nodes/logic-wait";
 import { WebhookOutputNode } from "./nodes/output-webhook";
+import { OutputDisplayNode } from "./nodes/output-display";
 import {
   HeliusRpcNode,
   MetaplexAssetNode,
@@ -186,9 +201,9 @@ import {
 } from "./nodes/action-integration-pack";
 
 export const cloudNodeTypes = {
-  "trigger:manual":     ManualTriggerNode,
-  "trigger:cron":       CronTriggerNode,
-  "trigger:webhook":    WebhookTriggerNode,
+  "trigger:manual": ManualTriggerNode,
+  "trigger:cron": CronTriggerNode,
+  "trigger:webhook": WebhookTriggerNode,
   "action:price-fetch": PriceFetchNode,
   "action:jupiter-price": JupiterSwapNode,
   "action:jupiter-token-search": JupiterSwapNode,
@@ -201,7 +216,7 @@ export const cloudNodeTypes = {
   "action:jupiter-swap-execute": JupiterSwapNode,
   "action:jupiter-swap": JupiterSwapNode,
   "action:token-transfer": TokenTransferNode,
-  "action:ai-agent":    AiAgentNode,
+  "action:ai-agent": AiAgentNode,
   "action:pyth-price": OraclePriceNode,
   "action:pyth-feed-search": OraclePriceNode,
   "action:pyth-latest-prices": OraclePriceNode,
@@ -222,8 +237,11 @@ export const cloudNodeTypes = {
   "action:metaplex-search-assets": MetaplexAssetNode,
   "action:metaplex-asset": MetaplexAssetNode,
   "action:squads-proposal": SquadsProposalNode,
-  "transform:filter":   FilterNode,
-  "logic:if-else":      IfElseNode,
-  "logic:wait":         WaitNode,
-  "output:webhook":     WebhookOutputNode,
+  "transform:filter": FilterNode,
+  "logic:if-else": IfElseNode,
+  "logic:wait": WaitNode,
+  "output:webhook": WebhookOutputNode,
+  "output:display": OutputDisplayNode,
+  "output:log": OutputDisplayNode,
+  "output:result": OutputDisplayNode,
 } as const;
