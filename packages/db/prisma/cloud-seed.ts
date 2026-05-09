@@ -675,7 +675,7 @@ export const CLOUD_TEMPLATES = [
       "A no-wallet starter that calls Jupiter Tokens V2 category data, keeps token metadata and market signals in the run output, then forwards the result to a webhook for dashboards, alerts, or manual review.",
     category: "DEFI",
     tags: ["jupiter", "tokens", "discovery", "market", "no-wallet"],
-    nodeTypes: ["trigger:manual", "action:jupiter-swap", "output:webhook"],
+    nodeTypes: ["trigger:manual", "action:jupiter-token-category", "output:webhook"],
     featured: true,
     definition: makeDefinition(
       [
@@ -687,10 +687,9 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n2",
-          type: "action:jupiter-swap",
+          type: "action:jupiter-token-category",
           position: { x: 320, y: 220 },
           data: {
-            operation: "token-category",
             tokenCategory: "toptraded",
             tokenInterval: "24h",
             tokenLimit: 25,
@@ -724,7 +723,7 @@ export const CLOUD_TEMPLATES = [
       "A no-key utility template that searches the Pyth Hermes feed catalog by symbol or pair, returns matching feed IDs, and sends the result to a webhook so operators can pick the exact feed for production workflows.",
     category: "DEFI",
     tags: ["pyth", "oracle", "feed-search", "no-wallet", "utility"],
-    nodeTypes: ["trigger:manual", "action:oracle-price", "output:webhook"],
+    nodeTypes: ["trigger:manual", "action:pyth-feed-search", "output:webhook"],
     featured: false,
     definition: makeDefinition(
       [
@@ -736,11 +735,9 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n2",
-          type: "action:oracle-price",
+          type: "action:pyth-feed-search",
           position: { x: 320, y: 220 },
           data: {
-            operation: "feed-search",
-            provider: "pyth",
             query: "SOL",
             assetType: "crypto",
           },
@@ -772,7 +769,7 @@ export const CLOUD_TEMPLATES = [
       "A ready integration-pack template that reads an oracle price, checks a deterministic threshold, and sends an execution summary to an operations webhook. Swap the provider to Switchboard when you have a compatible API URL.",
     category: "DEFI",
     tags: ["pyth", "switchboard", "oracle", "risk", "automation"],
-    nodeTypes: ["trigger:cron", "action:oracle-price", "logic:if-else", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:pyth-price", "logic:if-else", "output:webhook"],
     featured: true,
     definition: makeDefinition(
       [
@@ -784,10 +781,9 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n2",
-          type: "action:oracle-price",
+          type: "action:pyth-price",
           position: { x: 300, y: 220 },
           data: {
-            provider: "pyth",
             feedId: "ef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d",
           },
         },
@@ -822,10 +818,10 @@ export const CLOUD_TEMPLATES = [
     title: "NFT Asset Watch",
     description: "Read Metaplex asset metadata through Helius and route notable assets to a webhook.",
     longDescription:
-      "Fetches a DAS-compatible asset record with the Metaplex Asset node, keeps the raw Helius result in the execution timeline, and sends the normalized asset payload to a webhook for review or indexing.",
+      "Fetches a DAS-compatible asset record with the Metaplex Get Asset node, keeps the raw Helius result in the execution timeline, and sends the normalized asset payload to a webhook for review or indexing.",
     category: "NFT",
     tags: ["helius", "metaplex", "nft", "das", "webhook"],
-    nodeTypes: ["trigger:manual", "action:metaplex-asset", "output:webhook"],
+    nodeTypes: ["trigger:manual", "action:metaplex-get-asset", "output:webhook"],
     featured: false,
     definition: makeDefinition(
       [
@@ -837,9 +833,9 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n2",
-          type: "action:metaplex-asset",
+          type: "action:metaplex-get-asset",
           position: { x: 320, y: 220 },
-          data: { operation: "getAsset", assetId: "YOUR_ASSET_ID", credentialId: "" },
+          data: { assetId: "YOUR_ASSET_ID", credentialId: "" },
         },
         {
           id: "n3",
@@ -912,7 +908,7 @@ export const CLOUD_TEMPLATES = [
       "A lightweight wallet monitoring workflow that checks recent signatures for an address through JSON-RPC or Helius, then forwards the result to an operations webhook.",
     category: "UTILITY",
     tags: ["wallet", "activity", "helius", "alert", "monitoring"],
-    nodeTypes: ["trigger:cron", "action:helius-rpc", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:helius-wallet-activity", "output:webhook"],
     featured: true,
     definition: makeDefinition(
       [
@@ -924,11 +920,11 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n2",
-          type: "action:helius-rpc",
+          type: "action:helius-wallet-activity",
           position: { x: 320, y: 220 },
           data: {
-            method: "getSignaturesForAddress",
-            params: ["YOUR_WALLET_ADDRESS", { limit: 10 }],
+            address: "YOUR_WALLET_ADDRESS",
+            limit: 10,
             credentialId: "",
             rpcUrl: "",
           },
@@ -951,6 +947,58 @@ export const CLOUD_TEMPLATES = [
       ],
     ),
     settings: { timeout: 90, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },
+  },
+
+  {
+    title: "Enhanced Wallet Swap History",
+    description: "Fetch human-readable swap history for a wallet through Helius Enhanced Transactions.",
+    longDescription:
+      "Uses Helius Address Transactions to return parsed transaction descriptions, transfer data, fees, and swap events for a wallet. Add a Helius credential, choose filters, and send the enhanced history to your webhook or dashboard.",
+    category: "UTILITY",
+    tags: ["helius", "transactions", "wallet", "swap", "history"],
+    nodeTypes: ["trigger:manual", "action:helius-address-transactions", "output:webhook"],
+    featured: false,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:helius-address-transactions",
+          position: { x: 320, y: 220 },
+          data: {
+            address: "YOUR_WALLET_ADDRESS",
+            limit: 10,
+            transactionType: "SWAP",
+            source: "JUPITER",
+            tokenAccounts: "balanceChanged",
+            sortOrder: "desc",
+            commitment: "finalized",
+            credentialId: "",
+          },
+        },
+        {
+          id: "n3",
+          type: "output:webhook",
+          position: { x: 640, y: 220 },
+          data: {
+            url: "https://example.com/ops/enhanced-wallet-history",
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{{ $json.helius }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
   },
 
   {

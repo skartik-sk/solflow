@@ -13,7 +13,7 @@ describe("cloud workflow feature helpers", () => {
     expect(draft.matchedIntent).toBe("wallet-activity-alert");
     expect(draft.definition.nodes.map((node) => node.type)).toEqual([
       "trigger:cron",
-      "action:helius-rpc",
+      "action:helius-wallet-activity",
       "output:webhook",
     ]);
     expect(draft.settings.safety?.simulationRequired).toBe(true);

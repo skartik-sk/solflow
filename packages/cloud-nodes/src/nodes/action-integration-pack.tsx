@@ -10,6 +10,7 @@ import { assertSafeOutboundUrl } from "../security/outbound-url";
 const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
 const PYTH_HERMES_BASE_URL = "https://hermes.pyth.network";
 const PYTH_HERMES_PRICE_URL = `${PYTH_HERMES_BASE_URL}/v2/updates/price/latest`;
+const HELIUS_ENHANCED_BASE_URL = "https://api-mainnet.helius-rpc.com";
 const SPL_TOKEN_PROGRAM = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN_2022_PROGRAM = "TokenzQdBNbLqP5VE1xmCGdUFtYBXTc6JBAiN4LqfVq3";
 const HELIUS_DAS_METHODS = new Set([
@@ -117,6 +118,37 @@ function requiredString(params: Record<string, unknown>, key: string, label: str
   const value = optionalString(params, key);
   if (!value) throw new Error(`${label} is required`);
   return value;
+}
+
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean);
+  }
+  if (typeof value !== "string") return [];
+  return value
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function resolveHeliusApiKey(params: Record<string, unknown>, credential: Record<string, unknown>): string {
+  const apiKey = optionalString(params, "apiKey") ?? optionalString(credential, "apiKey") ?? getEnv("HELIUS_API_KEY");
+  if (!apiKey) {
+    throw new Error("Helius Enhanced Transactions require a Helius credential or HELIUS_API_KEY");
+  }
+  return apiKey;
+}
+
+function heliusEnhancedUrl(
+  path: string,
+  params: Record<string, unknown>,
+  credential: Record<string, unknown>,
+): URL {
+  const apiUrl = optionalString(params, "apiUrl") ?? optionalString(credential, "apiUrl") ?? HELIUS_ENHANCED_BASE_URL;
+  const base = apiUrl.endsWith("/") ? apiUrl : `${apiUrl}/`;
+  const url = assertSafeOutboundUrl(new URL(path.replace(/^\//, ""), base).toString());
+  url.searchParams.set("api-key", resolveHeliusApiKey(params, credential));
+  return url;
 }
 
 function positiveInteger(value: unknown, fallback: number): number {
@@ -318,9 +350,13 @@ export const OraclePriceNode = memo(function OraclePriceNode({
   const nodeData = data.data ?? {};
   const operation = String(nodeData.operation ?? "latest-price");
   const meta =
-    operation === "feed-search"
-      ? `pyth:${String(nodeData.query ?? "search")}`
-      : `${nodeData.provider ?? "pyth"}:${String(nodeData.feedId ?? "").slice(0, 8)}`;
+    typeof nodeData.feedIds === "string" && nodeData.feedIds
+      ? `pyth:${nodeData.feedIds.split(/[\s,]+/)[0]?.slice(0, 8) ?? "feeds"}`
+      : operation === "latest-prices"
+        ? "pyth:feeds"
+        : operation === "feed-search"
+          ? `pyth:${String(nodeData.query ?? "search")}`
+          : `${nodeData.provider ?? "pyth"}:${String(nodeData.feedId ?? "").slice(0, 8)}`;
 
   return (
     <IntegrationCard
@@ -507,6 +543,193 @@ export const oraclePriceDef: CloudNodeDefinition = {
   },
 };
 
+type IntegrationExecuteContext = Parameters<NonNullable<CloudNodeDefinition["execute"]>>[0];
+
+function runOracleNode(ctx: IntegrationExecuteContext, params: Record<string, unknown>) {
+  return oraclePriceDef.execute!({
+    ...ctx,
+    params: { ...ctx.params, ...params },
+  });
+}
+
+export const pythPriceDef: CloudNodeDefinition = {
+  type: "action:pyth-price",
+  label: "Pyth Price",
+  category: "action",
+  description: "Read the latest price for one Pyth feed ID.",
+  icon: "Satellite",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    {
+      key: "feedId",
+      label: "Feed ID",
+      type: "text",
+      required: true,
+      description: "Pyth price feed ID.",
+      supportsExpressions: true,
+    },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "price" }],
+  defaultData: {
+    operation: "latest-price",
+    provider: "pyth",
+    feedId: "",
+  },
+  component: OraclePriceNode,
+  execute: (ctx) => runOracleNode(ctx, { operation: "latest-price", provider: "pyth" }),
+};
+
+export const pythFeedSearchDef: CloudNodeDefinition = {
+  type: "action:pyth-feed-search",
+  label: "Pyth Feed Search",
+  category: "action",
+  description: "Search the public Pyth feed catalog by symbol or pair.",
+  icon: "Satellite",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    {
+      key: "query",
+      label: "Search",
+      type: "text",
+      required: true,
+      description: "Feed search query, such as SOL, BTC, MSOL, or Crypto.SOL/USD.",
+      placeholder: "SOL",
+      supportsExpressions: true,
+    },
+    {
+      key: "assetType",
+      label: "Asset Type",
+      type: "select",
+      required: false,
+      default: "crypto",
+      options: [
+        { label: "Any", value: "any" },
+        { label: "Crypto", value: "crypto" },
+        { label: "Equity", value: "equity" },
+        { label: "FX", value: "fx" },
+        { label: "Metal", value: "metal" },
+        { label: "Rates", value: "rates" },
+      ],
+    },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "feeds" }],
+  defaultData: {
+    operation: "feed-search",
+    provider: "pyth",
+    query: "SOL",
+    assetType: "crypto",
+  },
+  component: OraclePriceNode,
+  execute: (ctx) => runOracleNode(ctx, { operation: "feed-search", provider: "pyth" }),
+};
+
+export const pythLatestPricesDef: CloudNodeDefinition = {
+  type: "action:pyth-latest-prices",
+  label: "Pyth Latest Prices",
+  category: "action",
+  description: "Read latest parsed prices for one or more Pyth feed IDs.",
+  icon: "Satellite",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    {
+      key: "feedIds",
+      label: "Feed IDs",
+      type: "text",
+      required: true,
+      description: "Comma or newline separated Pyth price feed IDs.",
+      supportsExpressions: true,
+    },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "prices" }],
+  defaultData: {
+    feedIds: "",
+  },
+  component: OraclePriceNode,
+  async execute(ctx) {
+    const feedIds = stringList(ctx.params.feedIds);
+    if (feedIds.length === 0) throw new Error("At least one Pyth feed ID is required");
+    const query = feedIds.map((feedId) => `ids[]=${encodeURIComponent(feedId)}`).join("&");
+    const url = assertSafeOutboundUrl(`${PYTH_HERMES_PRICE_URL}?${query}`);
+    const response = await requireFetch()(url.toString(), { signal: ctx.signal });
+    if (!response.ok) {
+      throw new Error(`Pyth latest prices request failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
+    }
+    const payload = await response.json() as {
+      parsed?: Array<{ id: string; price?: { price?: string; conf?: string; expo?: number; publish_time?: number } }>;
+    };
+    const prices = (payload.parsed ?? []).map((parsed) => {
+      const rawPrice = parsed.price?.price;
+      const price = Number(rawPrice);
+      const expo = Number(parsed.price?.expo ?? 0);
+      return {
+        id: parsed.id,
+        price: rawPrice !== undefined && Number.isFinite(price) ? price * 10 ** expo : null,
+        rawPrice,
+        confidence: parsed.price?.conf,
+        exponent: expo,
+        publishTime: parsed.price?.publish_time,
+      };
+    });
+    const inputItems = ctx.inputs[0] ?? [{ json: {} }];
+    return inputItems.map((item) => ({
+      ...item,
+      json: {
+        ...item.json,
+        oracle: {
+          provider: "pyth",
+          operation: "latest-prices",
+          feedIds,
+          count: prices.length,
+          prices,
+          fetchedAt: new Date().toISOString(),
+        },
+      },
+    }));
+  },
+};
+
+export const switchboardPriceDef: CloudNodeDefinition = {
+  type: "action:switchboard-price",
+  label: "Switchboard Price",
+  category: "action",
+  description: "Read a Switchboard-compatible price endpoint.",
+  icon: "Satellite",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "feedId", label: "Feed ID", type: "text", required: true, supportsExpressions: true },
+    {
+      key: "apiUrl",
+      label: "API URL",
+      type: "text",
+      required: false,
+      description: "URL template. Use {feedId} where the feed ID should be inserted.",
+      supportsExpressions: true,
+    },
+    {
+      key: "credentialId",
+      label: "Credential",
+      type: "credential",
+      required: false,
+      credentialTypes: ["switchboard", "webhook"],
+      description: "Optional API URL, bearer token, or headers for the endpoint.",
+    },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "price" }],
+  defaultData: {
+    operation: "latest-price",
+    provider: "switchboard",
+    feedId: "",
+    apiUrl: "",
+    credentialId: "",
+  },
+  component: OraclePriceNode,
+  execute: (ctx) => runOracleNode(ctx, { operation: "latest-price", provider: "switchboard" }),
+};
+
 export const HeliusRpcNode = memo(function HeliusRpcNode({
   data,
   selected,
@@ -514,12 +737,14 @@ export const HeliusRpcNode = memo(function HeliusRpcNode({
   data: CloudFlowNodeData;
   selected?: boolean;
 }) {
+  const nodeData = data.data ?? {};
+  const meta = String(nodeData.method ?? nodeData.operation ?? nodeData.address ?? nodeData.signature ?? "helius");
   return (
     <IntegrationCard
       data={data}
       selected={selected}
       icon={<Database size={12} />}
-      meta={String(data.data?.method ?? "getAsset")}
+      meta={meta}
     />
   );
 });
@@ -585,6 +810,276 @@ export const heliusRpcDef: CloudNodeDefinition = {
     const result = await rpcCall(resolveRpcUrl(ctx.params, credential), method, params, ctx.signal);
     const inputItems = ctx.inputs[0] ?? [{ json: {} }];
     return inputItems.map((item) => ({ ...item, json: { ...item.json, helius: { method, result } } }));
+  },
+};
+
+function runHeliusNode(ctx: IntegrationExecuteContext, method: string, params: unknown[]) {
+  return heliusRpcDef.execute!({
+    ...ctx,
+    params: {
+      ...ctx.params,
+      method,
+      params,
+    },
+  });
+}
+
+export const heliusWalletActivityDef: CloudNodeDefinition = {
+  type: "action:helius-wallet-activity",
+  label: "Helius Wallet Activity",
+  category: "action",
+  description: "Read recent signatures for a wallet address.",
+  icon: "Database",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "address", label: "Wallet Address", type: "pubkey", required: true, supportsExpressions: true },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 10 },
+    {
+      key: "credentialId",
+      label: "Helius Credential",
+      type: "credential",
+      required: false,
+      credentialType: "helius",
+      description: "Credential with apiKey or rpcUrl.",
+    },
+    { key: "rpcUrl", label: "RPC URL Override", type: "text", required: false },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "activity" }],
+  defaultData: { address: "", limit: 10, credentialId: "", rpcUrl: "" },
+  component: HeliusRpcNode,
+  execute: (ctx) => {
+    const address = requiredString(ctx.params, "address", "Wallet Address");
+    const limit = positiveInteger(ctx.params.limit, 10);
+    return runHeliusNode(ctx, "getSignaturesForAddress", [address, { limit }]);
+  },
+};
+
+export const heliusTransactionDef: CloudNodeDefinition = {
+  type: "action:helius-transaction",
+  label: "Helius Transaction",
+  category: "action",
+  description: "Fetch parsed transaction details by signature.",
+  icon: "Database",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "signature", label: "Signature", type: "text", required: true, supportsExpressions: true },
+    {
+      key: "credentialId",
+      label: "Helius Credential",
+      type: "credential",
+      required: false,
+      credentialType: "helius",
+      description: "Credential with apiKey or rpcUrl.",
+    },
+    { key: "rpcUrl", label: "RPC URL Override", type: "text", required: false },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "transaction" }],
+  defaultData: { signature: "", credentialId: "", rpcUrl: "" },
+  component: HeliusRpcNode,
+  execute: (ctx) => {
+    const signature = requiredString(ctx.params, "signature", "Signature");
+    return runHeliusNode(ctx, "getTransaction", [
+      signature,
+      { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 },
+    ]);
+  },
+};
+
+export const heliusParseTransactionDef: CloudNodeDefinition = {
+  type: "action:helius-parse-transaction",
+  label: "Helius Parse Transaction",
+  category: "action",
+  description: "Parse one Solana transaction signature with the Helius Enhanced Transactions API.",
+  icon: "Database",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "signature", label: "Signature", type: "text", required: true, supportsExpressions: true },
+    {
+      key: "credentialId",
+      label: "Helius Credential",
+      type: "credential",
+      required: false,
+      credentialType: "helius",
+      description: "Credential with a Helius apiKey.",
+    },
+    { key: "apiUrl", label: "Enhanced API URL Override", type: "text", required: false },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "transaction" }],
+  defaultData: { operation: "parse-transaction", signature: "", credentialId: "", apiUrl: "" },
+  component: HeliusRpcNode,
+  async execute(ctx) {
+    const signature = requiredString(ctx.params, "signature", "Signature");
+    const credential = await getCredentialData(ctx.credentials, ctx.params.credentialId, ["helius"]);
+    const url = heliusEnhancedUrl("/v0/transactions", ctx.params, credential);
+    const response = await requireFetch()(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transactions: [signature] }),
+      signal: ctx.signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Helius parse transaction failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
+    }
+    const transactions = await response.json().catch(() => []);
+    const inputItems = ctx.inputs[0] ?? [{ json: {} }];
+    return inputItems.map((item) => ({
+      ...item,
+      json: {
+        ...item.json,
+        helius: {
+          operation: "parse-transaction",
+          signature,
+          transaction: Array.isArray(transactions) ? transactions[0] ?? null : transactions,
+          transactions,
+        },
+      },
+    }));
+  },
+};
+
+export const heliusAddressTransactionsDef: CloudNodeDefinition = {
+  type: "action:helius-address-transactions",
+  label: "Helius Address Transactions",
+  category: "action",
+  description: "Fetch enhanced transaction history for an address with optional type/source filters.",
+  icon: "Database",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "address", label: "Address", type: "pubkey", required: true, supportsExpressions: true },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 10 },
+    { key: "beforeSignature", label: "Before Signature", type: "text", required: false, supportsExpressions: true },
+    { key: "afterSignature", label: "After Signature", type: "text", required: false, supportsExpressions: true },
+    {
+      key: "transactionType",
+      label: "Transaction Type",
+      type: "select",
+      required: false,
+      default: "any",
+      options: [
+        { label: "Any", value: "any" },
+        { label: "Swap", value: "SWAP" },
+        { label: "Transfer", value: "TRANSFER" },
+        { label: "NFT Sale", value: "NFT_SALE" },
+        { label: "Approve", value: "APPROVE" },
+      ],
+    },
+    {
+      key: "source",
+      label: "Source",
+      type: "select",
+      required: false,
+      default: "any",
+      options: [
+        { label: "Any", value: "any" },
+        { label: "Jupiter", value: "JUPITER" },
+        { label: "SPL Token", value: "SOLANA_PROGRAM_LIBRARY" },
+        { label: "System Program", value: "SYSTEM_PROGRAM" },
+        { label: "Metaplex", value: "METAPLEX" },
+        { label: "Squads", value: "SQUADS" },
+      ],
+    },
+    {
+      key: "tokenAccounts",
+      label: "Token Accounts",
+      type: "select",
+      required: false,
+      default: "none",
+      options: [
+        { label: "None", value: "none" },
+        { label: "Balance Changed", value: "balanceChanged" },
+        { label: "All", value: "all" },
+      ],
+    },
+    {
+      key: "sortOrder",
+      label: "Sort Order",
+      type: "select",
+      required: false,
+      default: "desc",
+      options: [
+        { label: "Newest first", value: "desc" },
+        { label: "Oldest first", value: "asc" },
+      ],
+    },
+    {
+      key: "commitment",
+      label: "Commitment",
+      type: "select",
+      required: false,
+      default: "finalized",
+      options: [
+        { label: "Finalized", value: "finalized" },
+        { label: "Confirmed", value: "confirmed" },
+      ],
+    },
+    {
+      key: "credentialId",
+      label: "Helius Credential",
+      type: "credential",
+      required: false,
+      credentialType: "helius",
+      description: "Credential with a Helius apiKey.",
+    },
+    { key: "apiUrl", label: "Enhanced API URL Override", type: "text", required: false },
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "transactions" }],
+  defaultData: {
+    operation: "address-transactions",
+    address: "",
+    limit: 10,
+    beforeSignature: "",
+    afterSignature: "",
+    transactionType: "any",
+    source: "any",
+    tokenAccounts: "none",
+    sortOrder: "desc",
+    commitment: "finalized",
+    credentialId: "",
+    apiUrl: "",
+  },
+  component: HeliusRpcNode,
+  async execute(ctx) {
+    const address = requiredString(ctx.params, "address", "Address");
+    const credential = await getCredentialData(ctx.credentials, ctx.params.credentialId, ["helius"]);
+    const url = heliusEnhancedUrl(`/v0/addresses/${encodeURIComponent(address)}/transactions`, ctx.params, credential);
+    url.searchParams.set("limit", String(positiveInteger(ctx.params.limit, 10)));
+    const beforeSignature = optionalString(ctx.params, "beforeSignature");
+    const afterSignature = optionalString(ctx.params, "afterSignature");
+    const transactionType = optionalString(ctx.params, "transactionType");
+    const source = optionalString(ctx.params, "source");
+    const tokenAccounts = optionalString(ctx.params, "tokenAccounts");
+    const sortOrder = optionalString(ctx.params, "sortOrder");
+    const commitment = optionalString(ctx.params, "commitment");
+    if (beforeSignature) url.searchParams.set("before-signature", beforeSignature);
+    if (afterSignature) url.searchParams.set("after-signature", afterSignature);
+    if (transactionType && transactionType !== "any") url.searchParams.set("type", transactionType);
+    if (source && source !== "any") url.searchParams.set("source", source);
+    if (tokenAccounts && tokenAccounts !== "none") url.searchParams.set("token-accounts", tokenAccounts);
+    if (sortOrder) url.searchParams.set("sort-order", sortOrder);
+    if (commitment) url.searchParams.set("commitment", commitment);
+
+    const response = await requireFetch()(url.toString(), { signal: ctx.signal });
+    if (!response.ok) {
+      throw new Error(`Helius address transactions failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
+    }
+    const transactions = await response.json().catch(() => []);
+    const inputItems = ctx.inputs[0] ?? [{ json: {} }];
+    return inputItems.map((item) => ({
+      ...item,
+      json: {
+        ...item.json,
+        helius: {
+          operation: "address-transactions",
+          address,
+          count: Array.isArray(transactions) ? transactions.length : null,
+          transactions,
+        },
+      },
+    }));
   },
 };
 
@@ -824,6 +1319,217 @@ export const metaplexAssetDef: CloudNodeDefinition = {
       json: { ...item.json, metaplexAsset: { method, params: rpcParams[0], result: asset } },
     }));
   },
+};
+
+function runMetaplexNode(ctx: IntegrationExecuteContext, params: Record<string, unknown>) {
+  return metaplexAssetDef.execute!({
+    ...ctx,
+    params: { ...ctx.params, ...params },
+  });
+}
+
+const metaplexCredentialProperties = [
+  { key: "credentialId", label: "Helius Credential", type: "credential" as const, required: false, credentialType: "helius" },
+  { key: "rpcUrl", label: "RPC URL Override", type: "text" as const, required: false },
+];
+
+export const metaplexGetAssetDef: CloudNodeDefinition = {
+  type: "action:metaplex-get-asset",
+  label: "Metaplex Get Asset",
+  category: "action",
+  description: "Fetch one NFT or compressed asset by ID through DAS.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "assetId", label: "Asset ID", type: "pubkey", required: true, supportsExpressions: true },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "asset" }],
+  defaultData: { operation: "getAsset", assetId: "", credentialId: "", rpcUrl: "" },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "getAsset" }),
+};
+
+export const metaplexAssetProofDef: CloudNodeDefinition = {
+  type: "action:metaplex-asset-proof",
+  label: "Metaplex Asset Proof",
+  category: "action",
+  description: "Fetch a DAS Merkle proof for one compressed asset.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "assetId", label: "Asset ID", type: "pubkey", required: true, supportsExpressions: true },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "proof" }],
+  defaultData: { operation: "getAssetProof", assetId: "", credentialId: "", rpcUrl: "" },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "getAssetProof" }),
+};
+
+export const metaplexAssetsByOwnerDef: CloudNodeDefinition = {
+  type: "action:metaplex-assets-by-owner",
+  label: "Metaplex Assets by Owner",
+  category: "action",
+  description: "List DAS assets owned by a wallet.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "ownerAddress", label: "Owner Address", type: "pubkey", required: true, supportsExpressions: true },
+    { key: "page", label: "Page", type: "number", required: false, default: 1 },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 50 },
+    { key: "showFungible", label: "Show Fungible", type: "boolean", required: false, default: true },
+    { key: "showNativeBalance", label: "Show Native Balance", type: "boolean", required: false, default: false },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "assets" }],
+  defaultData: {
+    operation: "getAssetsByOwner",
+    ownerAddress: "",
+    page: 1,
+    limit: 50,
+    showFungible: true,
+    showNativeBalance: false,
+    credentialId: "",
+    rpcUrl: "",
+  },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "getAssetsByOwner" }),
+};
+
+export const metaplexAssetsByGroupDef: CloudNodeDefinition = {
+  type: "action:metaplex-assets-by-group",
+  label: "Metaplex Assets by Collection",
+  category: "action",
+  description: "List DAS assets in a collection or another group.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "groupKey", label: "Group Key", type: "text", required: false, default: "collection", supportsExpressions: true },
+    { key: "groupValue", label: "Group Value", type: "pubkey", required: true, supportsExpressions: true },
+    { key: "page", label: "Page", type: "number", required: false, default: 1 },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 50 },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "assets" }],
+  defaultData: {
+    operation: "getAssetsByGroup",
+    groupKey: "collection",
+    groupValue: "",
+    page: 1,
+    limit: 50,
+    credentialId: "",
+    rpcUrl: "",
+  },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "getAssetsByGroup" }),
+};
+
+export const metaplexAssetsByCreatorDef: CloudNodeDefinition = {
+  type: "action:metaplex-assets-by-creator",
+  label: "Metaplex Assets by Creator",
+  category: "action",
+  description: "List DAS assets created by a specific creator.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "creatorAddress", label: "Creator Address", type: "pubkey", required: true, supportsExpressions: true },
+    { key: "onlyVerified", label: "Only Verified", type: "boolean", required: false, default: true },
+    { key: "page", label: "Page", type: "number", required: false, default: 1 },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 50 },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "assets" }],
+  defaultData: {
+    operation: "getAssetsByCreator",
+    creatorAddress: "",
+    onlyVerified: true,
+    page: 1,
+    limit: 50,
+    credentialId: "",
+    rpcUrl: "",
+  },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "getAssetsByCreator" }),
+};
+
+export const metaplexAssetsByAuthorityDef: CloudNodeDefinition = {
+  type: "action:metaplex-assets-by-authority",
+  label: "Metaplex Assets by Authority",
+  category: "action",
+  description: "List DAS assets controlled by an authority address.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "authorityAddress", label: "Authority Address", type: "pubkey", required: true, supportsExpressions: true },
+    { key: "page", label: "Page", type: "number", required: false, default: 1 },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 50 },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "assets" }],
+  defaultData: {
+    operation: "getAssetsByAuthority",
+    authorityAddress: "",
+    page: 1,
+    limit: 50,
+    credentialId: "",
+    rpcUrl: "",
+  },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "getAssetsByAuthority" }),
+};
+
+export const metaplexSearchAssetsDef: CloudNodeDefinition = {
+  type: "action:metaplex-search-assets",
+  label: "Metaplex Search Assets",
+  category: "action",
+  description: "Search DAS assets by owner, creator, collection, or token type.",
+  icon: "FileJson",
+  color: CATEGORY_COLORS.action,
+  properties: [
+    { key: "ownerAddress", label: "Owner Address", type: "pubkey", required: false, supportsExpressions: true },
+    { key: "creatorAddress", label: "Creator Address", type: "pubkey", required: false, supportsExpressions: true },
+    { key: "groupValue", label: "Collection", type: "pubkey", required: false, supportsExpressions: true },
+    {
+      key: "tokenType",
+      label: "Token Type",
+      type: "select",
+      required: false,
+      default: "all",
+      options: [
+        { label: "All", value: "all" },
+        { label: "Fungible", value: "fungible" },
+        { label: "Non-fungible", value: "nonFungible" },
+        { label: "Regular NFT", value: "regularNft" },
+        { label: "Compressed NFT", value: "compressedNft" },
+      ],
+    },
+    { key: "page", label: "Page", type: "number", required: false, default: 1 },
+    { key: "limit", label: "Limit", type: "number", required: false, default: 50 },
+    ...metaplexCredentialProperties,
+  ],
+  inputs: [{ type: "main", label: "input" }],
+  outputs: [{ type: "main", label: "assets" }],
+  defaultData: {
+    operation: "searchAssets",
+    ownerAddress: "",
+    creatorAddress: "",
+    groupKey: "collection",
+    groupValue: "",
+    tokenType: "all",
+    page: 1,
+    limit: 50,
+    credentialId: "",
+    rpcUrl: "",
+  },
+  component: MetaplexAssetNode,
+  execute: (ctx) => runMetaplexNode(ctx, { operation: "searchAssets", groupKey: "collection" }),
 };
 
 export const SquadsProposalNode = memo(function SquadsProposalNode({

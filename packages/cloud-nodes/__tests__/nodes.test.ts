@@ -29,12 +29,36 @@ const ALL_NODE_TYPES = [
   "trigger:cron",
   "trigger:webhook",
   "action:price-fetch",
+  "action:jupiter-price",
+  "action:jupiter-token-search",
+  "action:jupiter-token-tag",
+  "action:jupiter-token-category",
+  "action:jupiter-recent-tokens",
+  "action:jupiter-portfolio",
+  "action:jupiter-swap-order",
+  "action:jupiter-swap-build",
+  "action:jupiter-swap-execute",
   "action:jupiter-swap",
   "action:token-transfer",
   "action:ai-agent",
+  "action:pyth-price",
+  "action:pyth-feed-search",
+  "action:pyth-latest-prices",
+  "action:switchboard-price",
   "action:oracle-price",
+  "action:helius-wallet-activity",
+  "action:helius-transaction",
+  "action:helius-parse-transaction",
+  "action:helius-address-transactions",
   "action:helius-rpc",
   "action:token-account-query",
+  "action:metaplex-get-asset",
+  "action:metaplex-asset-proof",
+  "action:metaplex-assets-by-owner",
+  "action:metaplex-assets-by-group",
+  "action:metaplex-assets-by-creator",
+  "action:metaplex-assets-by-authority",
+  "action:metaplex-search-assets",
   "action:metaplex-asset",
   "action:squads-proposal",
   "transform:filter",
@@ -51,8 +75,8 @@ describe("All nodes registered", () => {
     expect(def!.type).toBe(type);
   });
 
-  it("has exactly 16 nodes", () => {
-    expect(cloudNodeRegistry.getAll()).toHaveLength(16);
+  it("has exactly 40 nodes", () => {
+    expect(cloudNodeRegistry.getAll()).toHaveLength(40);
   });
 });
 
@@ -178,6 +202,34 @@ describe("Action nodes", () => {
     expect(prop!.type).toBe("wallet-select");
   });
 
+  it("action:jupiter-swap is the simple direct-send node", () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+    const keys = def.properties.map((p) => p.key);
+    expect(keys).toContain("inputMint");
+    expect(keys).toContain("outputMint");
+    expect(keys).toContain("amount");
+    expect(keys).not.toContain("operation");
+    expect(keys).not.toContain("tokenIds");
+  });
+
+  it("action:jupiter-price only asks for token IDs and credential", () => {
+    const def = cloudNodeRegistry.get("action:jupiter-price")!;
+    const keys = def.properties.map((p) => p.key);
+    expect(keys).toEqual(["tokenIds", "credentialId"]);
+  });
+
+  it("action:jupiter-swap-execute signs a prepared order", () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap-execute")!;
+    const keys = def.properties.map((p) => p.key);
+    expect(keys).toEqual([
+      "transactionBase64",
+      "requestId",
+      "lastValidBlockHeight",
+      "walletId",
+      "credentialId",
+    ]);
+  });
+
   it("action:token-transfer has walletId property", () => {
     const def = cloudNodeRegistry.get("action:token-transfer")!;
     const prop = def.properties.find((p) => p.key === "walletId");
@@ -263,6 +315,7 @@ describe("Execute functions", () => {
     nodeId: "test-node",
     wallet: {
       signAndSend: async () => "sig",
+      signTransaction: async (tx: unknown) => tx,
       getPublicKey: async () => "pk",
       getBalance: async () => 0,
     },
@@ -670,6 +723,53 @@ describe("Execute functions", () => {
     });
   });
 
+  it("action:pyth-latest-prices fetches multiple feed IDs", async () => {
+    const def = cloudNodeRegistry.get("action:pyth-latest-prices")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({
+        parsed: [
+          {
+            id: "feed-sol",
+            price: {
+              price: "15000000000",
+              conf: "1000",
+              expo: -8,
+              publish_time: 1710000000,
+            },
+          },
+          {
+            id: "feed-btc",
+            price: {
+              price: "6500000000000",
+              conf: "100000",
+              expo: -8,
+              publish_time: 1710000001,
+            },
+          },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({
+      feedIds: "feed-sol, feed-btc",
+    }));
+
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://hermes.pyth.network/v2/updates/price/latest?ids[]=feed-sol&ids[]=feed-btc",
+    );
+    expect((result[0].json as any).oracle).toMatchObject({
+      provider: "pyth",
+      operation: "latest-prices",
+      feedIds: ["feed-sol", "feed-btc"],
+      count: 2,
+    });
+    expect((result[0].json as any).oracle.prices[0].price).toBe(150);
+  });
+
   it("action:helius-rpc calls JSON-RPC with a selected Helius credential", async () => {
     const def = cloudNodeRegistry.get("action:helius-rpc")!;
     const fetchMock = vi.fn(async () =>
@@ -729,6 +829,94 @@ describe("Execute functions", () => {
     ]));
   });
 
+  it("action:helius-parse-transaction calls Enhanced Transactions API", async () => {
+    const def = cloudNodeRegistry.get("action:helius-parse-transaction")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify([{ signature: "sig-1", type: "SWAP" }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-helius",
+      label: "Helius",
+      type: "helius",
+      data: { apiKey: "helius-key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        signature: "sig-1",
+        credentialId: "cred-helius",
+      }),
+      credentials: { get: getCredential },
+    });
+
+    expect(getCredential).toHaveBeenCalledWith("cred-helius", ["helius"]);
+    expect(String(fetchMock.mock.calls[0][0])).toBe(
+      "https://api-mainnet.helius-rpc.com/v0/transactions?api-key=helius-key",
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ transactions: ["sig-1"] }),
+      }),
+    );
+    expect((result[0].json as any).helius).toMatchObject({
+      operation: "parse-transaction",
+      signature: "sig-1",
+      transaction: { signature: "sig-1", type: "SWAP" },
+    });
+  });
+
+  it("action:helius-address-transactions filters enhanced history", async () => {
+    const def = cloudNodeRegistry.get("action:helius-address-transactions")!;
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify([{ signature: "sig-1", type: "SWAP" }]), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-helius",
+      label: "Helius",
+      type: "helius",
+      data: { apiKey: "helius-key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        address: "Address11111111111111111111111111111111111111",
+        limit: 5,
+        transactionType: "SWAP",
+        source: "JUPITER",
+        tokenAccounts: "balanceChanged",
+        sortOrder: "asc",
+        credentialId: "cred-helius",
+      }),
+      credentials: { get: getCredential },
+    });
+
+    const calledUrl = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(calledUrl.origin + calledUrl.pathname).toBe(
+      "https://api-mainnet.helius-rpc.com/v0/addresses/Address11111111111111111111111111111111111111/transactions",
+    );
+    expect(calledUrl.searchParams.get("api-key")).toBe("helius-key");
+    expect(calledUrl.searchParams.get("limit")).toBe("5");
+    expect(calledUrl.searchParams.get("type")).toBe("SWAP");
+    expect(calledUrl.searchParams.get("source")).toBe("JUPITER");
+    expect(calledUrl.searchParams.get("token-accounts")).toBe("balanceChanged");
+    expect(calledUrl.searchParams.get("sort-order")).toBe("asc");
+    expect((result[0].json as any).helius).toMatchObject({
+      operation: "address-transactions",
+      count: 1,
+      transactions: [{ signature: "sig-1", type: "SWAP" }],
+    });
+  });
+
   it("action:metaplex-asset can list DAS assets by owner", async () => {
     const def = cloudNodeRegistry.get("action:metaplex-asset")!;
     const fetchMock = vi.fn(async () =>
@@ -770,6 +958,48 @@ describe("Execute functions", () => {
       method: "getAssetsByOwner",
       result: { total: 1, items: [{ id: "asset-1" }] },
     });
+  });
+
+  it("split Metaplex DAS nodes call their dedicated methods", async () => {
+    const cases = [
+      {
+        type: "action:metaplex-asset-proof",
+        params: { assetId: "Asset111111111111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        method: "getAssetProof",
+      },
+      {
+        type: "action:metaplex-assets-by-group",
+        params: { groupValue: "Collection111111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        method: "getAssetsByGroup",
+      },
+      {
+        type: "action:metaplex-assets-by-creator",
+        params: { creatorAddress: "Creator1111111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        method: "getAssetsByCreator",
+      },
+      {
+        type: "action:metaplex-assets-by-authority",
+        params: { authorityAddress: "Authority11111111111111111111111111111111", rpcUrl: "https://rpc.example.com" },
+        method: "getAssetsByAuthority",
+      },
+    ];
+
+    for (const item of cases) {
+      const def = cloudNodeRegistry.get(item.type)!;
+      const fetchMock = vi.fn(async () =>
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: { ok: true } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await def.execute!(makeCtx(item.params));
+
+      const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+      expect(body.method).toBe(item.method);
+      vi.unstubAllGlobals();
+    }
   });
 
   it("action:token-account-query filters token accounts by mint", async () => {
@@ -946,8 +1176,8 @@ describe("Execute functions", () => {
     expect(result[1][0].json.price).toBe(50);
   });
 
-  it("action:jupiter-swap reads Jupiter Price API by default", async () => {
-    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+  it("action:jupiter-price reads Jupiter Price API", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-price")!;
     const pricePayload = {
       So11111111111111111111111111111111111111112: { usdPrice: 150 },
     };
@@ -969,8 +1199,8 @@ describe("Execute functions", () => {
     expect((result[0].json as any).jupiter.payload).toEqual(pricePayload);
   });
 
-  it("action:jupiter-swap reads Jupiter Tokens category data", async () => {
-    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+  it("action:jupiter-token-category reads Jupiter Tokens category data", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-token-category")!;
     const tokensPayload = [{ id: "Token111", symbol: "TKN" }];
     const fetchMock = vi.fn(async () => new Response(JSON.stringify(tokensPayload), {
       status: 200,
@@ -979,7 +1209,6 @@ describe("Execute functions", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await def.execute!(makeCtx({
-      operation: "token-category",
       tokenCategory: "toptraded",
       tokenInterval: "24h",
       tokenLimit: 25,
@@ -998,8 +1227,8 @@ describe("Execute functions", () => {
     });
   });
 
-  it("action:jupiter-swap sends saved Jupiter credential as x-api-key", async () => {
-    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+  it("action:jupiter-price sends saved Jupiter credential as x-api-key", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-price")!;
     const pricePayload = {
       So11111111111111111111111111111111111111112: { usdPrice: 150 },
     };
@@ -1017,7 +1246,6 @@ describe("Execute functions", () => {
 
     await def.execute!({
       ...makeCtx({
-        operation: "price",
         tokenIds: "So11111111111111111111111111111111111111112",
         credentialId: "cred-jupiter",
       }),
@@ -1035,8 +1263,9 @@ describe("Execute functions", () => {
     );
   });
 
-  it("action:jupiter-swap supports Jupiter token tag and recent reads", async () => {
-    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+  it("split Jupiter token nodes support token tag and recent reads", async () => {
+    const tagDef = cloudNodeRegistry.get("action:jupiter-token-tag")!;
+    const recentDef = cloudNodeRegistry.get("action:jupiter-recent-tokens")!;
     const fetchMock = vi.fn(async (url: string) => {
       if (url.includes("/tag?")) {
         return new Response(JSON.stringify([{ id: "LST111", tags: ["lst"] }]), {
@@ -1051,13 +1280,10 @@ describe("Execute functions", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    const tagged = await def.execute!(makeCtx({
-      operation: "token-tag",
+    const tagged = await tagDef.execute!(makeCtx({
       tokenTag: "lst",
     }));
-    const recent = await def.execute!(makeCtx({
-      operation: "token-recent",
-    }));
+    const recent = await recentDef.execute!(makeCtx());
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -1080,51 +1306,54 @@ describe("Execute functions", () => {
     });
   });
 
-  it("action:jupiter-swap can quote, build, simulate, and send a legacy direct Jupiter swap", async () => {
+  it("action:jupiter-swap can order, simulate, sign, and execute a Jupiter V2 direct swap", async () => {
     const def = cloudNodeRegistry.get("action:jupiter-swap")!;
-    const quote = {
+    const order = {
       inputMint: "So11111111111111111111111111111111111111112",
       inAmount: "1000000",
       outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       outAmount: "150000",
-      otherAmountThreshold: "149000",
-      priceImpactPct: "0.01",
+      transaction: makeSerializedSwapTransaction(),
+      requestId: "req-1",
+      router: "iris",
+      mode: "manual",
       routePlan: [{ swapInfo: { label: "Test AMM" } }],
     };
     const fetchMock = vi.fn(async (url: string) => {
-      if (url.includes("/quote?")) {
-        return new Response(JSON.stringify(quote), {
+      if (url.includes("/swap/v2/order?")) {
+        return new Response(JSON.stringify(order), {
           status: 200,
           headers: { "content-type": "application/json" },
         });
       }
 
       return new Response(JSON.stringify({
-        swapTransaction: makeSerializedSwapTransaction(),
-        lastValidBlockHeight: 123,
-        prioritizationFeeLamports: 999,
-        dynamicSlippageReport: { slippageBps: 50 },
-        simulationError: null,
+        status: "Success",
+        signature: "swap-sig",
+        code: 0,
+        inputAmountResult: "1000000",
+        outputAmountResult: "150000",
       }), {
         status: 200,
         headers: { "content-type": "application/json" },
       });
     });
     const simulate = vi.fn(async () => ({ err: null, logs: ["ok"] }));
-    const signAndSend = vi.fn(async () => "swap-sig");
+    const signTransaction = vi.fn(async (tx: unknown) => tx);
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await def.execute!({
       ...makeCtx({
         operation: "swap-direct-send",
-        inputMint: quote.inputMint,
-        outputMint: quote.outputMint,
+        inputMint: order.inputMint,
+        outputMint: order.outputMint,
         amount: 1000000,
         slippageBps: 50,
         walletId: "wallet-1",
       }),
       wallet: {
-        signAndSend,
+        signAndSend: async () => "unused",
+        signTransaction,
         simulate,
         getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
         getBalance: async () => 0,
@@ -1132,38 +1361,74 @@ describe("Execute functions", () => {
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://quote-api.jup.ag/v6/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&slippageBps=50",
+      "https://api.jup.ag/swap/v2/order?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000&taker=BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV&slippageBps=50",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://quote-api.jup.ag/v6/swap",
+      "https://api.jup.ag/swap/v2/execute",
       expect.objectContaining({ method: "POST" }),
     );
-    const swapBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
-    expect(swapBody.quoteResponse).toEqual(quote);
-    expect(swapBody.userPublicKey).toBe("BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV");
+    const executeBody = JSON.parse((fetchMock.mock.calls[1][1] as RequestInit).body as string);
+    expect(executeBody.requestId).toBe("req-1");
+    expect(executeBody.signedTransaction).toEqual(expect.any(String));
     expect(simulate).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
-    expect(signAndSend).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
+    expect(signTransaction).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
     expect((result[0].json as any).swap.signature).toBe("swap-sig");
     expect((result[0].json as any).swap.outAmount).toBe("150000");
   });
 
-  it("action:jupiter-swap throws when Jupiter simulation reports an error", async () => {
-    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
-    const fetchMock = vi.fn(async (url: string) => {
-      if (url.includes("/quote?")) {
-        return new Response(JSON.stringify({
-          inputMint: "So11111111111111111111111111111111111111112",
-          inAmount: "1000000",
-          outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-          outAmount: "150000",
-        }), { status: 200 });
-      }
-      return new Response(JSON.stringify({
-        swapTransaction: makeSerializedSwapTransaction(),
-        simulationError: { InstructionError: [0, "Custom"] },
-      }), { status: 200 });
+  it("action:jupiter-swap-execute signs and executes an existing Jupiter order", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap-execute")!;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      status: "Success",
+      signature: "exec-sig",
+      code: 0,
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const signTransaction = vi.fn(async (tx: unknown) => tx);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        transactionBase64: makeSerializedSwapTransaction(),
+        requestId: "req-execute",
+        walletId: "wallet-1",
+      }),
+      wallet: {
+        signAndSend: async () => "unused",
+        signTransaction,
+        getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
+        getBalance: async () => 0,
+      },
     });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.jup.ag/swap/v2/execute",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.requestId).toBe("req-execute");
+    expect(body.signedTransaction).toEqual(expect.any(String));
+    expect(signTransaction).toHaveBeenCalledWith(expect.any(VersionedTransaction), "wallet-1");
+    expect((result[0].json as any).jupiter).toMatchObject({
+      operation: "swap-execute",
+      signature: "exec-sig",
+      status: "Success",
+    });
+  });
+
+  it("action:jupiter-swap throws when local transaction simulation reports an error", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      inputMint: "So11111111111111111111111111111111111111112",
+      inAmount: "1000000",
+      outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      outAmount: "150000",
+      transaction: makeSerializedSwapTransaction(),
+      requestId: "req-err",
+    }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(def.execute!({
@@ -1176,14 +1441,16 @@ describe("Execute functions", () => {
       }),
       wallet: {
         signAndSend: async () => "sig",
+        signTransaction: async (tx: unknown) => tx,
+        simulate: async () => ({ err: { InstructionError: [0, "Custom"] }, logs: ["bad"] }),
         getPublicKey: async () => "BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV",
         getBalance: async () => 0,
       },
-    })).rejects.toThrow("Jupiter swap simulation failed");
+    })).rejects.toThrow("transaction simulation failed");
   });
 
-  it("action:jupiter-swap rejects private provider base URLs from credentials", async () => {
-    const def = cloudNodeRegistry.get("action:jupiter-swap")!;
+  it("action:jupiter-price rejects private provider base URLs from credentials", async () => {
+    const def = cloudNodeRegistry.get("action:jupiter-price")!;
     const fetchMock = vi.fn();
     const getCredential = vi.fn(async () => ({
       id: "cred-1",
@@ -1195,12 +1462,7 @@ describe("Execute functions", () => {
 
     await expect(def.execute!({
       ...makeCtx({
-        operation: "price",
         tokenIds: "So11111111111111111111111111111111111111112",
-        inputMint: "So11111111111111111111111111111111111111112",
-        outputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-        amount: 1000000,
-        walletId: "wallet-1",
         credentialId: "cred-1",
       }),
       credentials: { get: getCredential },

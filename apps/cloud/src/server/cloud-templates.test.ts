@@ -37,6 +37,7 @@ const SKIPPED_LIVE_INTEGRATION_TEMPLATES: Record<string, string> = {
   "AI Transaction Classifier": "requires an AI provider API key",
   "Webhook Payment Runner": "requires a Cloud wallet for token signing",
   "NFT Asset Watch": "requires a Helius or DAS-compatible RPC credential",
+  "Enhanced Wallet Swap History": "requires a Helius Enhanced Transactions API key",
 };
 
 const mockWallet = {

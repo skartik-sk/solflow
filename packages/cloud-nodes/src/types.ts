@@ -88,6 +88,7 @@ export interface NodePort {
 
 export interface WalletOperations {
   signAndSend(tx: unknown, walletId: string): Promise<string>;
+  signTransaction?(tx: unknown, walletId: string): Promise<unknown>;
   simulate?(tx: unknown, walletId: string): Promise<{ err: unknown; logs?: string[] | null }>;
   getPublicKey(walletId: string): Promise<string>;
   getBalance(walletId: string): Promise<number>;

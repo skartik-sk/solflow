@@ -752,9 +752,19 @@ const cloudNodeLessons = [
     connects: "Data action -> AI Agent -> If/Else or Output",
   },
   {
-    type: "Jupiter API",
-    use: "Read Jupiter price/token data, prepare swap payloads, or execute a wallet-gated direct swap.",
-    connects: "If/Else or Trigger -> Jupiter API -> Output",
+    type: "Jupiter nodes",
+    use: "Use separate Jupiter Price, Token, Portfolio, Swap Order, Swap Build, Swap Execute, and Direct Swap nodes.",
+    connects: "If/Else or Trigger -> Jupiter Direct Swap or Swap Execute -> Output",
+  },
+  {
+    type: "Pyth nodes",
+    use: "Read one feed, search feed IDs, or fetch latest prices for multiple Pyth feeds.",
+    connects: "Trigger -> Pyth Price or Latest Prices -> If/Else or Output",
+  },
+  {
+    type: "Helius nodes",
+    use: "Read wallet activity, raw transactions, enhanced parsed transactions, or enhanced address history.",
+    connects: "Trigger -> Helius node -> If/Else or Output",
   },
   {
     type: "Token Transfer",
@@ -1039,7 +1049,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
   {
     id: "swap-guard",
     title: "AI-assisted swap guard",
-    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter API executes the direct-swap branch, then Webhook Output reports the signature.",
+    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter Direct Swap executes the approved branch, then Webhook Output reports the signature.",
     nodes: [
       {
         id: "webhookTrigger",
@@ -1106,7 +1116,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
       },
       {
         id: "swap",
-        label: "Jupiter API",
+        label: "Jupiter Direct Swap",
         type: "action:jupiter-swap",
         category: "action",
         icon: "Zap",
@@ -1220,14 +1230,14 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
       {
         id: "swap",
         title: "Execute Jupiter direct swap",
-        add: "Drag Jupiter API and choose Legacy Direct Swap Send. This is the wallet action, so it should come after the approval branch.",
+        add: "Drag Jupiter Direct Swap. This is the wallet action, so it should come after the approval branch.",
         configure: [
           { label: "walletId", value: "trading-wallet" },
           { label: "inputMint", value: "{{ $json.tokenIn }}" },
           { label: "outputMint", value: "{{ $json.tokenOut }}" },
           { label: "amount", value: "{{ $json.amount }}" },
         ],
-        connect: "Connect If / Else true -> Jupiter API input.",
+        connect: "Connect If / Else true -> Jupiter Direct Swap input.",
         focusNodeId: "swap",
         requiredEdges: [
           { from: "webhookTrigger", to: "price" },
@@ -1251,7 +1261,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
           { label: "url", value: "https://example.com/swap-result" },
           { label: "body", value: "{{ $json.signature }}" },
         ],
-        connect: "Connect Jupiter API output -> Webhook Output input.",
+        connect: "Connect Jupiter Direct Swap output -> Webhook Output input.",
         focusNodeId: "webhook",
         requiredEdges: [
           { from: "webhookTrigger", to: "price" },
@@ -3131,7 +3141,7 @@ export function CloudLearnClient() {
             <p className="mt-2">
               Webhook Trigger receives a trade idea, Fetch Price adds market
               context, AI Agent returns an approval object, If/Else blocks
-              rejected runs, Jupiter API executes the swap branch, and Webhook Output reports
+              rejected runs, Jupiter Direct Swap executes the swap branch, and Webhook Output reports
               the signature.
             </p>
           </div>

@@ -26,7 +26,19 @@ export { ManualTriggerNode, manualTriggerDef } from "./nodes/trigger-manual";
 export { PriceFetchNode, priceFetchDef } from "./nodes/action-price-fetch";
 export { FilterNode, filterDef } from "./nodes/transform-filter";
 export { IfElseNode, ifElseDef } from "./nodes/logic-if-else";
-export { JupiterSwapNode, jupiterSwapDef } from "./nodes/action-jupiter-swap";
+export {
+  JupiterSwapNode,
+  jupiterPortfolioDef,
+  jupiterPriceDef,
+  jupiterRecentTokensDef,
+  jupiterSwapBuildDef,
+  jupiterSwapDef,
+  jupiterSwapExecuteDef,
+  jupiterSwapOrderDef,
+  jupiterTokenCategoryDef,
+  jupiterTokenSearchDef,
+  jupiterTokenTagDef,
+} from "./nodes/action-jupiter-swap";
 export { TokenTransferNode, tokenTransferDef } from "./nodes/action-token-transfer";
 export { CronTriggerNode, cronTriggerDef } from "./nodes/trigger-cron";
 export { WebhookTriggerNode, webhookTriggerDef } from "./nodes/trigger-webhook";
@@ -39,10 +51,25 @@ export {
   OraclePriceNode,
   SquadsProposalNode,
   TokenAccountQueryNode,
+  heliusAddressTransactionsDef,
+  heliusParseTransactionDef,
   heliusRpcDef,
+  heliusTransactionDef,
+  heliusWalletActivityDef,
+  metaplexAssetProofDef,
   metaplexAssetDef,
+  metaplexAssetsByAuthorityDef,
+  metaplexAssetsByCreatorDef,
+  metaplexAssetsByGroupDef,
+  metaplexAssetsByOwnerDef,
+  metaplexGetAssetDef,
+  metaplexSearchAssetsDef,
   oraclePriceDef,
+  pythFeedSearchDef,
+  pythLatestPricesDef,
+  pythPriceDef,
   squadsProposalDef,
+  switchboardPriceDef,
   tokenAccountQueryDef,
 } from "./nodes/action-integration-pack";
 
@@ -53,7 +80,18 @@ import { manualTriggerDef } from "./nodes/trigger-manual";
 import { priceFetchDef } from "./nodes/action-price-fetch";
 import { filterDef } from "./nodes/transform-filter";
 import { ifElseDef } from "./nodes/logic-if-else";
-import { jupiterSwapDef } from "./nodes/action-jupiter-swap";
+import {
+  jupiterPortfolioDef,
+  jupiterPriceDef,
+  jupiterRecentTokensDef,
+  jupiterSwapBuildDef,
+  jupiterSwapDef,
+  jupiterSwapExecuteDef,
+  jupiterSwapOrderDef,
+  jupiterTokenCategoryDef,
+  jupiterTokenSearchDef,
+  jupiterTokenTagDef,
+} from "./nodes/action-jupiter-swap";
 import { tokenTransferDef } from "./nodes/action-token-transfer";
 import { cronTriggerDef } from "./nodes/trigger-cron";
 import { webhookTriggerDef } from "./nodes/trigger-webhook";
@@ -62,9 +100,24 @@ import { waitDef } from "./nodes/logic-wait";
 import { webhookOutputDef } from "./nodes/output-webhook";
 import {
   heliusRpcDef,
+  heliusAddressTransactionsDef,
+  heliusParseTransactionDef,
+  heliusTransactionDef,
+  heliusWalletActivityDef,
+  metaplexAssetProofDef,
   metaplexAssetDef,
+  metaplexAssetsByAuthorityDef,
+  metaplexAssetsByCreatorDef,
+  metaplexAssetsByGroupDef,
+  metaplexAssetsByOwnerDef,
+  metaplexGetAssetDef,
+  metaplexSearchAssetsDef,
   oraclePriceDef,
+  pythFeedSearchDef,
+  pythLatestPricesDef,
+  pythPriceDef,
   squadsProposalDef,
+  switchboardPriceDef,
   tokenAccountQueryDef,
 } from "./nodes/action-integration-pack";
 
@@ -73,6 +126,15 @@ export function registerBuiltinNodes(): void {
   cloudNodeRegistry.register(priceFetchDef);
   cloudNodeRegistry.register(filterDef);
   cloudNodeRegistry.register(ifElseDef);
+  cloudNodeRegistry.register(jupiterPriceDef);
+  cloudNodeRegistry.register(jupiterTokenSearchDef);
+  cloudNodeRegistry.register(jupiterTokenTagDef);
+  cloudNodeRegistry.register(jupiterTokenCategoryDef);
+  cloudNodeRegistry.register(jupiterRecentTokensDef);
+  cloudNodeRegistry.register(jupiterPortfolioDef);
+  cloudNodeRegistry.register(jupiterSwapOrderDef);
+  cloudNodeRegistry.register(jupiterSwapBuildDef);
+  cloudNodeRegistry.register(jupiterSwapExecuteDef);
   cloudNodeRegistry.register(jupiterSwapDef);
   cloudNodeRegistry.register(tokenTransferDef);
   cloudNodeRegistry.register(cronTriggerDef);
@@ -80,9 +142,24 @@ export function registerBuiltinNodes(): void {
   cloudNodeRegistry.register(aiAgentDef);
   cloudNodeRegistry.register(waitDef);
   cloudNodeRegistry.register(webhookOutputDef);
+  cloudNodeRegistry.register(pythPriceDef);
+  cloudNodeRegistry.register(pythFeedSearchDef);
+  cloudNodeRegistry.register(pythLatestPricesDef);
+  cloudNodeRegistry.register(switchboardPriceDef);
   cloudNodeRegistry.register(oraclePriceDef);
+  cloudNodeRegistry.register(heliusWalletActivityDef);
+  cloudNodeRegistry.register(heliusTransactionDef);
+  cloudNodeRegistry.register(heliusParseTransactionDef);
+  cloudNodeRegistry.register(heliusAddressTransactionsDef);
   cloudNodeRegistry.register(heliusRpcDef);
   cloudNodeRegistry.register(tokenAccountQueryDef);
+  cloudNodeRegistry.register(metaplexGetAssetDef);
+  cloudNodeRegistry.register(metaplexAssetProofDef);
+  cloudNodeRegistry.register(metaplexAssetsByOwnerDef);
+  cloudNodeRegistry.register(metaplexAssetsByGroupDef);
+  cloudNodeRegistry.register(metaplexAssetsByCreatorDef);
+  cloudNodeRegistry.register(metaplexAssetsByAuthorityDef);
+  cloudNodeRegistry.register(metaplexSearchAssetsDef);
   cloudNodeRegistry.register(metaplexAssetDef);
   cloudNodeRegistry.register(squadsProposalDef);
 }
@@ -113,12 +190,36 @@ export const cloudNodeTypes = {
   "trigger:cron":       CronTriggerNode,
   "trigger:webhook":    WebhookTriggerNode,
   "action:price-fetch": PriceFetchNode,
+  "action:jupiter-price": JupiterSwapNode,
+  "action:jupiter-token-search": JupiterSwapNode,
+  "action:jupiter-token-tag": JupiterSwapNode,
+  "action:jupiter-token-category": JupiterSwapNode,
+  "action:jupiter-recent-tokens": JupiterSwapNode,
+  "action:jupiter-portfolio": JupiterSwapNode,
+  "action:jupiter-swap-order": JupiterSwapNode,
+  "action:jupiter-swap-build": JupiterSwapNode,
+  "action:jupiter-swap-execute": JupiterSwapNode,
   "action:jupiter-swap": JupiterSwapNode,
   "action:token-transfer": TokenTransferNode,
   "action:ai-agent":    AiAgentNode,
+  "action:pyth-price": OraclePriceNode,
+  "action:pyth-feed-search": OraclePriceNode,
+  "action:pyth-latest-prices": OraclePriceNode,
+  "action:switchboard-price": OraclePriceNode,
   "action:oracle-price": OraclePriceNode,
+  "action:helius-wallet-activity": HeliusRpcNode,
+  "action:helius-transaction": HeliusRpcNode,
+  "action:helius-parse-transaction": HeliusRpcNode,
+  "action:helius-address-transactions": HeliusRpcNode,
   "action:helius-rpc": HeliusRpcNode,
   "action:token-account-query": TokenAccountQueryNode,
+  "action:metaplex-get-asset": MetaplexAssetNode,
+  "action:metaplex-asset-proof": MetaplexAssetNode,
+  "action:metaplex-assets-by-owner": MetaplexAssetNode,
+  "action:metaplex-assets-by-group": MetaplexAssetNode,
+  "action:metaplex-assets-by-creator": MetaplexAssetNode,
+  "action:metaplex-assets-by-authority": MetaplexAssetNode,
+  "action:metaplex-search-assets": MetaplexAssetNode,
   "action:metaplex-asset": MetaplexAssetNode,
   "action:squads-proposal": SquadsProposalNode,
   "transform:filter":   FilterNode,

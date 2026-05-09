@@ -3,9 +3,10 @@
 // ExecutionPanel — bottom panel showing execution logs and node output.
 
 import React from "react";
-import { AlertTriangle, ArrowRight, ChevronDown, Copy, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Copy, ShieldCheck } from "lucide-react";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { useExecutionStore } from "@/store/execution-store";
+import type { NodeExecutionResult } from "@/store/execution-store";
 
 const LOG_COLORS: Record<string, string> = {
   info: "text-blue-400",
@@ -13,10 +14,29 @@ const LOG_COLORS: Record<string, string> = {
   error: "text-red-400",
 };
 
+const TAB_LABELS = {
+  executions: "Runs",
+  simulation: "Preflight",
+  logs: "Logs",
+  output: "Output",
+} as const;
+
+type OutputView = "output" | "input" | "error" | "logs" | "timing" | "raw";
+
+const OUTPUT_VIEW_LABELS: Record<OutputView, string> = {
+  output: "Output",
+  input: "Input",
+  error: "Error",
+  logs: "Logs",
+  timing: "Timing",
+  raw: "Raw",
+};
+
 export function ExecutionPanel() {
   const bottomPanelOpen = useEditorUIStore((s) => s.bottomPanelOpen);
   const bottomPanelTab = useEditorUIStore((s) => s.bottomPanelTab);
   const setBottomPanelTab = useEditorUIStore((s) => s.setBottomPanelTab);
+  const openBottomPanelTab = useEditorUIStore((s) => s.openBottomPanelTab);
   const toggleBottomPanel = useEditorUIStore((s) => s.toggleBottomPanel);
 
   const status = useExecutionStore((s) => s.status);
@@ -24,11 +44,78 @@ export function ExecutionPanel() {
   const simulationReport = useExecutionStore((s) => s.simulationReport);
   const logs = useExecutionStore((s) => s.logs);
   const nodeResults = useExecutionStore((s) => s.nodeResults);
+  const [selectedOutputNodeId, setSelectedOutputNodeId] = React.useState("");
+  const [outputView, setOutputView] = React.useState<OutputView>("output");
+  const latestLog = logs.at(-1);
+  const resultValues = Array.from(nodeResults.values());
+  const completedCount = resultValues.filter((result) => result.status === "success").length;
+  const failedCount = resultValues.filter((result) => result.status === "error").length;
+  const warningCount = (simulationReport?.warnings.length ?? 0) + (simulationReport?.blockers.length ?? 0);
+  const selectedOutputResult =
+    resultValues.find((result) => result.nodeId === selectedOutputNodeId) ??
+    resultValues.find((result) => result.output !== undefined) ??
+    resultValues[0];
 
-  if (!bottomPanelOpen) return null;
+  React.useEffect(() => {
+    if (resultValues.length === 0) {
+      setSelectedOutputNodeId("");
+      return;
+    }
+    if (!selectedOutputResult) return;
+    if (selectedOutputNodeId !== selectedOutputResult.nodeId) {
+      setSelectedOutputNodeId(selectedOutputResult.nodeId);
+    }
+  }, [nodeResults, resultValues.length, selectedOutputNodeId, selectedOutputResult]);
+
+  if (!bottomPanelOpen) {
+    return (
+      <div className="absolute bottom-0 left-0 right-0 z-20 border-t border-border bg-card/95 shadow-[0_-10px_24px_rgba(0,0,0,0.18)] backdrop-blur">
+        <div className="flex h-11 items-center justify-between gap-3 px-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              onClick={() => openBottomPanelTab("executions")}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-foreground transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              title="Open run output"
+            >
+              <ChevronUp size={13} />
+              Run output
+            </button>
+            <span className={`h-2 w-2 rounded-full ${statusDot(status)}`} />
+            <span className="shrink-0 text-[11px] text-muted-foreground">
+              {status === "running" ? "Running" : status === "success" ? "Completed" : status === "error" ? "Failed" : "Idle"}
+            </span>
+            {resultValues.length > 0 && (
+              <span className="shrink-0 text-[11px] text-muted-foreground/70">
+                {completedCount} ok{failedCount ? `, ${failedCount} failed` : ""}
+              </span>
+            )}
+            {warningCount > 0 && (
+              <span className="shrink-0 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-300">
+                {warningCount} preflight
+              </span>
+            )}
+            <span className="truncate font-mono text-[11px] text-muted-foreground/60">
+              {latestLog ? latestLog.message : "Run or Preflight to see node logs, warnings, errors, and output."}
+            </span>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            {(["executions", "simulation", "logs", "output"] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => openBottomPanelTab(tab)}
+                className="h-7 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {TAB_LABELS[tab]}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex h-[260px] flex-col border-t border-border bg-card shadow-[0_-12px_30px_rgba(0,0,0,0.18)]">
+    <div className="absolute bottom-0 left-0 right-0 z-20 flex h-[260px] flex-col border-t border-border bg-card shadow-[0_-12px_30px_rgba(0,0,0,0.18)]">
       {/* Tab bar */}
       <div className="flex items-center justify-between border-b border-border px-2">
         <div className="flex items-center gap-1">
@@ -36,13 +123,13 @@ export function ExecutionPanel() {
             <button
               key={tab}
               onClick={() => setBottomPanelTab(tab)}
-              className={`px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+              className={`px-2.5 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
                 bottomPanelTab === tab
                   ? "text-foreground border-b-2 border-primary"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {TAB_LABELS[tab]}
             </button>
           ))}
           {status === "running" && (
@@ -71,7 +158,8 @@ export function ExecutionPanel() {
           )}
           <button
             onClick={toggleBottomPanel}
-            className="text-muted-foreground hover:text-foreground"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            title="Collapse output panel"
           >
             <ChevronDown size={13} />
           </button>
@@ -142,7 +230,7 @@ export function ExecutionPanel() {
           <div className="space-y-2 font-sans">
             {!simulationReport ? (
               <p className="font-mono text-muted-foreground/50">
-                No simulation yet. Click Simulate or Run to preflight the workflow.
+                No preflight yet. Click Preflight or Run to check risk, warnings, blockers, and planned effects.
               </p>
             ) : (
               <>
@@ -230,38 +318,160 @@ export function ExecutionPanel() {
         )}
 
         {bottomPanelTab === "output" && (
-          <div className="space-y-2">
-            {nodeResults.size === 0 ? (
+          <div className="space-y-2 font-sans">
+            {resultValues.length === 0 ? (
               <p className="text-muted-foreground/50">
                 No output yet. Run the workflow to see node JSON output here.
               </p>
             ) : (
-              (() => {
-                const outputResults = Array.from(nodeResults.values()).filter((r) => r.output);
-                if (outputResults.length === 0) {
-                  return (
-                    <p className="text-muted-foreground/50">
-                      This run has node statuses but no JSON output yet. Check Executions or Logs.
-                    </p>
-                  );
-                }
-                return outputResults.map((result) => (
-                  <div key={result.nodeId}>
-                    <p className="text-muted-foreground/60 mb-0.5">
-                      {result.nodeId.slice(0, 8)}...
-                    </p>
-                    <pre className="rounded-md bg-background p-2 text-[11px] overflow-x-auto">
-                      {JSON.stringify(result.output, null, 2)}
-                    </pre>
-                  </div>
-                ));
-              })()
+              <OutputInspector
+                results={resultValues}
+                selectedNodeId={selectedOutputResult?.nodeId ?? ""}
+                selectedResult={selectedOutputResult}
+                outputView={outputView}
+                onSelectNode={setSelectedOutputNodeId}
+                onSelectView={setOutputView}
+              />
             )}
           </div>
         )}
       </div>
     </div>
   );
+}
+
+function OutputInspector({
+  results,
+  selectedNodeId,
+  selectedResult,
+  outputView,
+  onSelectNode,
+  onSelectView,
+}: {
+  results: NodeExecutionResult[];
+  selectedNodeId: string;
+  selectedResult?: NodeExecutionResult;
+  outputView: OutputView;
+  onSelectNode: (nodeId: string) => void;
+  onSelectView: (view: OutputView) => void;
+}) {
+  const payload = formatOutputPayload(selectedResult, outputView);
+  const hasPayload = payload !== null && payload !== undefined && payload !== "";
+
+  const handleCopy = async () => {
+    if (!selectedResult || typeof navigator === "undefined") return;
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Node
+        </label>
+        <select
+          value={selectedNodeId}
+          onChange={(event) => onSelectNode(event.target.value)}
+          className="h-7 max-w-[260px] rounded-md border border-border bg-background px-2 font-mono text-[11px] text-foreground outline-none focus:border-primary"
+        >
+          {results.map((result) => (
+            <option key={result.nodeId} value={result.nodeId}>
+              {result.nodeType ?? result.nodeId} · {result.status}
+            </option>
+          ))}
+        </select>
+
+        <div className="flex items-center rounded-md border border-border bg-background p-0.5">
+          {(Object.keys(OUTPUT_VIEW_LABELS) as OutputView[]).map((view) => (
+            <button
+              key={view}
+              type="button"
+              onClick={() => onSelectView(view)}
+              className={`h-6 rounded px-2 text-[10px] font-semibold transition-colors ${
+                outputView === view
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              }`}
+            >
+              {OUTPUT_VIEW_LABELS[view]}
+            </button>
+          ))}
+        </div>
+
+        <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${statusColor(selectedResult?.status ?? "idle")}`}>
+          {selectedResult?.status ?? "idle"}
+        </span>
+        {typeof selectedResult?.duration === "number" && (
+          <span className="text-[10px] text-muted-foreground">{selectedResult.duration}ms</span>
+        )}
+        <button
+          type="button"
+          onClick={handleCopy}
+          disabled={!hasPayload}
+          className="ml-auto inline-flex h-7 items-center gap-1 rounded-md border border-border px-2 text-[10px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+          title="Copy selected view JSON"
+        >
+          <Copy className="h-3 w-3" />
+          Copy
+        </button>
+      </div>
+
+      {hasPayload ? (
+        <pre className="min-h-[145px] flex-1 overflow-auto rounded-md bg-background p-2 font-mono text-[11px] leading-relaxed">
+          {typeof payload === "string" ? payload : JSON.stringify(payload, null, 2)}
+        </pre>
+      ) : (
+        <div className="flex min-h-[145px] flex-1 items-center rounded-md border border-dashed border-border bg-background p-3 font-mono text-[11px] text-muted-foreground/60">
+          {emptyOutputMessage(outputView)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatOutputPayload(result: NodeExecutionResult | undefined, view: OutputView): unknown {
+  if (!result) return null;
+  if (view === "output") return result.output ?? null;
+  if (view === "input") return result.input ?? null;
+  if (view === "error") return result.error ? { message: result.error } : null;
+  if (view === "logs") return result.logs?.length ? result.logs : null;
+  if (view === "timing") {
+    return {
+      nodeId: result.nodeId,
+      nodeType: result.nodeType,
+      status: result.status,
+      durationMs: result.duration ?? null,
+      startedAt: result.startedAt ? new Date(result.startedAt).toISOString() : null,
+      completedAt: result.completedAt ? new Date(result.completedAt).toISOString() : null,
+    };
+  }
+  return {
+    nodeId: result.nodeId,
+    nodeType: result.nodeType,
+    status: result.status,
+    input: result.input ?? null,
+    output: result.output ?? null,
+    error: result.error ?? null,
+    duration: result.duration ?? null,
+    logs: result.logs ?? [],
+    startedAt: result.startedAt ?? null,
+    completedAt: result.completedAt ?? null,
+  };
+}
+
+function emptyOutputMessage(view: OutputView): string {
+  if (view === "output") return "This node has no output snapshot yet.";
+  if (view === "input") return "This node has no input snapshot recorded.";
+  if (view === "error") return "No error recorded for this node.";
+  if (view === "logs") return "No per-node logs recorded.";
+  return "No data recorded for this view.";
+}
+
+function statusDot(status: string): string {
+  if (status === "success") return "bg-emerald-400";
+  if (status === "error") return "bg-red-400";
+  if (status === "running") return "animate-pulse bg-blue-400";
+  return "bg-muted-foreground/40";
 }
 
 function SimulationMetric({

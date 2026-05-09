@@ -140,7 +140,7 @@ export function EditorToolbar() {
 
   const runSimulation = async () => {
     if (!workflowId) {
-      toast.error("Cannot simulate - no workflow ID");
+      toast.error("Cannot preflight - no workflow ID");
       return null;
     }
     const definition = serializeWorkflowDefinition(nodes, edges);
@@ -154,19 +154,19 @@ export function EditorToolbar() {
     return { definition, report };
   };
 
-  const handleSimulate = async () => {
+  const handlePreflight = async () => {
     try {
       const result = await runSimulation();
       if (!result) return;
       if (result.report.blocked) {
-        toast.error("Simulation found blockers");
+        toast.error("Preflight found blockers");
       } else if (result.report.warnings.length > 0) {
-        toast.message("Simulation ready with warnings");
+        toast.message("Preflight ready with warnings");
       } else {
-        toast.success("Simulation ready");
+        toast.success("Preflight ready");
       }
     } catch (err) {
-      toast.error(`Simulation failed: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`Preflight failed: ${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -216,15 +216,15 @@ export function EditorToolbar() {
         setIsRunning(false);
         return;
       }
-      addLog("info", `Simulation complete: ${simulation.report.riskLevel} risk, ${simulation.report.estimatedFeeSol} SOL estimated fee`);
+      addLog("info", `Preflight complete: ${simulation.report.riskLevel} risk, ${simulation.report.estimatedFeeSol} SOL estimated fee`);
       for (const warning of simulation.report.warnings) {
-        addLog("warn", `Simulation warning: ${warning}`);
+        addLog("warn", `Preflight warning: ${warning}`);
       }
       for (const blocker of simulation.report.blockers) {
-        addLog("error", `Simulation blocker: ${blocker}`);
+        addLog("error", `Preflight blocker: ${blocker}`);
       }
       if (simulation.report.blocked) {
-        throw new Error(`Simulation blocked run: ${simulation.report.blockers.join(" ")}`);
+        throw new Error(`Preflight blocked run: ${simulation.report.blockers.join(" ")}`);
       }
 
       await utils.client.workflow.update.mutate({
@@ -438,17 +438,17 @@ export function EditorToolbar() {
         </button>
 
         <button
-          onClick={handleSimulate}
+          onClick={handlePreflight}
           disabled={!workflowId || simulateWorkflow.isPending || nodes.length === 0}
           className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
-          title="Simulate workflow before running"
+          title="Preflight workflow before running"
         >
           {simulateWorkflow.isPending ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
             <ShieldCheck size={12} />
           )}
-          Simulate
+          Preflight
         </button>
 
         <button

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PublicKey, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { BirdeyeAdapter } from "../adapters/birdeye";
 import { JupiterAdapter } from "../adapters/jupiter";
 
@@ -91,7 +92,16 @@ describe("JupiterAdapter", () => {
     vi.unstubAllGlobals();
   });
 
-  it("fetches a quote with default slippage", async () => {
+  const makeSerializedTransaction = () => {
+    const message = new TransactionMessage({
+      payerKey: new PublicKey("11111111111111111111111111111111"),
+      recentBlockhash: "11111111111111111111111111111111",
+      instructions: [],
+    }).compileToV0Message();
+    return Buffer.from(new VersionedTransaction(message).serialize()).toString("base64");
+  };
+
+  it("fetches a Swap API V2 order with default slippage", async () => {
     const quote = {
       inputMint: "SOL",
       outputMint: "USDC",
@@ -109,7 +119,7 @@ describe("JupiterAdapter", () => {
 
     expect(result).toEqual(quote);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://quote-api.jup.ag/v6/quote?inputMint=SOL&outputMint=USDC&amount=1000&slippageBps=50",
+      "https://api.jup.ag/swap/v2/order?inputMint=SOL&outputMint=USDC&amount=1000&slippageBps=50",
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
@@ -124,10 +134,10 @@ describe("JupiterAdapter", () => {
         outputMint: "USDC",
         amount: 1000,
       }),
-    ).rejects.toThrow("Jupiter quote error: 500 Server Error: upstream down");
+    ).rejects.toThrow("Jupiter order error: 500 Server Error: upstream down");
   });
 
-  it("validates Jupiter quote amounts before calling the provider", async () => {
+  it("validates Jupiter order amounts before calling the provider", async () => {
     const fetchMock = mockFetch({ ok: true, json: {} });
     const adapter = new JupiterAdapter("https://api.devnet.solana.com");
 
@@ -141,9 +151,9 @@ describe("JupiterAdapter", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects malformed Jupiter swap payloads before signing", async () => {
+  it("rejects malformed Jupiter order payloads before signing", async () => {
     const fetchMock = mockFetch({ ok: true, json: {} });
-    const signAndSend = vi.fn(async () => "sig");
+    const signTransaction = vi.fn(async (tx: VersionedTransaction) => tx);
     const adapter = new JupiterAdapter("https://api.devnet.solana.com", {
       apiKey: "jupiter-key",
     });
@@ -156,17 +166,58 @@ describe("JupiterAdapter", () => {
           inAmount: "1000",
           outAmount: "2500",
         },
-        userPublicKey: "11111111111111111111111111111111",
-        signAndSend,
+        signTransaction,
       }),
-    ).rejects.toThrow("swapTransaction");
-    expect(signAndSend).not.toHaveBeenCalled();
+    ).rejects.toThrow("transaction");
+    expect(signTransaction).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("signs and executes a Jupiter V2 order", async () => {
+    const fetchMock = mockFetch({
+      ok: true,
+      json: {
+        status: "Success",
+        signature: "swap-sig",
+        code: 0,
+        inputAmountResult: "1000",
+        outputAmountResult: "2500",
+      },
+    });
+    const signTransaction = vi.fn(async (tx: VersionedTransaction) => tx);
+    const adapter = new JupiterAdapter("https://api.devnet.solana.com", {
+      apiKey: "jupiter-key",
+    });
+
+    const result = await adapter.execute("swap", {
+      orderResponse: {
+        inputMint: "SOL",
+        outputMint: "USDC",
+        inAmount: "1000",
+        outAmount: "2500",
+        transaction: makeSerializedTransaction(),
+        requestId: "req-1",
+      },
+      signTransaction,
+    });
+
+    expect(result).toMatchObject({
+      signature: "swap-sig",
+      inputMint: "SOL",
+      outputMint: "USDC",
+      inputAmountResult: "1000",
+      outputAmountResult: "2500",
+    });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://quote-api.jup.ag/v6/swap",
+      "https://api.jup.ag/swap/v2/execute",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ "x-api-key": "jupiter-key" }),
       }),
     );
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    expect(body.requestId).toBe("req-1");
+    expect(body.signedTransaction).toEqual(expect.any(String));
+    expect(signTransaction).toHaveBeenCalledWith(expect.any(VersionedTransaction));
   });
 });

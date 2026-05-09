@@ -27,7 +27,7 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Family    | Nodes                                         | Use                                                             |
 | --------- | --------------------------------------------- | --------------------------------------------------------------- |
 | Trigger   | Manual Trigger, Cron Trigger, Webhook Trigger | Start a workflow run                                            |
-| Action    | Fetch Price, Token Transfer, Jupiter API, Oracle Price, Helius RPC, Token Account Query, Metaplex Asset, Squads Proposal | Fetch data or perform Solana-aware work |
+| Action    | Fetch Price, Token Transfer, Jupiter Price/Token/Swap nodes, Pyth Price/Search/Latest Prices, Helius activity/transaction/enhanced-history nodes, Token Account Query, Metaplex asset nodes, Squads Proposal | Fetch data or perform Solana-aware work |
 | AI        | AI Agent                                      | Summarize, classify, score risk, or create structured decisions |
 | Logic     | If / Else, Wait                               | Branch or delay execution                                       |
 | Transform | Filter                                        | Keep only items matching a condition                            |
@@ -41,13 +41,15 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Cron Trigger         | None                                    | No                                       | Runs only after activation                           |
 | Webhook Trigger      | None                                    | No                                       | Header auth is configured on the node itself         |
 | Fetch Price          | `birdeye`                               | Required for Birdeye, not DexScreener    | `BIRDEYE_API_KEY` works as an environment fallback   |
-| Jupiter API          | `jupiter` plus optional Cloud wallet    | API key optional; wallet required only for direct swap send | `JUPITER_API_KEY` and `JUPITER_API_BASE` can fallback |
+| Jupiter Price / Token / Swap nodes | `jupiter` plus optional Cloud wallet | API key optional; wallet required for execute/direct swap nodes | `JUPITER_API_KEY` and `JUPITER_API_BASE` can fallback |
 | Token Transfer       | Cloud wallet                            | Yes                                      | Uses the selected encrypted Cloud wallet             |
 | AI Agent             | `openai`, `anthropic`, or `gemini`      | Required unless env var is configured    | `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY` |
-| Oracle Price         | `switchboard` or `webhook` for Switchboard | Required for Switchboard, not Pyth    | Pyth reads can run without an API key                |
-| Helius RPC           | `helius`                                | Required unless RPC URL is provided      | API key can build the Helius RPC URL                 |
+| Pyth Price / Feed Search / Latest Prices | None                  | No                                       | Uses public Pyth Hermes endpoints                    |
+| Switchboard Price    | `switchboard` or `webhook`              | Required unless API URL is provided      | Reads a Switchboard-compatible endpoint              |
+| Helius activity / JSON-RPC transaction nodes | `helius`          | Required unless RPC URL is provided      | API key can build the Helius RPC URL                 |
+| Helius enhanced parse / address history | `helius`             | Yes                                      | Uses the Enhanced Transactions API with `api-key`    |
 | Token Account Query  | `helius` or `webhook`                   | Required unless RPC URL is provided      | Supports SPL Token and Token-2022 queries            |
-| Metaplex Asset       | `helius`                                | Required unless DAS RPC URL is provided  | Reads asset metadata through DAS-compatible RPC      |
+| Metaplex asset nodes | `helius`                                | Required unless DAS RPC URL is provided  | Reads DAS asset, proof, owner, collection, creator, authority, and search data |
 | Squads Proposal      | `squads` or `webhook`                   | Usually required                         | Sends proposal payload to a Squads-compatible API    |
 | If / Else            | None                                    | No                                       | Branches on item JSON fields                         |
 | Filter               | None                                    | No                                       | Drops non-matching items                             |
@@ -100,16 +102,18 @@ Most action nodes merge their result into the incoming item. For example, Fetch 
 
 ## Execution Visibility
 
-The Cloud editor keeps a bottom execution panel open during manual runs.
+The Cloud editor keeps a bottom execution rail visible. Open it to inspect runs, preflight checks, logs, and node JSON output.
 
 | Tab        | Shows                                                                 |
 | ---------- | --------------------------------------------------------------------- |
-| Executions | Each node status: running, completed, failed, waiting, or skipped     |
-| Simulation | Risk level, fee estimate, route, blockers, warnings, and wallet deltas |
+| Runs       | Each node status: running, completed, failed, waiting, or skipped     |
+| Preflight  | Risk level, fee estimate, route, blockers, warnings, and wallet deltas |
 | Logs       | Runtime messages from the runner and each node                        |
-| Output     | JSON output emitted by completed nodes                                |
+| Output     | Per-node inspector for output, input, errors, logs, timing, and raw JSON |
 
 During a run, nodes and connected edges update on the canvas so the active step is visible while data moves through the workflow.
+
+Preflight checks the saved graph, route, credentials, wallet actions, fee estimate, warnings, and blockers. It does not call provider APIs, sign transactions, or send webhooks. Run performs preflight first, then queues and executes the workflow if it is not blocked.
 
 ## Expressions
 
@@ -171,11 +175,17 @@ Use Webhook Trigger when another product, bot, backend, or alerting system shoul
 | ------------------- | --------------------------------- | --------------------------------------------------------------- | ----------------------------------------------- |
 | Fetch Price         | Optional incoming item            | Token Address, Price Source, Credential                         | `price` and `priceData`                         |
 | Token Transfer      | Incoming item or fixed properties | Destination Address, Amount, Token Mint, Source Wallet          | Transaction signature and transfer metadata     |
-| Jupiter API         | Incoming item or fixed properties | Operation, Token IDs, Token Search/Tag/Category, Wallet/Taker, Swap Tokens, Credential | Jupiter price/token/portfolio data, swap order/build payloads, or direct swap metadata |
-| Oracle Price        | Optional incoming item            | Operation, Provider, Feed ID/Search Query, API URL, Credential  | Oracle price payload or Pyth feed search result |
-| Helius RPC          | Optional incoming item            | DAS/RPC Method, Params, RPC URL, Credential                     | JSON-RPC result                                 |
+| Jupiter Price       | Incoming item or fixed token IDs  | Token IDs, Credential                                           | Jupiter price payload                          |
+| Jupiter Token Search / Tag / Category / Recent | Incoming item or fixed properties | Search, Tag, Category, Interval, Limit, Credential | Jupiter token metadata lists |
+| Jupiter Portfolio   | Wallet address or selected wallet | Wallet Address, Wallet, Credential                              | Jupiter portfolio positions                    |
+| Jupiter Swap Order / Build | Taker address or selected wallet | Input Token, Output Token, Amount, Slippage, Credential | Jupiter order/build payload                    |
+| Jupiter Swap Execute | Prepared Jupiter order transaction | Order Transaction, Request ID, Wallet, Credential              | Execute status and signature                   |
+| Jupiter Direct Swap | Selected Cloud wallet             | Input Token, Output Token, Amount, Slippage, Wallet, Credential | V2 order, execute status, route, and signature |
+| Pyth Price / Feed Search / Latest Prices | Optional incoming item | Feed ID, Feed IDs, or Search, Asset Type                       | Price payloads or feed search result           |
+| Switchboard Price   | Optional incoming item            | Feed ID, API URL, Credential                                    | Endpoint response                              |
+| Helius Wallet Activity / Transaction / Enhanced History | Optional incoming item | Wallet Address, Signature, filters, RPC URL, Credential         | JSON-RPC or enhanced transaction result        |
 | Token Account Query | Optional incoming item            | Owner, Mint, Token Program, RPC URL, Credential                 | Token account list                              |
-| Metaplex Asset      | Optional incoming item            | DAS Operation, Asset/Owner/Group/Creator fields, Display Options, RPC URL, Credential | DAS asset result                    |
+| Metaplex Get Asset / Proof / Owner / Collection / Creator / Authority / Search | Optional incoming item | Asset ID, Owner, Creator, Authority, Collection, Display Options, RPC URL, Credential | DAS asset results |
 | Squads Proposal     | Incoming item or fixed payload    | API URL, Multisig, Title, Payload, Credential                   | Proposal API response                           |
 
 ### Fetch Price
@@ -207,31 +217,32 @@ Example connection:
 Manual Trigger -> Token Transfer -> HTTP Request
 ```
 
-### Jupiter API
+### Jupiter Nodes
 
-Jupiter API can run lightweight read operations or prepare swap payloads before a wallet action.
+Jupiter features are split into separate nodes so each workflow step only shows the settings it needs.
 
-| Operation             | API surface              | Requires wallet?                    | Output                         |
+| Node                  | API surface              | Requires wallet?                    | Output                         |
 | --------------------- | ------------------------ | ----------------------------------- | ------------------------------ |
-| Price API v3          | `GET /price/v3`          | No                                  | Token price payload            |
-| Token Search v2       | `GET /tokens/v2/search`  | No                                  | Token metadata/search results  |
-| Token Tag v2          | `GET /tokens/v2/tag`     | No                                  | Verified/LST/stocks token list |
-| Token Category v2     | `GET /tokens/v2/{category}/{interval}` | No                    | Trending/traded/organic token list |
-| Recent Tokens v2      | `GET /tokens/v2/recent`  | No                                  | Jupiter's default recently pooled token list |
-| Portfolio Positions   | `GET /portfolio/v1/positions` | Wallet address or selected wallet public key | Position payload       |
-| Swap v2 Order         | `GET /swap/v2/order`     | Taker address or selected wallet public key | Quote and assembled order payload |
-| Swap v2 Build         | `GET /swap/v2/build`     | Taker address or selected wallet public key | Raw swap instruction payload   |
-| Legacy Direct Swap Send | Legacy quote/swap transaction path | Selected Cloud wallet             | Signature, route, and swap metadata |
+| Jupiter Price         | `GET /price/v3`          | No                                  | Token price payload            |
+| Jupiter Token Search  | `GET /tokens/v2/search`  | No                                  | Token metadata/search results  |
+| Jupiter Token Tag     | `GET /tokens/v2/tag`     | No                                  | Verified/LST/stocks token list |
+| Jupiter Token Category | `GET /tokens/v2/{category}/{interval}` | No                   | Trending/traded/organic token list |
+| Jupiter Recent Tokens | `GET /tokens/v2/recent`  | No                                  | Jupiter's default recently pooled token list |
+| Jupiter Portfolio     | `GET /portfolio/v1/positions` | Wallet address or selected wallet public key | Position payload       |
+| Jupiter Swap Order    | `GET /swap/v2/order`     | Taker address or selected wallet public key | Quote and assembled order payload |
+| Jupiter Swap Build    | `GET /swap/v2/build`     | Taker address or selected wallet public key | Raw swap instruction payload   |
+| Jupiter Swap Execute  | `POST /swap/v2/execute`  | Selected Cloud wallet             | Execute status, signature, and result amounts |
+| Jupiter Direct Swap   | `GET /swap/v2/order` + `POST /swap/v2/execute` | Selected Cloud wallet | Signature, route, and swap metadata |
 
 Use swap operations behind a guard step when the swap depends on external data:
 
 ```text
-Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter API -> HTTP Request
+Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Direct Swap -> HTTP Request
 ```
 
-`slippageBps` is basis points. `50` means `0.5%`.
+`slippageBps` is basis points. `50` means `0.5%`. Leaving advanced order fields blank keeps more routers eligible. Receiver, referral, payer, and router-exclusion fields can change routing behavior.
 
-For most first tests, choose `Price API v3`. It does not need a wallet and can run with keyless Jupiter access. For production rate limits, add a Jupiter credential or configure `JUPITER_API_KEY` on the server.
+For most first tests, choose `Jupiter Price`. It does not need a wallet and can run with keyless Jupiter access. For production rate limits, add a Jupiter credential or configure `JUPITER_API_KEY` on the server.
 
 ### Oracle Price
 
@@ -241,11 +252,14 @@ Oracle Price reads Pyth Hermes directly, searches Pyth feed IDs, or calls a Swit
 | ----------------- | ----------- | --------------------------- | --------------------------------------- |
 | Latest Price      | Pyth        | Feed ID                     | None for the public Hermes endpoint     |
 | Pyth Feed Search  | Pyth        | Search Query, optional Asset Type | None for the public Hermes endpoint |
+| Pyth Latest Prices | Pyth       | Feed IDs                    | None for the public Hermes endpoint     |
 | Latest Price      | Switchboard | Feed ID plus API URL template | `switchboard` or `webhook` headers when the endpoint requires auth |
 
-Pyth output includes normalized price, raw price, confidence, exponent, publish time, and the fetch timestamp.
+Pyth output includes normalized price, raw price, confidence, exponent, publish time, and the fetch timestamp. Use `Pyth Latest Prices` when a workflow needs multiple feed IDs in one call.
 
 ### Helius RPC
+
+Helius nodes are split by task. `Helius Wallet Activity` reads recent signatures through JSON-RPC, `Helius Transaction` reads raw JSON-RPC transaction details, `Helius Parse Transaction` uses Enhanced Transactions to turn one signature into readable transfer/swap/NFT data, and `Helius Address Transactions` fetches enhanced history for an address with type, source, token-account, sorting, and pagination filters.
 
 Helius RPC is the low-level escape hatch for DAS and Solana JSON-RPC calls. It supports the standard DAS methods `getAsset`, `getAssetBatch`, `getAssetProof`, `getAssetProofBatch`, `getAssetsByAuthority`, `getAssetsByCreator`, `getAssetsByGroup`, `getAssetsByOwner`, `getNftEditions`, `getSignaturesForAsset`, `getTokenAccounts`, and `searchAssets`, plus Solana RPC methods such as `getSignaturesForAddress` and `getTransaction`.
 
@@ -258,9 +272,9 @@ Metaplex Asset is the guided DAS node for NFT, compressed NFT, and token metadat
 | Operation          | Required field                     | Notes                                      |
 | ------------------ | ---------------------------------- | ------------------------------------------ |
 | Get Asset          | Asset ID                           | Single NFT/token metadata and ownership    |
-| Get Asset Proof    | Asset ID                           | Merkle proof for compressed assets         |
+| Asset Proof        | Asset ID                           | Merkle proof for compressed assets         |
 | Assets by Owner    | Owner Address                      | Supports pagination and display options    |
-| Assets by Group    | Group Key and Group Value          | Use `collection` as the group key for collections |
+| Assets by Collection | Group Key and Group Value        | Use `collection` as the group key for collections |
 | Assets by Creator  | Creator Address                    | Optional verified-only filter              |
 | Assets by Authority | Authority Address                 | Finds assets controlled by an authority    |
 | Search Assets      | Search fields or Advanced Search JSON | Supports token type, owner, creator, group, sorting, and display flags |
@@ -346,9 +360,9 @@ Cloud workflows can use encrypted wallets and credentials for automated actions.
 
 | Resource               | Used by                      | Notes                                         |
 | ---------------------- | ---------------------------- | --------------------------------------------- |
-| Cloud wallet           | Token Transfer, Jupiter API direct swap | Used for transaction signing                  |
+| Cloud wallet           | Token Transfer, Jupiter Swap Execute, Jupiter Direct Swap | Used for transaction signing                  |
 | Birdeye credential     | Fetch Price                  | Optional when `BIRDEYE_API_KEY` is available  |
-| Jupiter credential     | Jupiter API                  | Optional for keyless reads; recommended for production rate limits |
+| Jupiter credential     | Jupiter Price, Token, Portfolio, and Swap nodes | Optional for keyless reads; recommended for production rate limits |
 | OpenAI credential      | AI Agent                     | Optional when `OPENAI_API_KEY` is available   |
 | Anthropic credential   | AI Agent                     | Optional when `ANTHROPIC_API_KEY` is available |
 | Gemini credential      | AI Agent                     | Optional when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is available |
@@ -368,7 +382,7 @@ Operational rules:
 | Scheduled market alert | `Cron Trigger -> Fetch Price -> If / Else -> HTTP Request`                                |
 | AI price monitor       | `Cron Trigger -> Fetch Price -> AI Agent -> If / Else -> HTTP Request`                    |
 | Manual payout          | `Manual Trigger -> Token Transfer -> Filter -> HTTP Request`                              |
-| AI-assisted swap guard | `Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter API -> HTTP Request` |
+| AI-assisted swap guard | `Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Direct Swap -> HTTP Request` |
 | Delayed follow-up      | `Manual Trigger -> Wait -> HTTP Request`                                                  |
 
 ## Cloud Versus Other Surfaces

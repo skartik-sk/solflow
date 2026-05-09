@@ -89,6 +89,23 @@ export class WalletSigner {
     return signature;
   }
 
+  /** Sign a transaction without broadcasting it */
+  async signTransaction(
+    tx: Transaction | VersionedTransaction,
+    walletId: string,
+    encryptedKey: EncryptedKey,
+  ): Promise<Transaction | VersionedTransaction> {
+    const keypair = this.getKeypair(walletId, encryptedKey);
+
+    if (tx instanceof VersionedTransaction) {
+      tx.sign([keypair]);
+      return tx;
+    }
+
+    tx.sign(keypair);
+    return tx;
+  }
+
   /** Sign and simulate a transaction without broadcasting it */
   async simulate(
     tx: Transaction | VersionedTransaction,

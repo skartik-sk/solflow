@@ -2,7 +2,7 @@
 
 // Cloud Dashboard - compact operational home after login.
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { AppShell } from "@/components/layout/AppShell";
+import { NewWorkflowDialog } from "@/components/workflows/NewWorkflowDialog";
 
 function statusClass(status: string): string {
   if (status === "ACTIVE" || status === "COMPLETED") return "bg-emerald-500/10 text-emerald-300";
@@ -34,6 +35,7 @@ function formatTime(value: string | Date | null | undefined): string {
 }
 
 export default function DashboardPage() {
+  const [showNewWorkflow, setShowNewWorkflow] = useState(false);
   const { data: workflows } = trpc.workflow.list.useQuery();
   const { data: executionData } = trpc.execution.list.useQuery({ limit: 8 });
 
@@ -58,13 +60,14 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link
-            href="/editor/new"
+          <button
+            type="button"
+            onClick={() => setShowNewWorkflow(true)}
             className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
           >
             <Plus size={13} />
             New Workflow
-          </Link>
+          </button>
           <Link
             href="/marketplace"
             className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground transition-colors hover:bg-accent"
@@ -128,12 +131,13 @@ export default function DashboardPage() {
                 Create one from scratch or start from a marketplace template.
               </p>
               <div className="mt-4 flex justify-center gap-2">
-                <Link
-                  href="/editor/new"
+                <button
+                  type="button"
+                  onClick={() => setShowNewWorkflow(true)}
                   className="inline-flex h-8 items-center rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground"
                 >
                   New Workflow
-                </Link>
+                </button>
                 <Link
                   href="/marketplace"
                   className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-xs font-semibold text-foreground"
@@ -191,6 +195,9 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+      {showNewWorkflow && (
+        <NewWorkflowDialog onClose={() => setShowNewWorkflow(false)} />
+      )}
     </AppShell>
   );
 }

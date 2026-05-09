@@ -82,22 +82,70 @@ type TemplateLike = {
 
 const WALLET_ACTIONS = new Set([
   "action:token-transfer",
+  "action:jupiter-swap",
+  "action:jupiter-swap-execute",
 ]);
 
 const EXTERNAL_ACTIONS = new Set([
   "action:price-fetch",
+  "action:jupiter-price",
+  "action:jupiter-token-search",
+  "action:jupiter-token-tag",
+  "action:jupiter-token-category",
+  "action:jupiter-recent-tokens",
+  "action:jupiter-portfolio",
+  "action:jupiter-swap-order",
+  "action:jupiter-swap-build",
+  "action:jupiter-swap-execute",
   "action:jupiter-swap",
   "action:ai-agent",
+  "action:pyth-price",
+  "action:pyth-feed-search",
+  "action:pyth-latest-prices",
+  "action:switchboard-price",
   "action:oracle-price",
+  "action:helius-wallet-activity",
+  "action:helius-transaction",
+  "action:helius-parse-transaction",
+  "action:helius-address-transactions",
   "action:helius-rpc",
   "action:metaplex-asset",
+  "action:metaplex-get-asset",
+  "action:metaplex-asset-proof",
+  "action:metaplex-assets-by-owner",
+  "action:metaplex-assets-by-group",
+  "action:metaplex-assets-by-creator",
+  "action:metaplex-assets-by-authority",
+  "action:metaplex-search-assets",
   "action:squads-proposal",
   "output:webhook",
 ]);
 
 const CREDENTIAL_NODE_TYPES = new Set([
+  "action:jupiter-price",
+  "action:jupiter-token-search",
+  "action:jupiter-token-tag",
+  "action:jupiter-token-category",
+  "action:jupiter-recent-tokens",
+  "action:jupiter-portfolio",
+  "action:jupiter-swap-order",
+  "action:jupiter-swap-build",
+  "action:jupiter-swap-execute",
+  "action:jupiter-swap",
   "action:ai-agent",
+  "action:switchboard-price",
+  "action:helius-wallet-activity",
+  "action:helius-transaction",
+  "action:helius-parse-transaction",
+  "action:helius-address-transactions",
   "action:helius-rpc",
+  "action:metaplex-get-asset",
+  "action:metaplex-asset-proof",
+  "action:metaplex-assets-by-owner",
+  "action:metaplex-assets-by-group",
+  "action:metaplex-assets-by-creator",
+  "action:metaplex-assets-by-authority",
+  "action:metaplex-search-assets",
   "action:metaplex-asset",
   "action:squads-proposal",
   "output:webhook",
@@ -108,12 +156,36 @@ const NODE_LABELS: Record<string, string> = {
   "trigger:cron": "Cron Trigger",
   "trigger:webhook": "Webhook Trigger",
   "action:price-fetch": "Price Fetch",
-  "action:jupiter-swap": "Jupiter API",
+  "action:jupiter-price": "Jupiter Price",
+  "action:jupiter-token-search": "Jupiter Token Search",
+  "action:jupiter-token-tag": "Jupiter Token Tag",
+  "action:jupiter-token-category": "Jupiter Token Category",
+  "action:jupiter-recent-tokens": "Jupiter Recent Tokens",
+  "action:jupiter-portfolio": "Jupiter Portfolio",
+  "action:jupiter-swap-order": "Jupiter Swap Order",
+  "action:jupiter-swap-build": "Jupiter Swap Build",
+  "action:jupiter-swap-execute": "Jupiter Swap Execute",
+  "action:jupiter-swap": "Jupiter Direct Swap",
   "action:token-transfer": "Token Transfer",
   "action:ai-agent": "AI Agent",
+  "action:pyth-price": "Pyth Price",
+  "action:pyth-feed-search": "Pyth Feed Search",
+  "action:pyth-latest-prices": "Pyth Latest Prices",
+  "action:switchboard-price": "Switchboard Price",
   "action:oracle-price": "Oracle Price",
+  "action:helius-wallet-activity": "Helius Wallet Activity",
+  "action:helius-transaction": "Helius Transaction",
+  "action:helius-parse-transaction": "Helius Parse Transaction",
+  "action:helius-address-transactions": "Helius Address Transactions",
   "action:helius-rpc": "Helius RPC",
   "action:token-account-query": "Token Account Query",
+  "action:metaplex-get-asset": "Metaplex Get Asset",
+  "action:metaplex-asset-proof": "Metaplex Asset Proof",
+  "action:metaplex-assets-by-owner": "Metaplex Assets by Owner",
+  "action:metaplex-assets-by-group": "Metaplex Assets by Collection",
+  "action:metaplex-assets-by-creator": "Metaplex Assets by Creator",
+  "action:metaplex-assets-by-authority": "Metaplex Assets by Authority",
+  "action:metaplex-search-assets": "Metaplex Search Assets",
   "action:metaplex-asset": "Metaplex Asset",
   "action:squads-proposal": "Squads Proposal",
   "transform:filter": "Filter",
@@ -151,12 +223,30 @@ function uniqueSorted(values: string[]): string[] {
 }
 
 function jupiterOperation(node: WorkflowNodeInput): string {
-  return String(nodeConfig(node).operation || "price");
+  const typeOperation: Record<string, string> = {
+    "action:jupiter-price": "price",
+    "action:jupiter-token-search": "token-search",
+    "action:jupiter-token-tag": "token-tag",
+    "action:jupiter-token-category": "token-category",
+    "action:jupiter-recent-tokens": "token-recent",
+    "action:jupiter-portfolio": "portfolio-positions",
+    "action:jupiter-swap-order": "swap-order",
+    "action:jupiter-swap-build": "swap-build",
+    "action:jupiter-swap-execute": "swap-execute",
+  };
+  if (typeOperation[node.type]) return typeOperation[node.type];
+  if (node.type === "action:jupiter-swap") {
+    return String(nodeConfig(node).operation || "swap-direct-send");
+  }
+  return String(nodeConfig(node).operation || "");
 }
 
 function isWalletAction(node: WorkflowNodeInput): boolean {
   if (WALLET_ACTIONS.has(node.type)) return true;
-  return node.type === "action:jupiter-swap" && jupiterOperation(node) === "swap-direct-send";
+  return (
+    (node.type === "action:jupiter-swap" && jupiterOperation(node) === "swap-direct-send") ||
+    node.type === "action:jupiter-swap-execute"
+  );
 }
 
 function buildRoute(nodes: WorkflowNodeInput[], edges: WorkflowEdgeInput[]): string[] {
@@ -202,10 +292,28 @@ function requiredCredentialLabels(nodes: WorkflowNodeInput[]): string[] {
         const data = nodeConfig(node);
         if (hasMeaningfulValue(data.credentialId)) return [];
         if (node.type === "output:webhook") return ["webhook endpoint"];
+        if (node.type.startsWith("action:jupiter-") || node.type === "action:jupiter-swap") {
+          return ["Jupiter API key for production rate limits"];
+        }
         if (node.type === "action:ai-agent") return ["AI provider key"];
-        if (node.type === "action:helius-rpc" || node.type === "action:metaplex-asset") {
+        if (
+          node.type === "action:helius-rpc" ||
+          node.type === "action:helius-wallet-activity" ||
+          node.type === "action:helius-transaction" ||
+          node.type === "action:helius-parse-transaction" ||
+          node.type === "action:helius-address-transactions" ||
+          node.type === "action:metaplex-asset" ||
+          node.type === "action:metaplex-get-asset" ||
+          node.type === "action:metaplex-asset-proof" ||
+          node.type === "action:metaplex-assets-by-owner" ||
+          node.type === "action:metaplex-assets-by-group" ||
+          node.type === "action:metaplex-assets-by-creator" ||
+          node.type === "action:metaplex-assets-by-authority" ||
+          node.type === "action:metaplex-search-assets"
+        ) {
           return ["Helius or DAS RPC"];
         }
+        if (node.type === "action:switchboard-price") return ["Switchboard API"];
         if (node.type === "action:squads-proposal") return ["Squads API"];
         return [];
       }),
@@ -217,17 +325,37 @@ function walletDeltasFor(nodes: WorkflowNodeInput[]): WorkflowSimulationReport["
     const data = nodeConfig(node);
     if (node.type === "action:jupiter-swap") {
       const operation = jupiterOperation(node);
-      if (operation !== "swap-direct-send" && operation !== "swap-order" && operation !== "swap-build") {
-        return [];
-      }
+      if (operation !== "swap-direct-send") return [];
       return [{
         asset: String(data.inputMint || "input mint"),
         change: `-${String(data.amount || "configured amount")}`,
-        reason: operation === "swap-direct-send" ? "Jupiter direct swap input" : "Jupiter swap quote input",
+        reason: "Jupiter direct swap input",
+      }, {
+        asset: String(data.outputMint || "output mint"),
+        change: "+swap output",
+        reason: "Jupiter direct swap output",
+      }];
+    }
+    if (node.type === "action:jupiter-swap-order" || node.type === "action:jupiter-swap-build") {
+      return [{
+        asset: String(data.inputMint || "input mint"),
+        change: `-${String(data.amount || "configured amount")}`,
+        reason: "Jupiter quoted input",
       }, {
         asset: String(data.outputMint || "output mint"),
         change: "+quoted output",
-        reason: operation === "swap-direct-send" ? "Jupiter direct swap output" : "Jupiter quoted output",
+        reason: "Jupiter quoted output",
+      }];
+    }
+    if (node.type === "action:jupiter-swap-execute") {
+      return [{
+        asset: "order input",
+        change: "-signed order input",
+        reason: "Jupiter order execution",
+      }, {
+        asset: "order output",
+        change: "+executed order output",
+        reason: "Jupiter order execution",
       }];
     }
     if (node.type === "action:token-transfer") {
@@ -247,38 +375,74 @@ function transactionPlanFor(nodes: WorkflowNodeInput[]): WorkflowSimulationRepor
     .map((node) => {
       const data = nodeConfig(node);
       let effect = "Calls an external service";
-      if (node.type === "action:jupiter-swap") {
+      if (node.type === "action:jupiter-price") {
+        effect = `Reads Jupiter Price API for ${String(data.tokenIds || "configured token ids")}`;
+      } else if (node.type === "action:jupiter-token-search") {
+        effect = `Searches Jupiter Tokens API for ${String(data.query || "configured query")}`;
+      } else if (node.type === "action:jupiter-token-tag") {
+        effect = `Reads Jupiter Tokens API tag ${String(data.tokenTag || "verified")}`;
+      } else if (node.type === "action:jupiter-token-category") {
+        effect = `Reads Jupiter Tokens API category ${String(data.tokenCategory || "toptraded")}`;
+      } else if (node.type === "action:jupiter-recent-tokens") {
+        effect = "Reads recent Jupiter token listings";
+      } else if (node.type === "action:jupiter-portfolio") {
+        effect = "Reads Jupiter Portfolio positions for the configured wallet";
+      } else if (node.type === "action:jupiter-swap-order") {
+        effect = `Builds a Jupiter Swap API V2 order for ${String(data.amount || "configured amount")}`;
+      } else if (node.type === "action:jupiter-swap-build") {
+        effect = `Builds Jupiter swap instructions for ${String(data.amount || "configured amount")}`;
+      } else if (node.type === "action:jupiter-swap-execute") {
+        effect = "Signs and executes a Jupiter Swap API V2 order transaction";
+      } else if (node.type === "action:jupiter-swap") {
         const operation = jupiterOperation(node);
         if (operation === "price") {
           effect = `Reads Jupiter Price API for ${String(data.tokenIds || "configured token ids")}`;
-        } else if (operation === "token-search") {
-          effect = `Searches Jupiter Tokens API for ${String(data.query || "configured query")}`;
-        } else if (operation === "token-tag") {
-          effect = `Reads Jupiter Tokens API tag ${String(data.tokenTag || "verified")}`;
         } else if (operation === "token-category") {
           effect = `Reads Jupiter Tokens API category ${String(data.tokenCategory || "toptraded")}`;
-        } else if (operation === "token-recent") {
-          effect = "Reads recent Jupiter token listings";
-        } else if (operation === "portfolio-positions") {
-          effect = "Reads Jupiter Portfolio positions for the configured wallet";
-        } else if (operation === "swap-order") {
-          effect = `Builds a Jupiter Swap API V2 order for ${String(data.amount || "configured amount")}`;
-        } else if (operation === "swap-build") {
-          effect = `Builds Jupiter swap instructions for ${String(data.amount || "configured amount")}`;
         } else {
-          effect = `Simulates and signs a Jupiter legacy direct swap for ${String(data.amount || "configured amount")}`;
+          effect = `Creates, simulates, signs, and executes a Jupiter Swap API V2 order for ${String(data.amount || "configured amount")}`;
         }
       } else if (node.type === "action:token-transfer") {
         effect = `Simulates and signs a transfer to ${String(data.recipient || "configured recipient")}`;
       } else if (node.type === "output:webhook") {
         effect = `Sends execution payload to ${String(data.url || "configured webhook")}`;
+      } else if (node.type === "action:pyth-price") {
+        effect = `Reads Pyth price feed ${String(data.feedId || "configured feed")}`;
+      } else if (node.type === "action:pyth-feed-search") {
+        effect = `Searches Pyth feeds for ${String(data.query || "configured query")}`;
+      } else if (node.type === "action:pyth-latest-prices") {
+        effect = `Reads latest Pyth prices for ${String(data.feedIds || "configured feeds")}`;
+      } else if (node.type === "action:switchboard-price") {
+        effect = "Reads a Switchboard-compatible price endpoint";
       } else if (node.type === "action:oracle-price") {
         effect =
           data.operation === "feed-search"
             ? `Searches Pyth feeds for ${String(data.query || "configured query")}`
             : `Reads ${String(data.provider || "oracle")} price feed`;
+      } else if (node.type === "action:helius-wallet-activity") {
+        effect = `Reads recent signatures for ${String(data.address || "configured wallet")}`;
+      } else if (node.type === "action:helius-transaction") {
+        effect = "Reads Solana JSON-RPC transaction details";
+      } else if (node.type === "action:helius-parse-transaction") {
+        effect = "Parses a transaction with Helius Enhanced Transactions";
+      } else if (node.type === "action:helius-address-transactions") {
+        effect = `Reads enhanced transaction history for ${String(data.address || "configured address")}`;
       } else if (node.type === "action:helius-rpc") {
         effect = `Runs ${String(data.method || "configured RPC method")}`;
+      } else if (node.type === "action:metaplex-get-asset") {
+        effect = "Reads one Metaplex DAS asset";
+      } else if (node.type === "action:metaplex-asset-proof") {
+        effect = "Reads a DAS Merkle proof for one compressed asset";
+      } else if (node.type === "action:metaplex-assets-by-owner") {
+        effect = `Lists Metaplex DAS assets for ${String(data.ownerAddress || "configured owner")}`;
+      } else if (node.type === "action:metaplex-assets-by-group") {
+        effect = `Lists Metaplex DAS assets for collection/group ${String(data.groupValue || "configured group")}`;
+      } else if (node.type === "action:metaplex-assets-by-creator") {
+        effect = `Lists Metaplex DAS assets for creator ${String(data.creatorAddress || "configured creator")}`;
+      } else if (node.type === "action:metaplex-assets-by-authority") {
+        effect = `Lists Metaplex DAS assets for authority ${String(data.authorityAddress || "configured authority")}`;
+      } else if (node.type === "action:metaplex-search-assets") {
+        effect = "Searches Metaplex DAS assets";
       } else if (node.type === "action:metaplex-asset") {
         effect = `Runs DAS ${String(data.operation || "getAsset")} through Metaplex/Helius`;
       } else if (node.type === "action:squads-proposal") {
@@ -395,7 +559,7 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
       ["nft", "metaplex", "helius", "watch"],
       [
         { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        { id: "asset", type: "action:metaplex-asset", position: { x: 340, y: 180 }, data: { operation: "getAsset", assetId: "YOUR_ASSET_ID", credentialId: "" } },
+        { id: "asset", type: "action:metaplex-get-asset", position: { x: 340, y: 180 }, data: { assetId: "YOUR_ASSET_ID", credentialId: "" } },
         { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/nft-asset", method: "POST", body: "{{ $json.metaplexAsset }}" } },
       ],
       [edge("e1", "trigger", "asset"), edge("e2", "asset", "notify")],
@@ -410,7 +574,7 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
       ["wallet", "activity", "helius", "alert"],
       [
         { id: "trigger", type: "trigger:cron", position: { x: 80, y: 180 }, data: { cronExpression: "*/5 * * * *", timezone: "UTC" } },
-        { id: "activity", type: "action:helius-rpc", position: { x: 340, y: 180 }, data: { method: "getSignaturesForAddress", params: ["YOUR_WALLET_ADDRESS", { limit: 10 }], credentialId: "", rpcUrl: "" } },
+        { id: "activity", type: "action:helius-wallet-activity", position: { x: 340, y: 180 }, data: { address: "YOUR_WALLET_ADDRESS", limit: 10, credentialId: "", rpcUrl: "" } },
         { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/wallet-activity", method: "POST", body: "{{ $json.helius }}" } },
       ],
       [edge("e1", "trigger", "activity"), edge("e2", "activity", "notify")],
@@ -440,7 +604,7 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
       ["jupiter", "tokens", "discovery", "market"],
       [
         { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        { id: "tokens", type: "action:jupiter-swap", position: { x: 340, y: 180 }, data: { operation: "token-category", tokenCategory: "toptraded", tokenInterval: "24h", tokenLimit: 25, credentialId: "" } },
+        { id: "tokens", type: "action:jupiter-token-category", position: { x: 340, y: 180 }, data: { tokenCategory: "toptraded", tokenInterval: "24h", tokenLimit: 25, credentialId: "" } },
         { id: "notify", type: "output:webhook", position: { x: 620, y: 180 }, data: { url: "https://example.com/ops/jupiter-token-discovery", method: "POST", body: "{{ $json.jupiter }}" } },
       ],
       [edge("e1", "trigger", "tokens"), edge("e2", "tokens", "notify")],
@@ -473,7 +637,7 @@ export function buildAssistantWorkflowDraft(prompt: string): AssistantWorkflowDr
         { id: "trigger", type: "trigger:cron", position: { x: 80, y: 200 }, data: { cronExpression: "0 */6 * * *", timezone: "UTC" } },
         { id: "price", type: "action:price-fetch", position: { x: 330, y: 200 }, data: { token: "So11111111111111111111111111111111111111112", source: "dexscreener" } },
         { id: "guard", type: "logic:if-else", position: { x: 580, y: 200 }, data: { field: "price", operator: "lt", value: "180" } },
-        { id: "swap", type: "action:jupiter-swap", position: { x: 830, y: 120 }, data: { operation: "swap-order", inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", outputMint: "So11111111111111111111111111111111111111112", amount: "1000000", slippageBps: 50, walletAddress: "YOUR_TAKER_ADDRESS" } },
+        { id: "swap", type: "action:jupiter-swap-order", position: { x: 830, y: 120 }, data: { inputMint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", outputMint: "So11111111111111111111111111111111111111112", amount: "1000000", slippageBps: 50, walletAddress: "YOUR_TAKER_ADDRESS" } },
         { id: "notify", type: "output:webhook", position: { x: 1080, y: 120 }, data: { url: "https://example.com/ops/swap-summary", method: "POST", body: "{{ $json }}" } },
       ],
       [edge("e1", "trigger", "price"), edge("e2", "price", "guard"), edge("e3", "guard", "swap", "true"), edge("e4", "swap", "notify")],
@@ -507,9 +671,33 @@ export function evaluateCloudTemplateCertification(template: TemplateLike): Clou
   const protocolNode = nodeTypes.some((type) =>
     [
       "action:jupiter-swap",
+      "action:jupiter-price",
+      "action:jupiter-token-search",
+      "action:jupiter-token-tag",
+      "action:jupiter-token-category",
+      "action:jupiter-recent-tokens",
+      "action:jupiter-portfolio",
+      "action:jupiter-swap-order",
+      "action:jupiter-swap-build",
+      "action:jupiter-swap-execute",
       "action:oracle-price",
+      "action:pyth-price",
+      "action:pyth-feed-search",
+      "action:pyth-latest-prices",
+      "action:switchboard-price",
       "action:helius-rpc",
+      "action:helius-wallet-activity",
+      "action:helius-transaction",
+      "action:helius-parse-transaction",
+      "action:helius-address-transactions",
       "action:metaplex-asset",
+      "action:metaplex-get-asset",
+      "action:metaplex-asset-proof",
+      "action:metaplex-assets-by-owner",
+      "action:metaplex-assets-by-group",
+      "action:metaplex-assets-by-creator",
+      "action:metaplex-assets-by-authority",
+      "action:metaplex-search-assets",
       "action:token-account-query",
       "action:squads-proposal",
     ].includes(type),

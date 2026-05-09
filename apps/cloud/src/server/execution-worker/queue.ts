@@ -232,6 +232,15 @@ function createWalletOperations(workflow: {
       });
       return signature;
     },
+    async signTransaction(tx, walletId) {
+      const { wallet, signer, encryptedKey } = await loadWallet(walletId);
+      const signed = await signer.signTransaction(tx as Parameters<WalletSigner["signTransaction"]>[0], wallet.id, encryptedKey);
+      await prisma.cloudWallet.update({
+        where: { id: wallet.id },
+        data: { lastUsedAt: new Date() },
+      });
+      return signed;
+    },
     async simulate(tx, walletId) {
       const { wallet, signer, encryptedKey } = await loadWallet(walletId);
       return signer.simulate(tx as Parameters<WalletSigner["simulate"]>[0], wallet.id, encryptedKey);
