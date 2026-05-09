@@ -53,7 +53,7 @@ const STARTER_DEFINITION = {
       id: "starter-result-edge",
       source: "jupiter-price",
       target: "show-result",
-      sourceHandle: "output",
+      sourceHandle: "price",
       targetHandle: "input",
     },
   ],

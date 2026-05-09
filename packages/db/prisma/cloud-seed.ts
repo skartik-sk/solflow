@@ -26,12 +26,12 @@ export const CLOUD_TEMPLATES = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     title: "Price Alert Bot",
-    description: "Check a token price on a schedule and notify your team when a threshold is reached.",
+    description: "Check a token price on a schedule and write an alert into the run output.",
     longDescription:
-      "A cron-triggered workflow that fetches a Solana token price through Birdeye or DexScreener, branches on a configured threshold, and sends a webhook notification to Slack, Discord, or your own backend.",
+      "A cron-triggered workflow that fetches a Solana token price through DexScreener, branches on a configured threshold, and writes the alert into the Cloud run log for review or later routing.",
     category: "DEFI",
     tags: ["price", "alert", "monitoring", "defi"],
-    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "output:log"],
     featured: true,
     definition: makeDefinition(
       [
@@ -58,13 +58,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n4",
-          type: "output:webhook",
+          type: "output:log",
           position: { x: 800, y: 120 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"SOL price alert: {{ $json.price }} USD"}',
+            level: "info",
+            message: "SOL price alert: {{ $json.price }} USD",
+            includeInput: true,
           },
         },
       ],
@@ -82,12 +81,12 @@ export const CLOUD_TEMPLATES = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     title: "DCA Strategy",
-    description: "Run scheduled Jupiter swaps from an encrypted Cloud wallet.",
+    description: "Run scheduled Jupiter swaps from an encrypted Cloud wallet and capture the result.",
     longDescription:
-      "Dollar-cost average into USDC or any SPL token by setting up a scheduled cron trigger that prepares and signs a Jupiter swap through a selected Cloud wallet.",
+      "Dollar-cost average into USDC or any SPL token by setting up a scheduled cron trigger that prepares and signs a Jupiter swap through a selected Cloud wallet, then stores the swap response in the run output.",
     category: "DEFI",
     tags: ["dca", "swap", "jupiter", "defi", "automation"],
-    nodeTypes: ["trigger:cron", "action:jupiter-swap"],
+    nodeTypes: ["trigger:cron", "action:jupiter-swap", "output:result"],
     featured: true,
     definition: makeDefinition(
       [
@@ -111,8 +110,21 @@ export const CLOUD_TEMPLATES = [
             credentialId: "",
           },
         },
+        {
+          id: "n3",
+          type: "output:result",
+          position: { x: 650, y: 200 },
+          data: {
+            name: "DCA swap result",
+            status: "success",
+            value: "{{ $json.jupiter }}",
+          },
+        },
       ],
-      [{ id: "e1", source: "n1", target: "n2" }],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3", sourceHandle: "swap" },
+      ],
     ),
     settings: { timeout: 120, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
   },
@@ -124,10 +136,10 @@ export const CLOUD_TEMPLATES = [
     title: "DCA Trader",
     description: "Dollar-cost average into any token on a schedule.",
     longDescription:
-      "A production-ready DCA blueprint that checks market conditions, branches on a configured price guard, executes a Jupiter swap from a Cloud wallet, and posts the execution summary to your operations channel.",
+      "A production-ready DCA blueprint that checks market conditions, branches on a configured price guard, executes a Jupiter swap from a Cloud wallet, and captures the execution summary in the run output.",
     category: "DEFI",
     tags: ["jupiter", "cron", "dca", "trader", "automation"],
-    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:result"],
     featured: true,
     definition: makeDefinition(
       [
@@ -168,13 +180,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n5",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 1010, y: 140 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"DCA Trader executed at {{ $now }}. SOL price: {{ $json.price }}"}',
+            name: "DCA execution summary",
+            status: "success",
+            value: "{{ $json }}",
           },
         },
       ],
@@ -182,7 +193,7 @@ export const CLOUD_TEMPLATES = [
         { id: "e1", source: "n1", target: "n2" },
         { id: "e2", source: "n2", target: "n3" },
         { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
-        { id: "e4", source: "n4", target: "n5" },
+        { id: "e4", source: "n4", target: "n5", sourceHandle: "swap" },
       ],
     ),
     settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
@@ -195,10 +206,10 @@ export const CLOUD_TEMPLATES = [
     title: "Liquidation Guard",
     description: "Monitor lending positions and auto-deleverage before risk spikes.",
     longDescription:
-      "A liquidation-risk workflow that polls market data, checks a health-factor threshold, routes risky positions into a defensive Jupiter swap branch, and posts an alert to your incident channel.",
+      "A liquidation-risk workflow that polls market data, checks a health-factor threshold, routes risky positions into a defensive Jupiter swap branch, and captures an incident summary in the run output.",
     category: "DEFI",
     tags: ["marginfi", "alert", "liquidation", "risk", "deleverage"],
-    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:result"],
     featured: true,
     definition: makeDefinition(
       [
@@ -239,13 +250,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n5",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 1010, y: 150 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"Liquidation Guard triggered. Health factor: {{ $json.healthFactor }}"}',
+            name: "Liquidation guard action",
+            status: "warning",
+            value: "{{ $json }}",
           },
         },
       ],
@@ -253,7 +263,7 @@ export const CLOUD_TEMPLATES = [
         { id: "e1", source: "n1", target: "n2" },
         { id: "e2", source: "n2", target: "n3" },
         { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
-        { id: "e4", source: "n4", target: "n5" },
+        { id: "e4", source: "n4", target: "n5", sourceHandle: "swap" },
       ],
     ),
     settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
@@ -266,10 +276,10 @@ export const CLOUD_TEMPLATES = [
     title: "Yield Harvester",
     description: "Auto-compound rewards across DeFi protocols.",
     longDescription:
-      "A yield-ops workflow that wakes on a schedule, checks a reward or APY threshold, swaps harvested rewards through Jupiter, and posts a compounding summary for Raydium, Kamino, or other strategy dashboards.",
+      "A yield-ops workflow that wakes on a schedule, checks a reward or APY threshold, swaps harvested rewards through Jupiter, and captures a compounding summary for Raydium, Kamino, or other strategy dashboards.",
     category: "DEFI",
     tags: ["raydium", "kamino", "yield", "harvest", "compound"],
-    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:result"],
     featured: true,
     definition: makeDefinition(
       [
@@ -310,13 +320,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n5",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 1010, y: 150 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"Yield Harvester compounded rewards at {{ $now }}"}',
+            name: "Yield harvest result",
+            status: "success",
+            value: "{{ $json }}",
           },
         },
       ],
@@ -324,7 +333,7 @@ export const CLOUD_TEMPLATES = [
         { id: "e1", source: "n1", target: "n2" },
         { id: "e2", source: "n2", target: "n3" },
         { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
-        { id: "e4", source: "n4", target: "n5" },
+        { id: "e4", source: "n4", target: "n5", sourceHandle: "swap" },
       ],
     ),
     settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
@@ -335,12 +344,12 @@ export const CLOUD_TEMPLATES = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     title: "Portfolio Monitor",
-    description: "Send a recurring portfolio price summary to a webhook endpoint.",
+    description: "Show a recurring portfolio price summary in the run output.",
     longDescription:
-      "Fetch SOL market data on a recurring schedule and forward a structured summary to Slack, Discord, or your operations backend. Use it as the starting point for richer wallet monitoring.",
+      "Fetch SOL market data on a recurring schedule and display a structured summary in Cloud. Use it as the starting point for richer wallet monitoring or add a webhook output when you are ready to notify a team.",
     category: "DEFI",
     tags: ["portfolio", "monitor", "wallet", "balance"],
-    nodeTypes: ["trigger:cron", "action:price-fetch", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "output:display"],
     featured: true,
     definition: makeDefinition(
       [
@@ -361,13 +370,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:display",
           position: { x: 550, y: 200 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"Portfolio check: SOL at {{ $json.price }} USD"}',
+            title: "Portfolio price summary",
+            value: "{{ $json.priceData }}",
+            format: "json",
           },
         },
       ],
@@ -386,10 +394,10 @@ export const CLOUD_TEMPLATES = [
     title: "Auto Transfer",
     description: "Schedule recurring SOL or SPL token transfers from a Cloud wallet.",
     longDescription:
-      "Set up recurring token transfers for payouts, distributions, or internal treasury moves. The workflow uses a configured Cloud wallet and should be reviewed carefully before activation.",
+      "Set up recurring token transfers for payouts, distributions, or internal treasury moves. The workflow uses a configured Cloud wallet, then stores the transfer result in the run output.",
     category: "UTILITY",
     tags: ["transfer", "schedule", "token", "payroll"],
-    nodeTypes: ["trigger:cron", "action:token-transfer"],
+    nodeTypes: ["trigger:cron", "action:token-transfer", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -409,8 +417,21 @@ export const CLOUD_TEMPLATES = [
             token: "So11111111111111111111111111111111111111112",
           },
         },
+        {
+          id: "n3",
+          type: "output:result",
+          position: { x: 650, y: 200 },
+          data: {
+            name: "Transfer result",
+            status: "success",
+            value: "{{ $json.transfer }}",
+          },
+        },
       ],
-      [{ id: "e1", source: "n1", target: "n2" }],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3" },
+      ],
     ),
     settings: { timeout: 120, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
   },
@@ -420,12 +441,12 @@ export const CLOUD_TEMPLATES = [
   // ═══════════════════════════════════════════════════════════════════════════
   {
     title: "Webhook Processor",
-    description: "Receive webhook data, summarize it with AI, and forward the result.",
+    description: "Receive webhook data, summarize it with AI, and show the result.",
     longDescription:
-      "Accept incoming webhook data from your indexer, RPC provider, or backend service, ask an AI node to summarize the payload, and send the result to a webhook output.",
+      "Accept incoming webhook data from your indexer, RPC provider, or backend service, ask an AI node to summarize the payload, and keep the result in Cloud output for review.",
     category: "UTILITY",
     tags: ["webhook", "ai", "processor", "automation"],
-    nodeTypes: ["trigger:webhook", "action:ai-agent", "output:webhook"],
+    nodeTypes: ["trigger:webhook", "action:ai-agent", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -450,13 +471,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 550, y: 200 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"{{ $json.ai.content }}"}',
+            name: "AI webhook summary",
+            status: "success",
+            value: "{{ $json.ai }}",
           },
         },
       ],
@@ -475,10 +495,10 @@ export const CLOUD_TEMPLATES = [
     title: "Price-Guarded DCA",
     description: "Only run a Jupiter DCA swap when the current price is inside your range.",
     longDescription:
-      "Fetches a token price on a schedule, checks the result with an if/else node, then runs a Jupiter swap only when the configured price guard passes. Sends a webhook summary after the swap branch.",
+      "Fetches a token price on a schedule, checks the result with an if/else node, then runs a Jupiter swap only when the configured price guard passes. Captures a run result after the swap branch.",
     category: "DEFI",
     tags: ["dca", "price", "jupiter", "risk-control"],
-    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:price-fetch", "logic:if-else", "action:jupiter-swap", "output:result"],
     featured: true,
     definition: makeDefinition(
       [
@@ -519,13 +539,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n5",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 1010, y: 140 },
           data: {
-            url: "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"text":"Price-guarded DCA branch ran at {{ $now }}"}',
+            name: "Price-guarded DCA result",
+            status: "success",
+            value: "{{ $json }}",
           },
         },
       ],
@@ -533,7 +552,7 @@ export const CLOUD_TEMPLATES = [
         { id: "e1", source: "n1", target: "n2" },
         { id: "e2", source: "n2", target: "n3" },
         { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
-        { id: "e4", source: "n4", target: "n5" },
+        { id: "e4", source: "n4", target: "n5", sourceHandle: "swap" },
       ],
     ),
     settings: { timeout: 180, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
@@ -546,10 +565,10 @@ export const CLOUD_TEMPLATES = [
     title: "AI Transaction Classifier",
     description: "Turn incoming transaction webhook payloads into structured AI summaries.",
     longDescription:
-      "Receives webhook payloads from your own indexer or RPC event source, asks an AI provider to classify the event as JSON, and forwards the structured result to your operations endpoint.",
+      "Receives webhook payloads from your own indexer or RPC event source, asks an AI provider to classify the event as JSON, and saves the structured result in Cloud output.",
     category: "AI",
     tags: ["ai", "webhook", "monitoring", "json"],
-    nodeTypes: ["trigger:webhook", "action:ai-agent", "output:webhook"],
+    nodeTypes: ["trigger:webhook", "action:ai-agent", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -584,13 +603,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 610, y: 220 },
           data: {
-            url: "https://example.com/ops/solana-events",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.ai.content }}",
+            name: "Transaction classification",
+            status: "success",
+            value: "{{ $json.ai }}",
           },
         },
       ],
@@ -609,10 +627,10 @@ export const CLOUD_TEMPLATES = [
     title: "Webhook Payment Runner",
     description: "Accept approved payout requests and execute token transfers through a Cloud wallet.",
     longDescription:
-      "Receives payout payloads from your backend, filters for approved requests, and sends SOL or SPL tokens from a configured Cloud wallet. Keep webhook authentication enabled before production use.",
+      "Receives payout payloads from your backend, filters for approved requests, sends SOL or SPL tokens from a configured Cloud wallet, and records the transfer result in Cloud output. Keep webhook authentication enabled before production use.",
     category: "UTILITY",
     tags: ["payment", "webhook", "transfer", "treasury"],
-    nodeTypes: ["trigger:webhook", "transform:filter", "action:token-transfer", "output:webhook"],
+    nodeTypes: ["trigger:webhook", "transform:filter", "action:token-transfer", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -649,13 +667,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n4",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 830, y: 220 },
           data: {
-            url: "https://example.com/ops/payment-status",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"status":"submitted","signature":"{{ $json.transfer.signature }}"}',
+            name: "Payment runner result",
+            status: "success",
+            value: "{{ $json.transfer }}",
           },
         },
       ],
@@ -670,12 +687,12 @@ export const CLOUD_TEMPLATES = [
 
   {
     title: "Jupiter Token Discovery",
-    description: "Pull top Jupiter token lists without a wallet before routing opportunities to a webhook.",
+    description: "Pull top Jupiter token lists without a wallet and show the result.",
     longDescription:
-      "A no-wallet starter that calls Jupiter Tokens V2 category data, keeps token metadata and market signals in the run output, then forwards the result to a webhook for dashboards, alerts, or manual review.",
+      "A no-wallet starter that calls Jupiter Tokens V2 category data and keeps token metadata plus market signals in the run output for dashboards, alerts, or manual review.",
     category: "DEFI",
     tags: ["jupiter", "tokens", "discovery", "market", "no-wallet"],
-    nodeTypes: ["trigger:manual", "action:jupiter-token-category", "output:webhook"],
+    nodeTypes: ["trigger:manual", "action:jupiter-token-category", "output:display"],
     featured: true,
     definition: makeDefinition(
       [
@@ -698,13 +715,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:display",
           position: { x: 610, y: 220 },
           data: {
-            url: "https://example.com/ops/jupiter-token-discovery",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.jupiter }}",
+            title: "Jupiter token discovery",
+            value: "{{ $json.jupiter }}",
+            format: "json",
           },
         },
       ],
@@ -720,10 +736,10 @@ export const CLOUD_TEMPLATES = [
     title: "Pyth Feed Finder",
     description: "Search public Pyth feed IDs before wiring an oracle guard.",
     longDescription:
-      "A no-key utility template that searches the Pyth Hermes feed catalog by symbol or pair, returns matching feed IDs, and sends the result to a webhook so operators can pick the exact feed for production workflows.",
+      "A no-key utility template that searches the Pyth Hermes feed catalog by symbol or pair, returns matching feed IDs, and displays the result so operators can pick the exact feed for production workflows.",
     category: "DEFI",
     tags: ["pyth", "oracle", "feed-search", "no-wallet", "utility"],
-    nodeTypes: ["trigger:manual", "action:pyth-feed-search", "output:webhook"],
+    nodeTypes: ["trigger:manual", "action:pyth-feed-search", "output:display"],
     featured: false,
     definition: makeDefinition(
       [
@@ -744,13 +760,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:display",
           position: { x: 610, y: 220 },
           data: {
-            url: "https://example.com/ops/pyth-feed-search",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.oracle }}",
+            title: "Pyth feed search",
+            value: "{{ $json.oracle }}",
+            format: "json",
           },
         },
       ],
@@ -764,12 +779,12 @@ export const CLOUD_TEMPLATES = [
 
   {
     title: "Oracle Guard",
-    description: "Gate a workflow with Pyth or Switchboard price data before notifying operators.",
+    description: "Gate a workflow with Pyth or Switchboard price data before logging an alert.",
     longDescription:
-      "A ready integration-pack template that reads an oracle price, checks a deterministic threshold, and sends an execution summary to an operations webhook. Swap the provider to Switchboard when you have a compatible API URL.",
+      "A ready integration-pack template that reads an oracle price, checks a deterministic threshold, and writes an execution summary to the Cloud run log. Swap the provider to Switchboard when you have a compatible API URL.",
     category: "DEFI",
     tags: ["pyth", "switchboard", "oracle", "risk", "automation"],
-    nodeTypes: ["trigger:cron", "action:pyth-price", "logic:if-else", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:pyth-price", "logic:if-else", "output:log"],
     featured: true,
     definition: makeDefinition(
       [
@@ -795,13 +810,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n4",
-          type: "output:webhook",
+          type: "output:log",
           position: { x: 830, y: 160 },
           data: {
-            url: "https://example.com/ops/oracle-alert",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: '{"feed":"{{ $json.oracle.feedId }}","price":"{{ $json.oracle.price }}"}',
+            level: "warn",
+            message: "Oracle alert for {{ $json.oracle.feedId }} at {{ $json.oracle.price }}",
+            includeInput: true,
           },
         },
       ],
@@ -816,12 +830,12 @@ export const CLOUD_TEMPLATES = [
 
   {
     title: "NFT Asset Watch",
-    description: "Read Metaplex asset metadata through Helius and route notable assets to a webhook.",
+    description: "Read Metaplex asset metadata through Helius and show the asset result.",
     longDescription:
-      "Fetches a DAS-compatible asset record with the Metaplex Get Asset node, keeps the raw Helius result in the execution timeline, and sends the normalized asset payload to a webhook for review or indexing.",
+      "Fetches a DAS-compatible asset record with the Metaplex Get Asset node, keeps the raw Helius result in the execution timeline, and stores the normalized asset payload in Cloud output for review or indexing.",
     category: "NFT",
-    tags: ["helius", "metaplex", "nft", "das", "webhook"],
-    nodeTypes: ["trigger:manual", "action:metaplex-get-asset", "output:webhook"],
+    tags: ["helius", "metaplex", "nft", "das", "output"],
+    nodeTypes: ["trigger:manual", "action:metaplex-get-asset", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -839,13 +853,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 610, y: 220 },
           data: {
-            url: "https://example.com/ops/nft-asset",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.metaplexAsset }}",
+            name: "NFT asset result",
+            status: "success",
+            value: "{{ $json.metaplexAsset }}",
           },
         },
       ],
@@ -859,12 +872,12 @@ export const CLOUD_TEMPLATES = [
 
   {
     title: "Token Treasury Report",
-    description: "Query SPL or Token-2022 accounts and prepare a Squads-compatible proposal payload.",
+    description: "Query SPL or Token-2022 accounts and prepare a review payload.",
     longDescription:
-      "A treasury operations template that reads token accounts for an owner, supports SPL Token and Token-2022, then posts a proposal payload to a Squads-compatible approval service.",
+      "A treasury operations template that reads token accounts for an owner, supports SPL Token and Token-2022, then captures a review payload that can be copied into a Squads approval flow.",
     category: "UTILITY",
     tags: ["spl-token", "token-2022", "squads", "treasury", "report"],
-    nodeTypes: ["trigger:manual", "action:token-account-query", "action:squads-proposal"],
+    nodeTypes: ["trigger:manual", "action:token-account-query", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -878,18 +891,21 @@ export const CLOUD_TEMPLATES = [
           id: "n2",
           type: "action:token-account-query",
           position: { x: 320, y: 220 },
-          data: { owner: "YOUR_TREASURY_OWNER", tokenProgram: "spl", credentialId: "" },
+          data: {
+            owner: "So11111111111111111111111111111111111111112",
+            tokenProgram: "spl",
+            credentialId: "",
+            rpcUrl: "",
+          },
         },
         {
           id: "n3",
-          type: "action:squads-proposal",
+          type: "output:result",
           position: { x: 610, y: 220 },
           data: {
-            apiUrl: "https://example.com/squads/proposals",
-            multisig: "YOUR_SQUADS_MULTISIG",
-            title: "Review treasury token accounts",
-            description: "Generated by SolStudio Cloud",
-            payload: { tokenAccounts: "{{ $json.tokenAccounts }}" },
+            name: "Treasury token account report",
+            status: "success",
+            value: "{{ $json.tokenAccounts }}",
           },
         },
       ],
@@ -903,12 +919,12 @@ export const CLOUD_TEMPLATES = [
 
   {
     title: "Wallet Activity Alert",
-    description: "Poll recent wallet signatures and notify your team when activity appears.",
+    description: "Poll recent wallet signatures and display activity in Cloud.",
     longDescription:
-      "A lightweight wallet monitoring workflow that checks recent signatures for an address through JSON-RPC or Helius, then forwards the result to an operations webhook.",
+      "A lightweight wallet monitoring workflow that checks recent signatures for an address through JSON-RPC or Helius, then displays the result in Cloud output.",
     category: "UTILITY",
     tags: ["wallet", "activity", "helius", "alert", "monitoring"],
-    nodeTypes: ["trigger:cron", "action:helius-wallet-activity", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:helius-wallet-activity", "output:display"],
     featured: true,
     definition: makeDefinition(
       [
@@ -923,7 +939,7 @@ export const CLOUD_TEMPLATES = [
           type: "action:helius-wallet-activity",
           position: { x: 320, y: 220 },
           data: {
-            address: "YOUR_WALLET_ADDRESS",
+            address: "So11111111111111111111111111111111111111112",
             limit: 10,
             credentialId: "",
             rpcUrl: "",
@@ -931,13 +947,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:display",
           position: { x: 610, y: 220 },
           data: {
-            url: "https://example.com/ops/wallet-activity",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.helius }}",
+            title: "Wallet activity",
+            value: "{{ $json.helius }}",
+            format: "json",
           },
         },
       ],
@@ -953,10 +968,10 @@ export const CLOUD_TEMPLATES = [
     title: "Enhanced Wallet Swap History",
     description: "Fetch human-readable swap history for a wallet through Helius Enhanced Transactions.",
     longDescription:
-      "Uses Helius Address Transactions to return parsed transaction descriptions, transfer data, fees, and swap events for a wallet. Add a Helius credential, choose filters, and send the enhanced history to your webhook or dashboard.",
+      "Uses Helius Address Transactions to return parsed transaction descriptions, transfer data, fees, and swap events for a wallet. Add a Helius credential, choose filters, and view the enhanced history in Cloud output.",
     category: "UTILITY",
     tags: ["helius", "transactions", "wallet", "swap", "history"],
-    nodeTypes: ["trigger:manual", "action:helius-address-transactions", "output:webhook"],
+    nodeTypes: ["trigger:manual", "action:helius-address-transactions", "output:result"],
     featured: false,
     definition: makeDefinition(
       [
@@ -971,7 +986,7 @@ export const CLOUD_TEMPLATES = [
           type: "action:helius-address-transactions",
           position: { x: 320, y: 220 },
           data: {
-            address: "YOUR_WALLET_ADDRESS",
+            address: "So11111111111111111111111111111111111111112",
             limit: 10,
             transactionType: "SWAP",
             source: "JUPITER",
@@ -983,13 +998,12 @@ export const CLOUD_TEMPLATES = [
         },
         {
           id: "n3",
-          type: "output:webhook",
+          type: "output:result",
           position: { x: 640, y: 220 },
           data: {
-            url: "https://example.com/ops/enhanced-wallet-history",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.helius }}",
+            name: "Enhanced wallet history",
+            status: "success",
+            value: "{{ $json.helius }}",
           },
         },
       ],
@@ -1003,12 +1017,12 @@ export const CLOUD_TEMPLATES = [
 
   {
     title: "Token Account Watcher",
-    description: "Watch SPL Token or Token-2022 accounts for an owner and notify on matches.",
+    description: "Watch SPL Token or Token-2022 accounts for an owner and display the result.",
     longDescription:
-      "A token account monitoring workflow that periodically reads parsed token accounts, checks whether any match the configured owner and optional mint, and sends a compact webhook payload.",
+      "A token account monitoring workflow that periodically reads parsed token accounts for the configured owner and optional mint, then displays a compact account payload in Cloud output.",
     category: "UTILITY",
     tags: ["spl-token", "token-2022", "watcher", "monitoring"],
-    nodeTypes: ["trigger:cron", "action:token-account-query", "logic:if-else", "output:webhook"],
+    nodeTypes: ["trigger:cron", "action:token-account-query", "output:display"],
     featured: true,
     definition: makeDefinition(
       [
@@ -1022,30 +1036,28 @@ export const CLOUD_TEMPLATES = [
           id: "n2",
           type: "action:token-account-query",
           position: { x: 320, y: 220 },
-          data: { owner: "YOUR_OWNER_ADDRESS", mint: "", tokenProgram: "spl", credentialId: "", rpcUrl: "" },
+          data: {
+            owner: "So11111111111111111111111111111111111111112",
+            mint: "",
+            tokenProgram: "spl",
+            credentialId: "",
+            rpcUrl: "",
+          },
         },
         {
           id: "n3",
-          type: "logic:if-else",
-          position: { x: 590, y: 220 },
-          data: { field: "tokenAccounts.count", operator: "gt", value: "0" },
-        },
-        {
-          id: "n4",
-          type: "output:webhook",
-          position: { x: 860, y: 160 },
+          type: "output:display",
+          position: { x: 610, y: 220 },
           data: {
-            url: "https://example.com/ops/token-accounts",
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{{ $json.tokenAccounts }}",
+            title: "Token accounts",
+            value: "{{ $json.tokenAccounts }}",
+            format: "json",
           },
         },
       ],
       [
         { id: "e1", source: "n1", target: "n2" },
         { id: "e2", source: "n2", target: "n3" },
-        { id: "e3", source: "n3", target: "n4", sourceHandle: "true" },
       ],
     ),
     settings: { timeout: 90, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },

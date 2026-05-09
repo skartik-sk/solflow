@@ -53,6 +53,11 @@ export function ExecutionPanel() {
   const nodeResults = useExecutionStore((s) => s.nodeResults);
   const [selectedOutputNodeId, setSelectedOutputNodeId] = React.useState("");
   const [outputView, setOutputView] = React.useState<OutputView>("output");
+  const [bottomPanelHeight, setBottomPanelHeight] = React.useState(256);
+  const isDraggingRef = React.useRef(false);
+  const startYRef = React.useRef(0);
+  const startHeightRef = React.useRef(0);
+  const dragCleanupRef = React.useRef<(() => void) | null>(null);
   const latestLog = logs.at(-1);
   const resultValues = Array.from(nodeResults.values());
   const completedCount = resultValues.filter(
@@ -84,6 +89,59 @@ export function ExecutionPanel() {
     selectedOutputNodeId,
     selectedOutputResult,
   ]);
+
+  const onDragStart = React.useCallback(
+    (event: React.MouseEvent | React.TouchEvent) => {
+      event.preventDefault();
+      dragCleanupRef.current?.();
+      isDraggingRef.current = true;
+      const clientY =
+        "touches" in event ? event.touches[0].clientY : event.clientY;
+      startYRef.current = clientY;
+      startHeightRef.current = bottomPanelHeight;
+
+      const onMove = (moveEvent: MouseEvent | TouchEvent) => {
+        if (!isDraggingRef.current) return;
+        const currentY =
+          "touches" in moveEvent
+            ? moveEvent.touches[0].clientY
+            : moveEvent.clientY;
+        const delta = startYRef.current - currentY;
+        const nextHeight = Math.max(
+          120,
+          Math.min(window.innerHeight - 200, startHeightRef.current + delta),
+        );
+        setBottomPanelHeight(nextHeight);
+      };
+
+      let cleanup = () => {};
+      const onUp = () => cleanup();
+
+      cleanup = () => {
+        isDraggingRef.current = false;
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.removeEventListener("touchmove", onMove);
+        document.removeEventListener("touchend", onUp);
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        dragCleanupRef.current = null;
+      };
+
+      dragCleanupRef.current = cleanup;
+      document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+      document.addEventListener("touchmove", onMove, { passive: false });
+      document.addEventListener("touchend", onUp);
+    },
+    [bottomPanelHeight],
+  );
+
+  React.useEffect(() => {
+    return () => dragCleanupRef.current?.();
+  }, []);
 
   if (!bottomPanelOpen) {
     return (
@@ -144,9 +202,21 @@ export function ExecutionPanel() {
   }
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 flex h-[260px] flex-col border-t border-border bg-card shadow-[0_-12px_30px_rgba(0,0,0,0.18)]">
+    <div
+      className="absolute bottom-0 left-0 right-0 z-20 flex min-h-[120px] flex-col border-t border-border bg-card shadow-[0_-12px_30px_rgba(0,0,0,0.18)]"
+      style={{ height: bottomPanelHeight }}
+    >
+      <div
+        onMouseDown={onDragStart}
+        onTouchStart={onDragStart}
+        className="group relative flex h-2 shrink-0 cursor-ns-resize items-center justify-center bg-card transition-colors hover:bg-accent/50"
+        title="Drag to resize output panel"
+      >
+        <div className="h-0.5 w-8 rounded-full bg-border transition-colors group-hover:bg-primary/50" />
+      </div>
+
       {/* Tab bar */}
-      <div className="flex items-center justify-between border-b border-border px-2">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-2">
         <div className="flex items-center gap-1">
           {(["executions", "simulation", "logs", "output"] as const).map(
             (tab) => (
@@ -202,7 +272,7 @@ export function ExecutionPanel() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-2 font-mono text-[11px]">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2 font-mono text-[11px]">
         {bottomPanelTab === "logs" && (
           <div className="space-y-0.5">
             {logs.length === 0 ? (
