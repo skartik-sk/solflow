@@ -534,9 +534,9 @@ export default function HomePage() {
             <motion.div variants={stagger} initial="hidden" whileInView="visible" viewport={{ once: true }}
               className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
               {[
-                { quote: "The visual canvas completely changed how I prototype programs. What used to take days now takes hours.", name: "Alex K.", role: "Protocol Engineer" },
-                { quote: "The security audit caught a missing signer check that would have been a critical vulnerability.", name: "Sarah M.", role: "DeFi Founder" },
-                { quote: "Forking the escrow template saved our team two weeks. Battle-tested code from day one.", name: "David R.", role: "Web3 Builder" },
+                { quote: "Looks good, better way to understand a program.", name: "Jayakrishna", role: "Solana Developer" },
+                { quote: "It's hard to find Rust expertise, so this is already a good idea.", name: "Gui Bibeau", role: "Product @ Solana" },
+                { quote: "Damn, really great job. A better use case would be making a visualizer for agentic engineers so they can see what their agent implemented and make quick tweaks.", name: "Vaibhav", role: "Solana Developer" },
               ].map((t) => (
                 <motion.div key={t.name} variants={fadeUp} className="rounded-lg border border-border bg-card p-4">
                   <p className="text-[11px] text-foreground/85 leading-relaxed mb-4">&ldquo;{t.quote}&rdquo;</p>
@@ -579,7 +579,7 @@ export default function HomePage() {
             <span className="font-semibold text-xs text-foreground">SolStudio</span>
           </div>
           <div className="flex gap-5 text-[11px] text-muted-foreground">
-            <Link href="https://github.com" className="hover:text-foreground transition-colors">GitHub</Link>
+            <Link href="https://github.com/skartik-sk/solflow" className="hover:text-foreground transition-colors">GitHub</Link>
             <Link href="https://twitter.com" className="hover:text-foreground transition-colors">X</Link>
             <Link href="/docs" className="hover:text-foreground transition-colors">Docs</Link>
           </div>

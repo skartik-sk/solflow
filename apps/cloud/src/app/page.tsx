@@ -662,7 +662,7 @@ export default function CloudLandingPage() {
           <div className="flex gap-5 text-[11px] text-muted-foreground">
             <a href={WEB_EDITOR_URL} className="hover:text-foreground transition-colors">Web Editor</a>
             <a href={CLOUD_DOCS_URL} className="hover:text-foreground transition-colors">Docs</a>
-            <a href="https://github.com/skartik-sk" className="hover:text-foreground transition-colors">GitHub</a>
+            <a href="https://github.com/skartik-sk/solflow" className="hover:text-foreground transition-colors">GitHub</a>
             <a href="https://x.com/solstudiodotfun" className="hover:text-foreground transition-colors">X</a>
           </div>
         </div>
