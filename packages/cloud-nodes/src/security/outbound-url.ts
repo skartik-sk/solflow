@@ -74,10 +74,15 @@ export function redactUrlSecrets(rawUrl: string | URL): string {
   clean.username = "";
   clean.password = "";
 
-  for (const key of Array.from(clean.searchParams.keys())) {
+  const sensitiveQueryKeys: string[] = [];
+  clean.searchParams.forEach((_value, key) => {
     if (SENSITIVE_QUERY_KEY_RE.test(key)) {
-      clean.searchParams.set(key, "[redacted]");
+      sensitiveQueryKeys.push(key);
     }
+  });
+
+  for (const key of sensitiveQueryKeys) {
+    clean.searchParams.set(key, "[redacted]");
   }
 
   clean.pathname = clean.pathname
