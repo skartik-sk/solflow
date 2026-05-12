@@ -6,6 +6,7 @@ dist/
 dist-server/
 .next/
 out/
+outputs/
 *.tsbuildinfo
 
 # Turborepo
@@ -16,6 +17,13 @@ out/
 .env.local
 .env.production
 .env.*.local
+*.pem
+*.key
+*.p12
+*.p8
+cookies.txt
+credentials.json
+service-account*.json
 
 # Database
 packages/db/prisma/migrations/

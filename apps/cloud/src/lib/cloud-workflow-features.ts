@@ -89,6 +89,7 @@ const WALLET_ACTIONS = new Set([
   "action:token-transfer",
   "action:jupiter-swap",
   "action:jupiter-swap-execute",
+  "action:umbra-transfer",
 ]);
 
 const EXTERNAL_ACTIONS = new Set([
@@ -123,6 +124,21 @@ const EXTERNAL_ACTIONS = new Set([
   "action:metaplex-assets-by-authority",
   "action:metaplex-search-assets",
   "action:squads-proposal",
+  "action:umbra-indexer-health",
+  "action:umbra-relayer-info",
+  "action:umbra-transfer",
+  "action:solana-rpc",
+  "action:custom-api",
+  "action:helius-webhook-create",
+  "action:helius-webhook-list",
+  "action:helius-webhook-delete",
+  "action:jito-tip-accounts",
+  "action:jito-bundle-status",
+  "action:jito-send-bundle",
+  "action:jito-tip-floor",
+  "action:discord-message",
+  "action:telegram-message",
+  "action:dialect-alert",
   "output:webhook",
 ]);
 
@@ -159,6 +175,17 @@ const CREDENTIAL_NODE_TYPES = new Set([
   "action:metaplex-search-assets",
   "action:metaplex-asset",
   "action:squads-proposal",
+  "action:solana-rpc",
+  "action:custom-api",
+  "action:helius-webhook-create",
+  "action:helius-webhook-list",
+  "action:helius-webhook-delete",
+  "action:jito-tip-accounts",
+  "action:jito-bundle-status",
+  "action:jito-send-bundle",
+  "action:discord-message",
+  "action:telegram-message",
+  "action:dialect-alert",
   "output:webhook",
 ]);
 
@@ -199,6 +226,21 @@ const NODE_LABELS: Record<string, string> = {
   "action:metaplex-search-assets": "Metaplex Search Assets",
   "action:metaplex-asset": "Metaplex Asset",
   "action:squads-proposal": "Squads Proposal",
+  "action:umbra-indexer-health": "Umbra Indexer Health",
+  "action:umbra-relayer-info": "Umbra Relayer Info",
+  "action:umbra-transfer": "Umbra Transfer Plan",
+  "action:solana-rpc": "Solana RPC",
+  "action:custom-api": "Custom API Request",
+  "action:helius-webhook-create": "Helius Webhook Create",
+  "action:helius-webhook-list": "Helius Webhook List",
+  "action:helius-webhook-delete": "Helius Webhook Delete",
+  "action:jito-tip-accounts": "Jito Tip Accounts",
+  "action:jito-bundle-status": "Jito Bundle Status",
+  "action:jito-send-bundle": "Jito Send Bundle",
+  "action:jito-tip-floor": "Jito Tip Floor",
+  "action:discord-message": "Discord Message",
+  "action:telegram-message": "Telegram Message",
+  "action:dialect-alert": "Dialect Alert",
   "transform:filter": "Filter",
   "logic:if-else": "If / Else",
   "logic:wait": "Wait",
@@ -234,6 +276,51 @@ function hasMeaningfulValue(value: unknown): boolean {
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values.filter(Boolean))).sort();
+}
+
+function redactPreviewString(value: string): string {
+  if (!/^https?:\/\//i.test(value)) {
+    return value.replace(
+      /(api[-_ ]?key|secret|token|password|private[-_ ]?key|bearer)\s*[:=]\s*["']?[^"'\s,}]+/gi,
+      "$1=[redacted]",
+    );
+  }
+
+  try {
+    const url = new URL(value);
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (/key|token|secret|auth|password|credential|bearer|uuid|jwt|signature/i.test(key)) {
+        url.searchParams.set(key, "[redacted]");
+      }
+    }
+    url.pathname = url.pathname
+      .split("/")
+      .map((segment) => {
+        if (!segment) return segment;
+        let decoded = segment;
+        try {
+          decoded = decodeURIComponent(segment);
+        } catch {
+          decoded = segment;
+        }
+        if (
+          /key|token|secret|auth|password|credential|bearer|uuid|jwt/i.test(decoded) ||
+          /^(?=.{16,}$)(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9._~=-]+$/.test(decoded)
+        ) {
+          return "[redacted]";
+        }
+        return segment;
+      })
+      .join("/");
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+function previewText(value: unknown, fallback: string): string {
+  if (typeof value !== "string" || !value.trim()) return fallback;
+  return redactPreviewString(value.trim());
 }
 
 function jupiterOperation(node: WorkflowNodeInput): string {
@@ -337,8 +424,149 @@ function requiredCredentialLabels(nodes: WorkflowNodeInput[]): string[] {
         if (node.type === "action:switchboard-price")
           return ["Switchboard API"];
         if (node.type === "action:squads-proposal") return ["Squads API"];
+        if (node.type === "action:solana-rpc") {
+          const provider = String(data.provider || "");
+          if (["rpcfast", "quicknode", "alchemy", "triton", "helius"].includes(provider)) {
+            return [`${provider} RPC credential or endpoint`];
+          }
+        }
+        if (node.type === "action:custom-api") {
+          return ["Webhook/API credential when the target needs auth"];
+        }
+        if (
+          node.type === "action:helius-webhook-create" ||
+          node.type === "action:helius-webhook-list" ||
+          node.type === "action:helius-webhook-delete"
+        ) {
+          return ["Helius API key"];
+        }
+        if (
+          node.type === "action:jito-tip-accounts" ||
+          node.type === "action:jito-bundle-status" ||
+          node.type === "action:jito-send-bundle"
+        ) {
+          return ["Jito auth UUID for authenticated limits"];
+        }
+        if (node.type === "action:discord-message") return ["Discord webhook"];
+        if (node.type === "action:telegram-message") return ["Telegram bot token"];
+        if (node.type === "action:dialect-alert") return ["Dialect API key"];
         return [];
       }),
+  );
+}
+
+function hasRunnableAddress(value: unknown): boolean {
+  return hasMeaningfulValue(value);
+}
+
+function missingRuntimeConfigLabels(nodes: WorkflowNodeInput[]): string[] {
+  return uniqueSorted(
+    nodes.flatMap((node) => {
+      const data = nodeConfig(node);
+      if (node.type === "action:token-transfer") {
+        const missing = [];
+        if (!hasRunnableAddress(data.to)) missing.push("Token Transfer destination");
+        if (!hasMeaningfulValue(data.amount)) missing.push("Token Transfer amount");
+        if (!hasMeaningfulValue(data.walletId)) missing.push("Token Transfer source wallet");
+        return missing;
+      }
+      if (
+        node.type === "action:jupiter-swap" &&
+        jupiterOperation(node) === "swap-direct-send" &&
+        !hasMeaningfulValue(data.walletId)
+      ) {
+        return ["Jupiter Direct Swap source wallet"];
+      }
+      if (
+        (node.type === "action:jupiter-swap-order" ||
+          node.type === "action:jupiter-swap-build") &&
+        !hasRunnableAddress(data.walletAddress) &&
+        !hasMeaningfulValue(data.walletId)
+      ) {
+        return ["Jupiter Swap taker wallet"];
+      }
+      if (
+        node.type === "action:jupiter-portfolio" &&
+        !hasRunnableAddress(data.walletAddress) &&
+        !hasMeaningfulValue(data.walletId)
+      ) {
+        return ["Jupiter Portfolio wallet"];
+      }
+      if (
+        (node.type === "action:helius-wallet-activity" ||
+          node.type === "action:helius-address-transactions") &&
+        !hasRunnableAddress(data.address)
+      ) {
+        return ["Helius wallet address"];
+      }
+      if (node.type === "action:token-account-query" && !hasRunnableAddress(data.owner)) {
+        return ["Token Account Query owner"];
+      }
+      if (node.type === "action:metaplex-get-asset" && !hasMeaningfulValue(data.assetId)) {
+        return ["Metaplex asset id"];
+      }
+      if (node.type === "action:umbra-transfer") {
+        const missing = [];
+        if (!hasRunnableAddress(data.recipientAddress)) missing.push("Umbra Transfer recipient");
+        if (!hasMeaningfulValue(data.amountBaseUnits)) missing.push("Umbra Transfer amount");
+        if (!hasMeaningfulValue(data.senderWalletId)) missing.push("Umbra Transfer sender wallet");
+        return missing;
+      }
+      if (
+        node.type === "action:solana-rpc" &&
+        ["rpcfast", "quicknode", "alchemy", "triton", "helius", "custom"].includes(String(data.provider || "")) &&
+        !hasRunnableAddress(data.rpcUrl) &&
+        !hasMeaningfulValue(data.credentialId)
+      ) {
+        return ["Solana RPC endpoint or credential"];
+      }
+      if (node.type === "action:custom-api" && !hasRunnableAddress(data.url)) {
+        return ["Custom API URL"];
+      }
+      if (node.type === "action:helius-webhook-create") {
+        const missing = [];
+        if (!hasRunnableAddress(data.webhookUrl)) missing.push("Helius destination webhook URL");
+        if (!hasMeaningfulValue(data.credentialId)) missing.push("Helius credential");
+        return missing;
+      }
+      if (node.type === "action:helius-webhook-delete" && !hasRunnableAddress(data.webhookId)) {
+        return ["Helius webhook ID"];
+      }
+      if (node.type === "action:jito-bundle-status" && !hasMeaningfulValue(data.bundleIds)) {
+        return ["Jito bundle IDs"];
+      }
+      if (node.type === "action:jito-send-bundle" && !hasMeaningfulValue(data.transactions)) {
+        return ["Jito signed transactions"];
+      }
+      if (node.type === "action:discord-message") {
+        const missing = [];
+        if (!hasRunnableAddress(data.webhookUrl) && !hasMeaningfulValue(data.credentialId)) missing.push("Discord webhook URL");
+        if (!hasMeaningfulValue(data.content) && !hasMeaningfulValue(data.embeds)) missing.push("Discord message content");
+        return missing;
+      }
+      if (node.type === "action:telegram-message") {
+        const missing = [];
+        if (!hasMeaningfulValue(data.credentialId)) missing.push("Telegram credential");
+        if (!hasRunnableAddress(data.chatId)) missing.push("Telegram chat ID");
+        if (!hasMeaningfulValue(data.text)) missing.push("Telegram message text");
+        return missing;
+      }
+      if (node.type === "action:dialect-alert") {
+        const missing = [];
+        if (!hasMeaningfulValue(data.credentialId)) missing.push("Dialect credential");
+        if (!hasRunnableAddress(data.appId)) missing.push("Dialect app ID");
+        if (!hasMeaningfulValue(data.title)) missing.push("Dialect alert title");
+        if (!hasMeaningfulValue(data.body)) missing.push("Dialect alert body");
+        if (data.recipientType !== "all-subscribers" && !hasRunnableAddress(data.walletAddress) && !hasMeaningfulValue(data.walletAddresses)) {
+          missing.push("Dialect recipient wallet");
+        }
+        return missing;
+      }
+      if (node.type === "output:webhook" && !hasRunnableAddress(data.url)) {
+        return ["Webhook Output URL"];
+      }
+      return [];
+    }),
   );
 }
 
@@ -397,9 +625,18 @@ function walletDeltasFor(
     if (node.type === "action:token-transfer") {
       return [
         {
-          asset: String(data.mint || "SOL / token mint"),
+          asset: String(data.token || "SOL / token mint"),
           change: `-${String(data.amount || "configured amount")}`,
           reason: "Token transfer",
+        },
+      ];
+    }
+    if (node.type === "action:umbra-transfer") {
+      return [
+        {
+          asset: String(data.mint || "Umbra-supported mint"),
+          change: `-${String(data.amountBaseUnits || "configured amount")}`,
+          reason: "Umbra private transfer plan",
         },
       ];
     }
@@ -448,9 +685,9 @@ function transactionPlanFor(
           effect = `Creates, simulates, signs, and executes a Jupiter Swap API V2 order for ${String(data.amount || "configured amount")}`;
         }
       } else if (node.type === "action:token-transfer") {
-        effect = `Simulates and signs a transfer to ${String(data.recipient || "configured recipient")}`;
+        effect = `Simulates and signs a transfer to ${String(data.to || "configured recipient")}`;
       } else if (node.type === "output:webhook") {
-        effect = `Sends execution payload to ${String(data.url || "configured webhook")}`;
+        effect = `Sends execution payload to ${previewText(data.url, "configured webhook")}`;
       } else if (node.type === "output:display") {
         effect = `Displays ${String(data.title || "workflow output")} in run results`;
       } else if (node.type === "output:log") {
@@ -498,6 +735,36 @@ function transactionPlanFor(
         effect = `Runs DAS ${String(data.operation || "getAsset")} through Metaplex/Helius`;
       } else if (node.type === "action:squads-proposal") {
         effect = "Creates an approval proposal payload";
+      } else if (node.type === "action:umbra-indexer-health") {
+        effect = "Checks the Umbra UTXO indexer health endpoint";
+      } else if (node.type === "action:umbra-relayer-info") {
+        effect = "Reads Umbra relayer identity, supported mints, and active stealth pools";
+      } else if (node.type === "action:umbra-transfer") {
+        effect = `Prepares an Umbra private transfer handoff for ${String(data.amountBaseUnits || "configured amount")} base units`;
+      } else if (node.type === "action:solana-rpc") {
+        effect = `Calls ${String(data.method || "getHealth")} on ${String(data.provider || "configured RPC")}`;
+      } else if (node.type === "action:custom-api") {
+        effect = `Calls custom API ${previewText(data.url, "configured URL")}`;
+      } else if (node.type === "action:helius-webhook-create") {
+        effect = `Creates a Helius ${String(data.webhookType || "enhanced")} webhook for ${previewText(data.webhookUrl, "configured URL")}`;
+      } else if (node.type === "action:helius-webhook-list") {
+        effect = "Lists Helius webhooks for the selected credential";
+      } else if (node.type === "action:helius-webhook-delete") {
+        effect = `Deletes Helius webhook ${String(data.webhookId || "configured ID")}`;
+      } else if (node.type === "action:jito-tip-accounts") {
+        effect = "Reads Jito bundle tip accounts";
+      } else if (node.type === "action:jito-bundle-status") {
+        effect = "Checks Jito bundle status";
+      } else if (node.type === "action:jito-send-bundle") {
+        effect = "Submits already-signed transactions to the Jito Block Engine";
+      } else if (node.type === "action:jito-tip-floor") {
+        effect = "Reads recent Jito landed tip percentiles";
+      } else if (node.type === "action:discord-message") {
+        effect = "Posts a message to Discord with mentions disabled by default";
+      } else if (node.type === "action:telegram-message") {
+        effect = `Sends a Telegram Bot API message to ${String(data.chatId || "configured chat")}`;
+      } else if (node.type === "action:dialect-alert") {
+        effect = `Sends a Dialect alert to ${String(data.recipientType || "subscriber")}`;
       }
       return {
         nodeId: node.id,
@@ -568,6 +835,12 @@ export function createSimulationReport(
   if (requiredCredentials.length > 0) {
     warnings.push(
       `Configure credentials or endpoints for: ${requiredCredentials.join(", ")}.`,
+    );
+  }
+  const missingRuntimeConfig = missingRuntimeConfigLabels(nodes);
+  if (missingRuntimeConfig.length > 0) {
+    warnings.push(
+      `Configure required run fields before execution: ${missingRuntimeConfig.join(", ")}.`,
     );
   }
 
@@ -648,6 +921,246 @@ export function buildAssistantWorkflowDraft(
   const text = prompt.toLowerCase();
 
   if (
+    text.includes("umbra") ||
+    text.includes("privacy") ||
+    text.includes("private transfer") ||
+    text.includes("shield")
+  ) {
+    return workflowDraft(
+      "umbra-private-transfer-plan",
+      "Umbra Private Transfer Plan",
+      "Check Umbra relayer support, prepare a private transfer handoff, and show the plan in Cloud output.",
+      ["umbra", "privacy", "defi", "transfer"],
+      [
+        {
+          id: "trigger",
+          type: "trigger:manual",
+          position: { x: 80, y: 180 },
+          data: {},
+        },
+        {
+          id: "relayer",
+          type: "action:umbra-relayer-info",
+          position: { x: 330, y: 180 },
+          data: { network: "mainnet", relayerEndpoint: "" },
+        },
+        {
+          id: "transfer",
+          type: "action:umbra-transfer",
+          position: { x: 600, y: 180 },
+          data: {
+            network: "mainnet",
+            transferMode: "public-to-receiver-utxo",
+            senderWalletId: "",
+            recipientAddress: "YOUR_RECIPIENT_ADDRESS",
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            amountBaseUnits: "1000000",
+            validateRelayer: true,
+          },
+        },
+        {
+          id: "result",
+          type: "output:result",
+          position: { x: 880, y: 180 },
+          data: {
+            name: "Umbra transfer plan",
+            status: "success",
+            value: "{{ $json.umbraTransfer }}",
+          },
+        },
+      ],
+      [
+        edge("e1", "trigger", "relayer"),
+        edge("e2", "relayer", "transfer", "relayer"),
+        edge("e3", "transfer", "result", "plan"),
+      ],
+    );
+  }
+
+  if (
+    text.includes("rpcfast") ||
+    text.includes("rpc") ||
+    text.includes("gethealth") ||
+    text.includes("get balance")
+  ) {
+    return workflowDraft(
+      "solana-rpc-check",
+      "Solana RPC Check",
+      "Call a Solana JSON-RPC method through RPCFast, a custom endpoint, or public RPC and show the response.",
+      ["rpc", "rpcfast", "solana", "infra"],
+      [
+        {
+          id: "trigger",
+          type: "trigger:manual",
+          position: { x: 80, y: 180 },
+          data: {},
+        },
+        {
+          id: "rpc",
+          type: "action:solana-rpc",
+          position: { x: 340, y: 180 },
+          data: {
+            provider: text.includes("rpcfast") ? "rpcfast" : "public-mainnet",
+            rpcUrl: "",
+            credentialId: "",
+            method: "getHealth",
+            customMethod: "",
+            params: [],
+          },
+        },
+        {
+          id: "display",
+          type: "output:display",
+          position: { x: 620, y: 180 },
+          data: {
+            title: "Solana RPC response",
+            value: "{{ $json.solanaRpc }}",
+            format: "json",
+          },
+        },
+      ],
+      [edge("e1", "trigger", "rpc"), edge("e2", "rpc", "display", "result")],
+    );
+  }
+
+  if (
+    text.includes("helius webhook") ||
+    text.includes("webhook source") ||
+    text.includes("real-time trigger") ||
+    text.includes("realtime trigger")
+  ) {
+    return workflowDraft(
+      "helius-webhook-source",
+      "Helius Webhook Source",
+      "Create a Helius webhook that points at your Cloud webhook trigger for realtime Solana events.",
+      ["helius", "webhook", "realtime", "trigger"],
+      [
+        {
+          id: "trigger",
+          type: "trigger:manual",
+          position: { x: 80, y: 180 },
+          data: {},
+        },
+        {
+          id: "create",
+          type: "action:helius-webhook-create",
+          position: { x: 340, y: 180 },
+          data: {
+            webhookUrl: "https://cloud.solstudio.fun/api/webhooks/YOUR_WORKFLOW_PATH",
+            webhookType: "enhanced",
+            accountAddresses: ["YOUR_WALLET_ADDRESS"],
+            transactionTypes: ["SWAP", "TRANSFER"],
+            credentialId: "",
+          },
+        },
+        {
+          id: "result",
+          type: "output:result",
+          position: { x: 640, y: 180 },
+          data: {
+            name: "Helius webhook",
+            status: "success",
+            value: "{{ $json.heliusWebhook }}",
+          },
+        },
+      ],
+      [edge("e1", "trigger", "create"), edge("e2", "create", "result", "webhook")],
+    );
+  }
+
+  if (text.includes("jito") || text.includes("bundle") || text.includes("tip floor")) {
+    return workflowDraft(
+      "jito-tip-check",
+      "Jito Tip Check",
+      "Read Jito tip accounts and current tip floor before submitting a signed bundle.",
+      ["jito", "bundle", "priority", "fees"],
+      [
+        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
+        {
+          id: "tip",
+          type: "action:jito-tip-floor",
+          position: { x: 330, y: 180 },
+          data: {},
+        },
+        {
+          id: "accounts",
+          type: "action:jito-tip-accounts",
+          position: { x: 590, y: 180 },
+          data: { region: "mainnet", blockEngineUrl: "", credentialId: "" },
+        },
+        {
+          id: "display",
+          type: "output:display",
+          position: { x: 860, y: 180 },
+          data: { title: "Jito readiness", value: "{{ $json.jito }}", format: "json" },
+        },
+      ],
+      [
+        edge("e1", "trigger", "tip"),
+        edge("e2", "tip", "accounts", "tip floor"),
+        edge("e3", "accounts", "display", "tip accounts"),
+      ],
+    );
+  }
+
+  if (
+    text.includes("discord") ||
+    text.includes("telegram") ||
+    text.includes("dialect") ||
+    text.includes("notification")
+  ) {
+    const useTelegram = text.includes("telegram");
+    const useDialect = text.includes("dialect");
+    return workflowDraft(
+      "external-notification",
+      useDialect ? "Dialect Alert" : useTelegram ? "Telegram Alert" : "Discord Alert",
+      "Send run output to a configured notification channel.",
+      ["notification", useDialect ? "dialect" : useTelegram ? "telegram" : "discord"],
+      [
+        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
+        {
+          id: "notify",
+          type: useDialect ? "action:dialect-alert" : useTelegram ? "action:telegram-message" : "action:discord-message",
+          position: { x: 340, y: 180 },
+          data: useDialect
+            ? {
+                credentialId: "",
+                appId: "YOUR_DIALECT_APP_ID",
+                recipientType: "subscriber",
+                walletAddress: "YOUR_WALLET_ADDRESS",
+                channels: ["IN_APP"],
+                title: "SolStudio Cloud Alert",
+                body: "Workflow finished: {{ $json }}",
+              }
+            : useTelegram
+              ? {
+                  credentialId: "",
+                  chatId: "YOUR_CHAT_ID",
+                  text: "SolStudio Cloud alert: {{ $json }}",
+                  parseMode: "",
+                  disableNotification: false,
+                }
+              : {
+                  webhookUrl: "",
+                  credentialId: "",
+                  content: "SolStudio Cloud alert: {{ $json }}",
+                  username: "SolStudio Cloud",
+                  embeds: [],
+                  wait: true,
+                },
+        },
+        {
+          id: "result",
+          type: "output:result",
+          position: { x: 640, y: 180 },
+          data: { name: "Notification", status: "success", value: "{{ $json.notification }}" },
+        },
+      ],
+      [edge("e1", "trigger", "notify"), edge("e2", "notify", "result", "notification")],
+    );
+  }
+
+  if (
     text.includes("nft") ||
     text.includes("metadata") ||
     text.includes("asset")
@@ -655,7 +1168,7 @@ export function buildAssistantWorkflowDraft(
     return workflowDraft(
       "nft-asset-watch",
       "NFT Asset Watch",
-      "Read Metaplex asset metadata through DAS-compatible RPC and send notable changes to a webhook.",
+      "Read Metaplex asset metadata through DAS-compatible RPC and show notable changes in the run output.",
       ["nft", "metaplex", "helius", "watch"],
       [
         {
@@ -671,17 +1184,17 @@ export function buildAssistantWorkflowDraft(
           data: { assetId: "YOUR_ASSET_ID", credentialId: "" },
         },
         {
-          id: "notify",
-          type: "output:webhook",
+          id: "result",
+          type: "output:result",
           position: { x: 620, y: 180 },
           data: {
-            url: "https://example.com/ops/nft-asset",
-            method: "POST",
-            body: "{{ $json.metaplexAsset }}",
+            name: "NFT asset result",
+            status: "success",
+            value: "{{ $json.metaplexAsset }}",
           },
         },
       ],
-      [edge("e1", "trigger", "asset"), edge("e2", "asset", "notify")],
+      [edge("e1", "trigger", "asset"), edge("e2", "asset", "result", "asset")],
     );
   }
 
@@ -693,7 +1206,7 @@ export function buildAssistantWorkflowDraft(
     return workflowDraft(
       "wallet-activity-alert",
       "Wallet Activity Alert",
-      "Poll recent wallet signatures and notify an operations webhook when activity is detected.",
+      "Poll recent wallet signatures and show wallet activity in Cloud output.",
       ["wallet", "activity", "helius", "alert"],
       [
         {
@@ -707,24 +1220,24 @@ export function buildAssistantWorkflowDraft(
           type: "action:helius-wallet-activity",
           position: { x: 340, y: 180 },
           data: {
-            address: "YOUR_WALLET_ADDRESS",
+            address: "So11111111111111111111111111111111111111112",
             limit: 10,
             credentialId: "",
             rpcUrl: "",
           },
         },
         {
-          id: "notify",
-          type: "output:webhook",
+          id: "display",
+          type: "output:display",
           position: { x: 620, y: 180 },
           data: {
-            url: "https://example.com/ops/wallet-activity",
-            method: "POST",
-            body: "{{ $json.helius }}",
+            title: "Wallet activity",
+            value: "{{ $json.helius }}",
+            format: "json",
           },
         },
       ],
-      [edge("e1", "trigger", "activity"), edge("e2", "activity", "notify")],
+      [edge("e1", "trigger", "activity"), edge("e2", "activity", "display", "activity")],
     );
   }
 
@@ -750,26 +1263,24 @@ export function buildAssistantWorkflowDraft(
           type: "action:token-account-query",
           position: { x: 340, y: 180 },
           data: {
-            owner: "YOUR_TREASURY_OWNER",
+            owner: "So11111111111111111111111111111111111111112",
             tokenProgram: "spl",
             credentialId: "",
             rpcUrl: "",
           },
         },
         {
-          id: "proposal",
-          type: "action:squads-proposal",
+          id: "result",
+          type: "output:result",
           position: { x: 620, y: 180 },
           data: {
-            apiUrl: "https://example.com/squads/proposals",
-            multisig: "YOUR_SQUADS_MULTISIG",
-            title: "Review treasury token accounts",
-            payload: { tokenAccounts: "{{ $json.tokenAccounts }}" },
-            credentialId: "",
+            name: "Treasury token account report",
+            status: "success",
+            value: "{{ $json.tokenAccounts }}",
           },
         },
       ],
-      [edge("e1", "trigger", "accounts"), edge("e2", "accounts", "proposal")],
+      [edge("e1", "trigger", "accounts"), edge("e2", "accounts", "result", "accounts")],
     );
   }
 
@@ -781,7 +1292,7 @@ export function buildAssistantWorkflowDraft(
     return workflowDraft(
       "jupiter-token-discovery",
       "Jupiter Token Discovery",
-      "Read Jupiter Tokens V2 category data and send top token metadata to a webhook.",
+      "Read Jupiter Tokens V2 category data and show top token metadata in Cloud output.",
       ["jupiter", "tokens", "discovery", "market"],
       [
         {
@@ -802,17 +1313,17 @@ export function buildAssistantWorkflowDraft(
           },
         },
         {
-          id: "notify",
-          type: "output:webhook",
+          id: "display",
+          type: "output:display",
           position: { x: 620, y: 180 },
           data: {
-            url: "https://example.com/ops/jupiter-token-discovery",
-            method: "POST",
-            body: "{{ $json.jupiter }}",
+            title: "Jupiter token discovery",
+            value: "{{ $json.jupiter }}",
+            format: "json",
           },
         },
       ],
-      [edge("e1", "trigger", "tokens"), edge("e2", "tokens", "notify")],
+      [edge("e1", "trigger", "tokens"), edge("e2", "tokens", "display", "tokens")],
     );
   }
 
@@ -820,7 +1331,7 @@ export function buildAssistantWorkflowDraft(
     return workflowDraft(
       "token-account-watcher",
       "Token Account Watcher",
-      "Watch SPL Token or Token-2022 accounts for an owner and notify when balances are present.",
+      "Watch SPL Token or Token-2022 accounts for an owner and display the result.",
       ["spl-token", "token-2022", "watcher"],
       [
         {
@@ -834,33 +1345,26 @@ export function buildAssistantWorkflowDraft(
           type: "action:token-account-query",
           position: { x: 340, y: 180 },
           data: {
-            owner: "YOUR_OWNER_ADDRESS",
+            owner: "So11111111111111111111111111111111111111112",
             tokenProgram: "spl",
             credentialId: "",
             rpcUrl: "",
           },
         },
         {
-          id: "branch",
-          type: "logic:if-else",
-          position: { x: 600, y: 180 },
-          data: { field: "tokenAccounts.count", operator: "gt", value: "0" },
-        },
-        {
-          id: "notify",
-          type: "output:webhook",
-          position: { x: 860, y: 120 },
+          id: "display",
+          type: "output:display",
+          position: { x: 620, y: 180 },
           data: {
-            url: "https://example.com/ops/token-accounts",
-            method: "POST",
-            body: "{{ $json.tokenAccounts }}",
+            title: "Token accounts",
+            value: "{{ $json.tokenAccounts }}",
+            format: "json",
           },
         },
       ],
       [
         edge("e1", "trigger", "accounts"),
-        edge("e2", "accounts", "branch"),
-        edge("e3", "branch", "notify", "true"),
+        edge("e2", "accounts", "display", "accounts"),
       ],
     );
   }
@@ -869,7 +1373,7 @@ export function buildAssistantWorkflowDraft(
     return workflowDraft(
       "price-guarded-auto-swap",
       "Price-Guarded Auto Swap",
-      "Fetch market price, check a guard condition, then prepare a simulated Jupiter swap and webhook summary.",
+      "Fetch market price, check a guard condition, then prepare a simulated Jupiter swap and capture a run result.",
       ["jupiter", "swap", "dca", "price"],
       [
         {
@@ -906,13 +1410,13 @@ export function buildAssistantWorkflowDraft(
           },
         },
         {
-          id: "notify",
-          type: "output:webhook",
+          id: "result",
+          type: "output:result",
           position: { x: 1080, y: 120 },
           data: {
-            url: "https://example.com/ops/swap-summary",
-            method: "POST",
-            body: "{{ $json }}",
+            name: "Swap order result",
+            status: "success",
+            value: "{{ $json.jupiter }}",
           },
         },
       ],
@@ -920,7 +1424,7 @@ export function buildAssistantWorkflowDraft(
         edge("e1", "trigger", "price"),
         edge("e2", "price", "guard"),
         edge("e3", "guard", "swap", "true"),
-        edge("e4", "swap", "notify"),
+        edge("e4", "swap", "result", "order"),
       ],
     );
   }
@@ -928,7 +1432,7 @@ export function buildAssistantWorkflowDraft(
   return workflowDraft(
     "price-alert",
     "Price Alert Workflow",
-    "Fetch a token price on a schedule, branch on a threshold, and notify an operations webhook.",
+    "Fetch a token price on a schedule, branch on a threshold, and write an alert into the run log.",
     ["price", "alert", "monitoring"],
     [
       {
@@ -953,20 +1457,20 @@ export function buildAssistantWorkflowDraft(
         data: { field: "price", operator: "gt", value: "200" },
       },
       {
-        id: "notify",
-        type: "output:webhook",
+        id: "log",
+        type: "output:log",
         position: { x: 860, y: 120 },
         data: {
-          url: "https://example.com/ops/price-alert",
-          method: "POST",
-          body: '{"text":"SOL price alert: {{ $json.price }}"}',
+          level: "info",
+          message: "SOL price alert: {{ $json.price }}",
+          includeInput: true,
         },
       },
     ],
     [
       edge("e1", "trigger", "price"),
       edge("e2", "price", "branch"),
-      edge("e3", "branch", "notify", "true"),
+      edge("e3", "branch", "log", "true"),
     ],
   );
 }
@@ -1020,6 +1524,21 @@ export function evaluateCloudTemplateCertification(
       "action:metaplex-search-assets",
       "action:token-account-query",
       "action:squads-proposal",
+      "action:umbra-indexer-health",
+      "action:umbra-relayer-info",
+      "action:umbra-transfer",
+      "action:solana-rpc",
+      "action:custom-api",
+      "action:helius-webhook-create",
+      "action:helius-webhook-list",
+      "action:helius-webhook-delete",
+      "action:jito-tip-accounts",
+      "action:jito-bundle-status",
+      "action:jito-send-bundle",
+      "action:jito-tip-floor",
+      "action:discord-message",
+      "action:telegram-message",
+      "action:dialect-alert",
     ].includes(type),
   );
 
@@ -1060,6 +1579,7 @@ export function evaluateCloudTemplateCertification(
 
 export function redactPreviewValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactPreviewValue);
+  if (typeof value === "string") return redactPreviewString(value);
   if (!value || typeof value !== "object") return value ?? null;
   return Object.entries(value as Record<string, unknown>).reduce<
     Record<string, unknown>

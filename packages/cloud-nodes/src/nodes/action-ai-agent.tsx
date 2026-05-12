@@ -12,6 +12,10 @@ type AiAgentMode = "single-shot" | "json-decision" | "summarize";
 
 const DEFAULT_AI_TIMEOUT_MS = 60_000;
 const MAX_AI_TIMEOUT_MS = 120_000;
+const SECRET_TEXT_PATTERNS = [
+  /(api[-_ ]?key|secret|token|password|private[-_ ]?key|bearer)\s*[:=]\s*["']?[^"'\s,}]+/gi,
+  /(Authorization:\s*Bearer\s+)[A-Za-z0-9._~+/-]+/gi,
+];
 
 interface AiCallOptions {
   provider: AiProvider;
@@ -106,6 +110,20 @@ function modeInstructions(
     return "Process the input and return a structured JSON object.";
   }
   return "";
+}
+
+function redactSensitiveText(value: string): string {
+  return SECRET_TEXT_PATTERNS.reduce(
+    (current, pattern) =>
+      current.replace(pattern, (match, prefix) => {
+        if (typeof prefix === "string" && match.toLowerCase().startsWith("authorization")) {
+          return `${prefix}[redacted]`;
+        }
+        const separator = match.includes("=") ? "=" : ":";
+        return `${String(prefix ?? "secret").trim()}${separator} [redacted]`;
+      }),
+    value,
+  );
 }
 
 function normalizeAgentMode(value: unknown): AiAgentMode {
@@ -528,6 +546,15 @@ export const aiAgentDef: CloudNodeDefinition = {
       default: true,
       description: "Keep incoming node data alongside the AI result.",
     },
+    {
+      key: "redactSensitiveInput",
+      label: "Redact sensitive prompt data",
+      type: "boolean",
+      required: false,
+      default: true,
+      description:
+        "Mask obvious API keys, bearer tokens, private keys, and passwords before sending prompt text to the AI provider.",
+    },
   ],
   inputs: [{ type: "main", label: "input" }],
   outputs: [{ type: "main", label: "output" }],
@@ -545,6 +572,7 @@ export const aiAgentDef: CloudNodeDefinition = {
     responseFormat: "text",
     outputField: "ai",
     includeInput: true,
+    redactSensitiveInput: true,
   },
   component: AiAgentNode,
   async execute(ctx) {
@@ -571,6 +599,7 @@ export const aiAgentDef: CloudNodeDefinition = {
       "text") as AiResponseFormat;
     const outputField = String(ctx.params.outputField || "ai").trim() || "ai";
     const includeInput = ctx.params.includeInput !== false;
+    const redactSensitiveInput = ctx.params.redactSensitiveInput !== false;
 
     if (!prompt) {
       throw new Error("Prompt is required");
@@ -584,9 +613,17 @@ export const aiAgentDef: CloudNodeDefinition = {
       throw new Error(`Unsupported AI response format "${responseFormat}"`);
     }
 
+    const providerPrompt = redactSensitiveInput ? redactSensitiveText(prompt) : prompt;
+    const providerSystemPrompt = redactSensitiveInput
+      ? redactSensitiveText(systemPrompt)
+      : systemPrompt;
+    const providerToolInstructions = redactSensitiveInput
+      ? redactSensitiveText(toolInstructions)
+      : toolInstructions;
+
     const extraInstructions = [
       modeInstructions(agentMode, responseFormat),
-      toolInstructions.trim(),
+      providerToolInstructions.trim(),
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -596,10 +633,10 @@ export const aiAgentDef: CloudNodeDefinition = {
       result = await callAiProvider({
         provider,
         model,
-        systemPrompt: [systemPrompt.trim(), extraInstructions]
+        systemPrompt: [providerSystemPrompt.trim(), extraInstructions]
           .filter(Boolean)
           .join("\n\n"),
-        prompt,
+        prompt: providerPrompt,
         temperature,
         maxTokens,
         responseFormat,

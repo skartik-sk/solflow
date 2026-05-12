@@ -11,6 +11,14 @@ const credentialTypeSchema = z.enum([
   "birdeye",
   "jupiter",
   "helius",
+  "rpcfast",
+  "quicknode",
+  "alchemy",
+  "triton",
+  "jito",
+  "discord",
+  "telegram",
+  "dialect",
   "switchboard",
   "squads",
   "webhook",
@@ -36,6 +44,73 @@ function validateCredentialData(type: z.infer<typeof credentialTypeSchema>, data
     const hasHeaders = data.headers && typeof data.headers === "object" && !Array.isArray(data.headers);
     if (!hasBearer && !hasApiKey && !hasHeaders) {
       throw new Error("Webhook credentials require bearerToken, apiKey, or headers");
+    }
+    return;
+  }
+
+  if (type === "rpcfast") {
+    const hasApiKey = typeof data.apiKey === "string" && data.apiKey.length > 0;
+    const hasRpcUrl =
+      typeof data.rpcUrl === "string" && data.rpcUrl.length > 0 ||
+      typeof data.baseUrl === "string" && data.baseUrl.length > 0 ||
+      typeof data.apiUrl === "string" && data.apiUrl.length > 0;
+    if (!hasApiKey && !hasRpcUrl) {
+      throw new Error("RPCFast credentials require an API key or HTTPS RPC endpoint");
+    }
+    return;
+  }
+
+  if (type === "quicknode" || type === "triton") {
+    const hasApiKey = typeof data.apiKey === "string" && data.apiKey.length > 0;
+    const hasRpcUrl =
+      typeof data.rpcUrl === "string" && data.rpcUrl.length > 0 ||
+      typeof data.baseUrl === "string" && data.baseUrl.length > 0 ||
+      typeof data.apiUrl === "string" && data.apiUrl.length > 0;
+    if (!hasApiKey && !hasRpcUrl) {
+      throw new Error(`${type} credentials require an API key or HTTPS RPC endpoint`);
+    }
+    return;
+  }
+
+  if (type === "alchemy") {
+    const hasApiKey = typeof data.apiKey === "string" && data.apiKey.length > 0;
+    const hasRpcUrl =
+      typeof data.rpcUrl === "string" && data.rpcUrl.length > 0 ||
+      typeof data.baseUrl === "string" && data.baseUrl.length > 0 ||
+      typeof data.apiUrl === "string" && data.apiUrl.length > 0;
+    if (!hasApiKey && !hasRpcUrl) {
+      throw new Error("Alchemy credentials require an API key or Solana RPC endpoint");
+    }
+    return;
+  }
+
+  if (type === "jito") {
+    if (typeof data.apiKey !== "string" || data.apiKey.length === 0) {
+      throw new Error("Jito credentials require apiKey / UUID for authenticated limits");
+    }
+    return;
+  }
+
+  if (type === "discord") {
+    if (typeof data.webhookUrl !== "string" || data.webhookUrl.length === 0) {
+      throw new Error("Discord credentials require webhookUrl");
+    }
+    return;
+  }
+
+  if (type === "telegram") {
+    const hasToken =
+      typeof data.botToken === "string" && data.botToken.length > 0 ||
+      typeof data.apiKey === "string" && data.apiKey.length > 0;
+    if (!hasToken) {
+      throw new Error("Telegram credentials require botToken");
+    }
+    return;
+  }
+
+  if (type === "dialect") {
+    if (typeof data.apiKey !== "string" || data.apiKey.length === 0) {
+      throw new Error("Dialect credentials require apiKey");
     }
     return;
   }

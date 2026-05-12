@@ -4,6 +4,7 @@ import {
   cloudNodeRegistry,
   registerBuiltinNodes,
   type CloudNodeDefinition,
+  type WalletOperations,
 } from "@solflow/cloud-nodes";
 import { CLOUD_TEMPLATES } from "../../../../packages/db/prisma/cloud-seed";
 
@@ -24,6 +25,9 @@ const NO_KEY_SMOKE_TEMPLATES = new Set([
   "Token Treasury Report",
   "Wallet Activity Alert",
   "Token Account Watcher",
+  "Umbra Private Transfer Plan",
+  "Solana RPC Health Check",
+  "Jito Bundle Readiness",
 ]);
 
 const SKIPPED_LIVE_INTEGRATION_TEMPLATES: Record<string, string> = {
@@ -38,9 +42,11 @@ const SKIPPED_LIVE_INTEGRATION_TEMPLATES: Record<string, string> = {
   "Webhook Payment Runner": "requires a Cloud wallet for token signing",
   "NFT Asset Watch": "requires a Helius or DAS-compatible RPC credential",
   "Enhanced Wallet Swap History": "requires a Helius Enhanced Transactions API key",
+  "Helius Realtime Source": "requires a Helius API key to create the webhook",
+  "Discord Workflow Alert": "requires a Discord webhook URL or credential",
 };
 
-const mockWallet = {
+const mockWallet: WalletOperations = {
   signAndSend: vi.fn(),
   getPublicKey: vi.fn(async () => "Wallet111111111111111111111111111111111111"),
   getBalance: vi.fn(async () => 0),
@@ -94,9 +100,24 @@ function mockNoKeyFetch() {
       });
     }
 
+    if (url === "https://relayer.api.umbraprivacy.com/v1/relayer/info") {
+      return jsonResponse({
+        address: "Relayer111111111111111111111111111111111111",
+        supported_mints: [
+          "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "So11111111111111111111111111111111111111112",
+        ],
+        active_stealth_pool_indices: [],
+      });
+    }
+
+    if (url === "https://utxo-indexer.api.umbraprivacy.com/health") {
+      return jsonResponse({ status: "ok" });
+    }
+
     const method = String(init?.method ?? "GET").toUpperCase();
     const body = typeof init?.body === "string" ? safeJson(init.body) : null;
-    if (method === "POST" && body?.jsonrpc === "2.0") {
+    if (method === "POST" && isRecord(body) && body.jsonrpc === "2.0") {
       return jsonResponse({
         jsonrpc: "2.0",
         result: {
@@ -133,12 +154,16 @@ function jsonResponse(value: unknown): Response {
   });
 }
 
-function safeJson(value: string): any {
+function safeJson(value: string): unknown {
   try {
     return JSON.parse(value);
   } catch {
     return null;
   }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 describe("cloud workflow seed templates", () => {
@@ -168,7 +193,7 @@ describe("cloud workflow seed templates", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     for (const template of CLOUD_TEMPLATES.filter((item) => NO_KEY_SMOKE_TEMPLATES.has(item.title))) {
-      const executor = new WorkflowExecutor(cloudNodeRegistry, mockWallet as any);
+      const executor = new WorkflowExecutor(cloudNodeRegistry, mockWallet);
       const result = await executor.execute(toWorkflowDefinition(template), `smoke-${template.title}`);
 
       expect(result.status, template.title).toBe("success");

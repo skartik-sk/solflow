@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import type { Prisma } from "@solflow/db";
 import { workflowLifecycleRateLimit } from "@/lib/rate-limit";
-import { router, protectedProcedure } from "../trpc";
+import { router, protectedProcedure, type Context } from "../trpc";
 import { getTriggerManager } from "../../trigger-manager";
 import { startCronWorker } from "../../trigger-manager/cron-worker";
 import { shouldApiStartEmbeddedWorkers } from "../../runtime-mode";
@@ -21,7 +22,7 @@ function getPositiveIntEnv(name: string, fallback: number): number {
 
 async function assertWorkflowActivationQuota(ctx: {
   session: { user: { id?: string } };
-  prisma: any;
+  prisma: Context["prisma"];
 }, workflowId: string): Promise<void> {
   if (process.env.CLOUD_QUOTA_ENFORCEMENT !== "true") return;
 
@@ -126,8 +127,12 @@ export const workflowRouter = router({
           user: { connect: { id: ctx.session.user.id } },
           name: input.name,
           description: input.description,
-          definition: (input.definition ?? { nodes: [], edges: [] }) as any,
-          settings: (input.settings ?? DEFAULT_WORKFLOW_SETTINGS) as any,
+          definition: (input.definition ?? {
+            nodes: [],
+            edges: [],
+          }) as Prisma.InputJsonValue,
+          settings: (input.settings ??
+            DEFAULT_WORKFLOW_SETTINGS) as Prisma.InputJsonValue,
           tags: input.tags,
         },
         select: workflowPublicSelect,
@@ -148,8 +153,8 @@ export const workflowRouter = router({
           user: { connect: { id: ctx.session.user.id } },
           name: input.name ?? draft.name,
           description: draft.description,
-          definition: draft.definition as any,
-          settings: draft.settings as any,
+          definition: draft.definition as Prisma.InputJsonValue,
+          settings: draft.settings as Prisma.InputJsonValue,
           tags: draft.tags,
         },
         select: workflowPublicSelect,
@@ -228,15 +233,17 @@ export const workflowRouter = router({
       });
       if (!original) throw new Error("Workflow not found");
 
-      const data: any = {
+      const data: Prisma.WorkflowCreateInput = {
         user: { connect: { id: ctx.session.user.id } },
         name: input.name ?? `${original.name} (copy)`,
         description: original.description,
-        definition: original.definition,
-        settings: original.settings,
+        definition: original.definition as Prisma.InputJsonValue,
+        settings: original.settings as Prisma.InputJsonValue,
         tags: original.tags,
       };
-      if (original.walletId) data.walletId = original.walletId;
+      if (original.walletId) {
+        data.wallet = { connect: { id: original.walletId } };
+      }
 
       return ctx.prisma.workflow.create({ data, select: workflowPublicSelect });
     }),

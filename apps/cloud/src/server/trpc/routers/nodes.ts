@@ -1,5 +1,6 @@
 import { router, publicProcedure } from "../trpc";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
+import type { CloudNodeDefinition } from "@solflow/cloud-nodes";
 
 registerBuiltinNodes();
 
@@ -20,7 +21,14 @@ export const nodesRouter = router({
   }),
 
   categories: publicProcedure.query(() => {
-    const categories: Record<string, { label: string; color: string; nodes: any[] }> = {};
+    type CategoryNodeSummary = Pick<
+      CloudNodeDefinition,
+      "type" | "label" | "description" | "icon" | "color"
+    >;
+    const categories: Record<
+      string,
+      { label: string; color: string; nodes: CategoryNodeSummary[] }
+    > = {};
     for (const node of cloudNodeRegistry.getAll()) {
       if (!categories[node.category]) {
         categories[node.category] = {

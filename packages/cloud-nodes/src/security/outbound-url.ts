@@ -4,6 +4,9 @@ export interface OutboundUrlOptions {
 }
 
 const PRIVATE_OUTBOUND_ENV = "SOLFLOW_ALLOW_PRIVATE_OUTBOUND";
+const SENSITIVE_QUERY_KEY_RE = /key|token|secret|auth|password|credential|bearer|uuid|jwt|signature/i;
+const SENSITIVE_PATH_SEGMENT_RE = /key|token|secret|auth|password|credential|bearer|uuid|jwt/i;
+const HIGH_ENTROPY_PATH_SEGMENT_RE = /^(?=.{16,}$)(?=.*[A-Za-z])(?=.*\d)[A-Za-z0-9._~=-]+$/;
 
 export function assertSafeOutboundUrl(rawUrl: string, options: OutboundUrlOptions = {}): URL {
   let url: URL;
@@ -66,7 +69,48 @@ export function isPrivateOrLocalHost(hostname: string): boolean {
   );
 }
 
+export function redactUrlSecrets(rawUrl: string | URL): string {
+  const clean = new URL(rawUrl.toString());
+  clean.username = "";
+  clean.password = "";
+
+  for (const key of Array.from(clean.searchParams.keys())) {
+    if (SENSITIVE_QUERY_KEY_RE.test(key)) {
+      clean.searchParams.set(key, "[redacted]");
+    }
+  }
+
+  clean.pathname = clean.pathname
+    .split("/")
+    .map((segment) => {
+      if (!segment) return segment;
+      const decoded = safeDecodeURIComponent(segment);
+      if (
+        SENSITIVE_PATH_SEGMENT_RE.test(decoded) ||
+        HIGH_ENTROPY_PATH_SEGMENT_RE.test(decoded)
+      ) {
+        return "[redacted]";
+      }
+      return segment;
+    })
+    .join("/");
+
+  if (clean.hash && SENSITIVE_QUERY_KEY_RE.test(clean.hash)) {
+    clean.hash = "#[redacted]";
+  }
+
+  return clean.toString();
+}
+
 function getEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
   return env?.[name];
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }

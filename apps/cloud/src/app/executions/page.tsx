@@ -29,6 +29,18 @@ const STATUS_CONFIG: Record<
   TIMED_OUT: { icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10" },
 };
 
+type ExecutionListItem = {
+  id: string;
+  status: string;
+  triggerType: string;
+  errorMessage?: string | null;
+  duration?: number | null;
+  nodesExecuted?: number | null;
+  startedAt?: string | Date | null;
+  createdAt: string | Date;
+  workflow?: { name?: string | null } | null;
+};
+
 function formatDuration(ms: number | null | undefined): string {
   if (!ms) return "—";
   if (ms < 1000) return `${ms}ms`;
@@ -47,7 +59,7 @@ function timeAgo(date: Date | string): string {
 
 export default function ExecutionsPage() {
   const { data, isLoading } = trpc.execution.list.useQuery({ limit: 50 });
-  const executions = data?.items ?? [];
+  const executions = (data?.items ?? []) as ExecutionListItem[];
 
   return (
     <AppShell>
@@ -64,7 +76,7 @@ export default function ExecutionsPage() {
 
       {!isLoading && executions.length > 0 && (
         <div className="space-y-2">
-          {executions.map((exec: any) => {
+          {executions.map((exec) => {
             const cfg = STATUS_CONFIG[exec.status] ?? STATUS_CONFIG.QUEUED;
             const Icon = cfg.icon;
             const workflowName = exec.workflow?.name ?? "Unknown";

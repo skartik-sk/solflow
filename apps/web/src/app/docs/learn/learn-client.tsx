@@ -772,9 +772,9 @@ const cloudNodeLessons = [
     connects: "Trigger or logic -> Token Transfer -> Output",
   },
   {
-    type: "Webhook Output",
-    use: "Send workflow result to another app after the action completes.",
-    connects: "Any final action -> Webhook Output",
+    type: "Output nodes",
+    use: "Show the final data in SolStudio with Display Output, append Run Log messages, or store a Workflow Result. Use Webhook Output only when another app must receive the payload.",
+    connects: "Any final action -> Display Output, Run Log, Workflow Result, or Webhook Output",
   },
 ];
 
@@ -853,7 +853,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
   {
     id: "price-monitor",
     title: "AI price monitor",
-    goal: "Cron checks a token price, AI explains the move, If/Else routes the result, and Webhook Output sends the alert.",
+    goal: "Cron checks a token price, AI explains the move, If/Else routes the result, and Run Log records the alert inside SolStudio.",
     nodes: [
       {
         id: "cron",
@@ -919,18 +919,18 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
         ],
       },
       {
-        id: "webhook",
-        label: "Webhook Output",
-        type: "output:webhook",
+        id: "runLog",
+        label: "Run Log",
+        type: "output:log",
         category: "output",
         icon: "Send",
         x: 1080,
         y: 90,
         inputs: [{ type: "main", label: "input" }],
-        outputs: [{ type: "main", label: "response" }],
+        outputs: [{ type: "main", label: "entry" }],
         rows: [
-          { label: "method", value: "POST" },
-          { label: "body", value: "summary" },
+          { label: "level", value: "info" },
+          { label: "message", value: "summary" },
         ],
       },
     ],
@@ -1020,28 +1020,27 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
         ],
       },
       {
-        id: "webhook",
-        title: "Send the alert",
-        add: "Drag Webhook Output from Output. This reports the AI summary to your app, Discord bridge, or backend.",
+        id: "runLog",
+        title: "Record the alert",
+        add: "Drag Run Log from Output. This records the AI summary inside the execution log so you can verify the run before wiring external delivery.",
         configure: [
-          { label: "url", value: "https://example.com/alerts" },
-          { label: "method", value: "POST" },
-          { label: "body", value: "{{ $json.summary }}" },
+          { label: "level", value: "info" },
+          { label: "message", value: "{{ $json.summary }}" },
         ],
-        connect: "Connect If / Else true -> Webhook Output input.",
-        focusNodeId: "webhook",
+        connect: "Connect If / Else true -> Run Log input.",
+        focusNodeId: "runLog",
         requiredEdges: [
           { from: "cron", to: "price" },
           { from: "price", to: "ai" },
           { from: "ai", to: "if" },
-          { from: "if", to: "webhook" },
+          { from: "if", to: "runLog" },
         ],
         expectedInput: "{ alert: true, summary, risk }",
-        expectedOutput: "{ status, response, sentAt }",
+        expectedOutput: "{ level, message, loggedAt }",
         executionLog: [
-          "Built POST body from item.json.summary.",
-          "Sent webhook request.",
-          "Stored response status in output item.",
+          "Resolved message from item.json.summary.",
+          "Appended info entry to the run log.",
+          "Forwarded the workflow item for the result tabs.",
         ],
       },
     ],
@@ -1049,7 +1048,7 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
   {
     id: "swap-guard",
     title: "AI-assisted swap guard",
-    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter Direct Swap executes the approved branch, then Webhook Output reports the signature.",
+    goal: "Webhook receives a trade idea, price data and AI score it, If/Else approves it, Jupiter Direct Swap executes the approved branch, then Workflow Result stores the signature.",
     nodes: [
       {
         id: "webhookTrigger",
@@ -1130,18 +1129,18 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
         ],
       },
       {
-        id: "webhook",
-        label: "Webhook Output",
-        type: "output:webhook",
+        id: "result",
+        label: "Workflow Result",
+        type: "output:result",
         category: "output",
         icon: "Send",
         x: 1340,
         y: 90,
         inputs: [{ type: "main", label: "input" }],
-        outputs: [{ type: "main", label: "response" }],
+        outputs: [{ type: "main", label: "result" }],
         rows: [
-          { label: "method", value: "POST" },
-          { label: "body", value: "signature" },
+          { label: "key", value: "swapSignature" },
+          { label: "value", value: "signature" },
         ],
       },
     ],
@@ -1255,24 +1254,27 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
       },
       {
         id: "report",
-        title: "Report the result",
-        add: "Drag Webhook Output. Send the transaction signature back to your app.",
+        title: "Store the result",
+        add: "Drag Workflow Result. Store the transaction signature in the execution result so the run can be inspected before any external callback is added.",
         configure: [
-          { label: "url", value: "https://example.com/swap-result" },
-          { label: "body", value: "{{ $json.signature }}" },
+          { label: "key", value: "swapSignature" },
+          { label: "value", value: "{{ $json.signature }}" },
         ],
-        connect: "Connect Jupiter Direct Swap output -> Webhook Output input.",
-        focusNodeId: "webhook",
+        connect: "Connect Jupiter Direct Swap output -> Workflow Result input.",
+        focusNodeId: "result",
         requiredEdges: [
           { from: "webhookTrigger", to: "price" },
           { from: "price", to: "ai" },
           { from: "ai", to: "if" },
           { from: "if", to: "swap" },
-          { from: "swap", to: "webhook" },
+          { from: "swap", to: "result" },
         ],
         expectedInput: "{ signature, amountOut }",
-        expectedOutput: "{ status: 200, sentAt }",
-        executionLog: ["Built response payload.", "Sent result webhook."],
+        expectedOutput: "{ resultKey, value, savedAt }",
+        executionLog: [
+          "Resolved signature from the swap output.",
+          "Stored swapSignature in Workflow Result.",
+        ],
       },
     ],
   },
@@ -1324,18 +1326,18 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
         ],
       },
       {
-        id: "webhook",
-        label: "Webhook Output",
-        type: "output:webhook",
+        id: "result",
+        label: "Workflow Result",
+        type: "output:result",
         category: "output",
         icon: "Send",
         x: 820,
         y: 90,
         inputs: [{ type: "main", label: "input" }],
-        outputs: [{ type: "main", label: "response" }],
+        outputs: [{ type: "main", label: "result" }],
         rows: [
-          { label: "method", value: "POST" },
-          { label: "body", value: "signature" },
+          { label: "key", value: "payoutSignature" },
+          { label: "value", value: "signature" },
         ],
       },
     ],
@@ -1397,23 +1399,23 @@ const cloudGuidedExercises: CloudGuidedExercise[] = [
       {
         id: "report",
         title: "Report payout result",
-        add: "Drag Webhook Output and send the transfer signature to your backend.",
+        add: "Drag Workflow Result and store the transfer signature in SolStudio. Add Webhook Output later only when a backend callback is required.",
         configure: [
-          { label: "url", value: "https://example.com/payouts" },
-          { label: "body", value: "{{ $json.signature }}" },
+          { label: "key", value: "payoutSignature" },
+          { label: "value", value: "{{ $json.signature }}" },
         ],
-        connect: "Connect Filter matched -> Webhook Output input.",
-        focusNodeId: "webhook",
+        connect: "Connect Filter matched -> Workflow Result input.",
+        focusNodeId: "result",
         requiredEdges: [
           { from: "manual", to: "transfer" },
           { from: "transfer", to: "filter" },
-          { from: "filter", to: "webhook" },
+          { from: "filter", to: "result" },
         ],
         expectedInput: "{ signature, recipient, amount }",
-        expectedOutput: "{ status, response }",
+        expectedOutput: "{ resultKey, value, savedAt }",
         executionLog: [
-          "Built payout report body.",
-          "Sent webhook with transfer signature.",
+          "Resolved signature from the transfer output.",
+          "Stored payoutSignature in Workflow Result.",
         ],
       },
     ],
@@ -3125,7 +3127,7 @@ export function CloudLearnClient() {
             <p className="mt-2">
               Cron Trigger runs every interval, Price Fetch gets market data, AI
               Agent labels the movement, If/Else checks the AI result, and
-              Webhook Output sends the alert.
+              Run Log records the alert inside SolStudio.
             </p>
           </div>
           <GuidedCloudBuilder defaultExercise="price-monitor" lockedExercise />
@@ -3141,8 +3143,8 @@ export function CloudLearnClient() {
             <p className="mt-2">
               Webhook Trigger receives a trade idea, Fetch Price adds market
               context, AI Agent returns an approval object, If/Else blocks
-              rejected runs, Jupiter Direct Swap executes the swap branch, and Webhook Output reports
-              the signature.
+              rejected runs, Jupiter Direct Swap executes the swap branch, and
+              Workflow Result stores the signature.
             </p>
           </div>
           <GuidedCloudBuilder defaultExercise="swap-guard" lockedExercise />
@@ -3157,8 +3159,8 @@ export function CloudLearnClient() {
             <p className="font-semibold text-foreground">Build order</p>
             <p className="mt-2">
               Manual Trigger starts the item, Token Transfer signs and sends the
-              SPL transfer, Filter keeps only successful outputs, and Webhook
-              Output sends the transfer signature to your backend.
+              SPL transfer, Filter keeps only successful outputs, and Workflow
+              Result stores the transfer signature.
             </p>
           </div>
           <GuidedCloudBuilder defaultExercise="payout" lockedExercise />

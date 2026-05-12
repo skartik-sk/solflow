@@ -98,9 +98,30 @@ function getReplaySourceId(triggerData: unknown): string | null {
   return typeof replayOf === "string" ? replayOf : null;
 }
 
+type ExecutionNodeLog = {
+  timestamp?: number | string | Date | null;
+  level?: string | null;
+  message?: string | null;
+  data?: unknown;
+};
+
+type ExecutionNodeResult = {
+  id?: string;
+  nodeId: string;
+  nodeType: string;
+  status: string;
+  duration?: number | null;
+  error?: string | null;
+  logs?: ExecutionNodeLog[] | unknown;
+  inputSnapshot?: unknown;
+  outputSnapshot?: unknown;
+  startedAt?: string | Date | null;
+  completedAt?: string | Date | null;
+};
+
 function hasWalletApprovalRequest(
   execution: { errorMessage?: string | null } | null | undefined,
-  nodeResults: any[],
+  nodeResults: ExecutionNodeResult[],
 ): boolean {
   const messages = [
     execution?.errorMessage,
@@ -179,7 +200,7 @@ export default function ExecutionDetailPage() {
     }
   };
 
-  const nodeResults = (execution?.nodeResults ?? []) as any[];
+  const nodeResults = (execution?.nodeResults ?? []) as ExecutionNodeResult[];
   const needsWalletApproval = hasWalletApprovalRequest(execution, nodeResults);
 
   const overallStatus = execution?.status ?? "UNKNOWN";
@@ -321,7 +342,7 @@ export default function ExecutionDetailPage() {
             {replaySourceId && (
               <ReplayDiffPanel
                 currentResults={nodeResults}
-                sourceResults={(replaySource?.nodeResults ?? []) as any[]}
+                sourceResults={(replaySource?.nodeResults ?? []) as ExecutionNodeResult[]}
                 sourceId={replaySourceId}
                 isLoading={!replaySource}
               />
@@ -340,7 +361,7 @@ export default function ExecutionDetailPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {nodeResults.map((nr: any, idx: number) => {
+                  {nodeResults.map((nr, idx) => {
                     return (
                       <NodeResultCard
                         key={nr.id}
@@ -373,8 +394,8 @@ function ReplayDiffPanel({
   sourceId,
   isLoading,
 }: {
-  currentResults: any[];
-  sourceResults: any[];
+  currentResults: ExecutionNodeResult[];
+  sourceResults: ExecutionNodeResult[];
   sourceId: string;
   isLoading: boolean;
 }) {
@@ -461,7 +482,7 @@ function ReplayDiffPanel({
   );
 }
 
-function ExecutionReplayPanel({ nodeResults }: { nodeResults: any[] }) {
+function ExecutionReplayPanel({ nodeResults }: { nodeResults: ExecutionNodeResult[] }) {
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
 
@@ -575,7 +596,7 @@ function ExecutionReplayPanel({ nodeResults }: { nodeResults: any[] }) {
               Logs
             </p>
             <div className="space-y-1 font-mono text-[11px]">
-              {logs.slice(0, 5).map((log: any, index: number) => (
+              {logs.slice(0, 5).map((log, index) => (
                 <div key={index} className="grid grid-cols-[70px_48px_1fr] gap-2">
                   <span className="text-muted-foreground/60">
                     {log.timestamp ? formatTime(new Date(log.timestamp)) : "-"}
@@ -644,13 +665,13 @@ function NodeResultCard({
   nodeId: string;
   nodeType: string;
   status: string;
-  duration: number | null;
-  error: string | null;
-  logs: Array<{ timestamp?: number; level?: string; message?: string; data?: unknown }>;
+  duration: number | null | undefined;
+  error: string | null | undefined;
+  logs: ExecutionNodeLog[];
   inputSnapshot: unknown;
   outputSnapshot: unknown;
-  startedAt: string | null;
-  completedAt: string | null;
+  startedAt: string | Date | null | undefined;
+  completedAt: string | Date | null | undefined;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const cfg = NODE_STATUS_CONFIG[status] ?? NODE_STATUS_CONFIG.QUEUED;

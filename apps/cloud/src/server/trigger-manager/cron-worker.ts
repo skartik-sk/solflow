@@ -2,7 +2,7 @@
 // SERVER ONLY — never import from client components.
 
 import { Worker, type Job } from "bullmq";
-import { prisma } from "@solflow/db";
+import { prisma, type Prisma } from "@solflow/db";
 import { queueExecution } from "../execution-worker/queue";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
@@ -43,7 +43,7 @@ export function startCronWorker(): void {
             cronExpression: workflow.cronExpression,
             triggeredAt: new Date().toISOString(),
           },
-          definitionSnapshot: workflow.definition as any,
+          definitionSnapshot: workflow.definition as Prisma.InputJsonValue,
         },
       });
 

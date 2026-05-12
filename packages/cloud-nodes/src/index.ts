@@ -78,6 +78,33 @@ export {
   switchboardPriceDef,
   tokenAccountQueryDef,
 } from "./nodes/action-integration-pack";
+export {
+  UmbraNode,
+  umbraIndexerHealthDef,
+  umbraRelayerInfoDef,
+  umbraTransferDef,
+} from "./nodes/action-umbra";
+export { SolanaRpcNode, solanaRpcDef } from "./nodes/action-solana-rpc";
+export { CustomApiNode, customApiDef } from "./nodes/action-custom-api";
+export {
+  HeliusWebhookNode,
+  heliusWebhookCreateDef,
+  heliusWebhookDeleteDef,
+  heliusWebhookListDef,
+} from "./nodes/action-helius-webhook";
+export {
+  JitoNode,
+  jitoBundleStatusDef,
+  jitoSendBundleDef,
+  jitoTipAccountsDef,
+  jitoTipFloorDef,
+} from "./nodes/action-jito";
+export {
+  NotificationNode,
+  dialectAlertDef,
+  discordMessageDef,
+  telegramMessageDef,
+} from "./nodes/action-notification";
 
 // ─── Register all built-in nodes ───────────────────────────────────────────
 
@@ -131,6 +158,29 @@ import {
   switchboardPriceDef,
   tokenAccountQueryDef,
 } from "./nodes/action-integration-pack";
+import {
+  umbraIndexerHealthDef,
+  umbraRelayerInfoDef,
+  umbraTransferDef,
+} from "./nodes/action-umbra";
+import { solanaRpcDef } from "./nodes/action-solana-rpc";
+import { customApiDef } from "./nodes/action-custom-api";
+import {
+  heliusWebhookCreateDef,
+  heliusWebhookDeleteDef,
+  heliusWebhookListDef,
+} from "./nodes/action-helius-webhook";
+import {
+  jitoBundleStatusDef,
+  jitoSendBundleDef,
+  jitoTipAccountsDef,
+  jitoTipFloorDef,
+} from "./nodes/action-jito";
+import {
+  dialectAlertDef,
+  discordMessageDef,
+  telegramMessageDef,
+} from "./nodes/action-notification";
 
 export function registerBuiltinNodes(): void {
   cloudNodeRegistry.register(manualTriggerDef);
@@ -176,6 +226,21 @@ export function registerBuiltinNodes(): void {
   cloudNodeRegistry.register(metaplexSearchAssetsDef);
   cloudNodeRegistry.register(metaplexAssetDef);
   cloudNodeRegistry.register(squadsProposalDef);
+  cloudNodeRegistry.register(umbraIndexerHealthDef);
+  cloudNodeRegistry.register(umbraRelayerInfoDef);
+  cloudNodeRegistry.register(umbraTransferDef);
+  cloudNodeRegistry.register(solanaRpcDef);
+  cloudNodeRegistry.register(customApiDef);
+  cloudNodeRegistry.register(heliusWebhookCreateDef);
+  cloudNodeRegistry.register(heliusWebhookListDef);
+  cloudNodeRegistry.register(heliusWebhookDeleteDef);
+  cloudNodeRegistry.register(jitoTipAccountsDef);
+  cloudNodeRegistry.register(jitoBundleStatusDef);
+  cloudNodeRegistry.register(jitoSendBundleDef);
+  cloudNodeRegistry.register(jitoTipFloorDef);
+  cloudNodeRegistry.register(discordMessageDef);
+  cloudNodeRegistry.register(telegramMessageDef);
+  cloudNodeRegistry.register(dialectAlertDef);
 }
 
 // ─── nodeTypes map (pass to <ReactFlow nodeTypes={nodeTypes}>) ─────────────
@@ -199,6 +264,12 @@ import {
   SquadsProposalNode,
   TokenAccountQueryNode,
 } from "./nodes/action-integration-pack";
+import { UmbraNode } from "./nodes/action-umbra";
+import { SolanaRpcNode } from "./nodes/action-solana-rpc";
+import { CustomApiNode } from "./nodes/action-custom-api";
+import { HeliusWebhookNode } from "./nodes/action-helius-webhook";
+import { JitoNode } from "./nodes/action-jito";
+import { NotificationNode } from "./nodes/action-notification";
 
 export const cloudNodeTypes = {
   "trigger:manual": ManualTriggerNode,
@@ -237,6 +308,21 @@ export const cloudNodeTypes = {
   "action:metaplex-search-assets": MetaplexAssetNode,
   "action:metaplex-asset": MetaplexAssetNode,
   "action:squads-proposal": SquadsProposalNode,
+  "action:umbra-indexer-health": UmbraNode,
+  "action:umbra-relayer-info": UmbraNode,
+  "action:umbra-transfer": UmbraNode,
+  "action:solana-rpc": SolanaRpcNode,
+  "action:custom-api": CustomApiNode,
+  "action:helius-webhook-create": HeliusWebhookNode,
+  "action:helius-webhook-list": HeliusWebhookNode,
+  "action:helius-webhook-delete": HeliusWebhookNode,
+  "action:jito-tip-accounts": JitoNode,
+  "action:jito-bundle-status": JitoNode,
+  "action:jito-send-bundle": JitoNode,
+  "action:jito-tip-floor": JitoNode,
+  "action:discord-message": NotificationNode,
+  "action:telegram-message": NotificationNode,
+  "action:dialect-alert": NotificationNode,
   "transform:filter": FilterNode,
   "logic:if-else": IfElseNode,
   "logic:wait": WaitNode,

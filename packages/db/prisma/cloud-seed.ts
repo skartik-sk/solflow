@@ -1062,6 +1062,268 @@ export const CLOUD_TEMPLATES = [
     ),
     settings: { timeout: 90, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },
   },
+
+  {
+    title: "Umbra Private Transfer Plan",
+    description: "Check Umbra relayer support and prepare a private transfer handoff.",
+    longDescription:
+      "A privacy workflow starter that reads Umbra relayer capabilities, prepares the wallet/ZK/indexer/relayer handoff required for a private transfer, and saves the plan in the run output for operator review before execution.",
+    category: "DEFI",
+    tags: ["umbra", "privacy", "utxo", "private-transfer", "defi"],
+    nodeTypes: ["trigger:manual", "action:umbra-relayer-info", "action:umbra-transfer", "output:result"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:umbra-relayer-info",
+          position: { x: 320, y: 220 },
+          data: { network: "mainnet", relayerEndpoint: "" },
+        },
+        {
+          id: "n3",
+          type: "action:umbra-transfer",
+          position: { x: 610, y: 220 },
+          data: {
+            network: "mainnet",
+            transferMode: "public-to-receiver-utxo",
+            senderWalletId: "",
+            recipientAddress: "So11111111111111111111111111111111111111112",
+            mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            amountBaseUnits: "1000000",
+            validateRelayer: true,
+            indexerEndpoint: "",
+            relayerEndpoint: "",
+            rpcUrl: "",
+            rpcSubscriptionsUrl: "",
+          },
+        },
+        {
+          id: "n4",
+          type: "output:result",
+          position: { x: 900, y: 220 },
+          data: {
+            name: "Umbra transfer plan",
+            status: "success",
+            value: "{{ $json.umbraTransfer }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3", sourceHandle: "relayer" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "plan" },
+      ],
+    ),
+    settings: { timeout: 90, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
+    title: "Solana RPC Health Check",
+    description: "Run a Solana JSON-RPC method through public RPC, RPCFast, or a custom endpoint.",
+    longDescription:
+      "A simple infrastructure workflow that calls a Solana JSON-RPC method, then displays the response in Cloud. Switch the provider to RPCFast and paste the HTTPS endpoint from the RPCFast dashboard when you want low-latency production RPC.",
+    category: "UTILITY",
+    tags: ["rpc", "rpcfast", "solana", "infra", "monitoring"],
+    nodeTypes: ["trigger:manual", "action:solana-rpc", "output:display"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:solana-rpc",
+          position: { x: 320, y: 220 },
+          data: {
+            provider: "public-mainnet",
+            rpcUrl: "",
+            credentialId: "",
+            method: "getHealth",
+            customMethod: "",
+            params: [],
+          },
+        },
+        {
+          id: "n3",
+          type: "output:display",
+          position: { x: 610, y: 220 },
+          data: {
+            title: "Solana RPC response",
+            value: "{{ $json.solanaRpc }}",
+            format: "json",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3", sourceHandle: "result" },
+      ],
+    ),
+    settings: { timeout: 60, retryPolicy: { maxAttempts: 2, delayMs: 3000 }, onError: "stop" },
+  },
+
+  {
+    title: "Helius Realtime Source",
+    description: "Create a Helius webhook that points at your Cloud workflow endpoint for realtime Solana events.",
+    longDescription:
+      "Use a manual setup workflow to create a Helius webhook aimed at your Cloud webhook trigger. This is the recommended starting point when you want realtime swaps, transfers, NFT events, or wallet activity to enter Cloud without polling.",
+    category: "UTILITY",
+    tags: ["helius", "webhook", "realtime", "trigger"],
+    nodeTypes: ["trigger:manual", "action:helius-webhook-create", "output:result"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:helius-webhook-create",
+          position: { x: 330, y: 220 },
+          data: {
+            webhookUrl: "https://cloud.solstudio.fun/api/webhooks/YOUR_WORKFLOW_PATH",
+            webhookType: "enhanced",
+            accountAddresses: ["YOUR_WALLET_ADDRESS"],
+            transactionTypes: ["SWAP", "TRANSFER"],
+            authHeader: "",
+            credentialId: "",
+            apiUrl: "",
+          },
+        },
+        {
+          id: "n3",
+          type: "output:result",
+          position: { x: 650, y: 220 },
+          data: {
+            name: "Helius webhook",
+            status: "success",
+            value: "{{ $json.heliusWebhook }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3", sourceHandle: "webhook" },
+      ],
+    ),
+    settings: { timeout: 60, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
+    title: "Jito Bundle Readiness",
+    description: "Check Jito tip floor and tip accounts before submitting signed bundles.",
+    longDescription:
+      "A production-readiness helper for priority transaction workflows. It reads the current Jito tip floor, fetches current tip accounts, and displays both in Cloud output before you submit a signed bundle.",
+    category: "UTILITY",
+    tags: ["jito", "bundle", "priority", "infra"],
+    nodeTypes: ["trigger:manual", "action:jito-tip-floor", "action:jito-tip-accounts", "output:display"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:jito-tip-floor",
+          position: { x: 310, y: 220 },
+          data: {},
+        },
+        {
+          id: "n3",
+          type: "action:jito-tip-accounts",
+          position: { x: 570, y: 220 },
+          data: {
+            region: "mainnet",
+            blockEngineUrl: "",
+            credentialId: "",
+          },
+        },
+        {
+          id: "n4",
+          type: "output:display",
+          position: { x: 860, y: 220 },
+          data: {
+            title: "Jito readiness",
+            value: "{{ $json.jito }}",
+            format: "json",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3", sourceHandle: "tip floor" },
+        { id: "e3", source: "n3", target: "n4", sourceHandle: "tip accounts" },
+      ],
+    ),
+    settings: { timeout: 60, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
+
+  {
+    title: "Discord Workflow Alert",
+    description: "Send a workflow summary to Discord without hand-writing raw webhook JSON.",
+    longDescription:
+      "A notification starter that posts a workflow summary to a Discord incoming webhook and still keeps the notification response visible in Cloud output.",
+    category: "UTILITY",
+    tags: ["discord", "notification", "ops", "alert"],
+    nodeTypes: ["trigger:manual", "action:discord-message", "output:result"],
+    featured: true,
+    definition: makeDefinition(
+      [
+        {
+          id: "n1",
+          type: "trigger:manual",
+          position: { x: 50, y: 220 },
+          data: {},
+        },
+        {
+          id: "n2",
+          type: "action:discord-message",
+          position: { x: 330, y: 220 },
+          data: {
+            webhookUrl: "",
+            credentialId: "",
+            content: "SolStudio Cloud run complete: {{ $json }}",
+            username: "SolStudio Cloud",
+            embeds: [],
+            wait: true,
+          },
+        },
+        {
+          id: "n3",
+          type: "output:result",
+          position: { x: 640, y: 220 },
+          data: {
+            name: "Discord notification",
+            status: "success",
+            value: "{{ $json.notification }}",
+          },
+        },
+      ],
+      [
+        { id: "e1", source: "n1", target: "n2" },
+        { id: "e2", source: "n2", target: "n3", sourceHandle: "notification" },
+      ],
+    ),
+    settings: { timeout: 45, retryPolicy: { maxAttempts: 1, delayMs: 0 }, onError: "stop" },
+  },
 ];
 
 // ─── Seed ───────────────────────────────────────────────────────────────────

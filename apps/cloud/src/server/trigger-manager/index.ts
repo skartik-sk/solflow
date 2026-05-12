@@ -2,7 +2,7 @@
 // SERVER ONLY — never import from client components.
 
 import { Queue, type Queue as QueueType } from "bullmq";
-import { prisma } from "@solflow/db";
+import { prisma, type Prisma } from "@solflow/db";
 import { registerBuiltinNodes } from "@solflow/cloud-nodes";
 import { queueExecution } from "../execution-worker/queue";
 import { nanoid } from "nanoid";
@@ -336,8 +336,8 @@ class TriggerManager {
         workflowId: workflow.id,
         status: "QUEUED",
         triggerType: "webhook",
-        triggerData: triggerData as any,
-        definitionSnapshot: workflow.definition as any,
+        triggerData: triggerData as Prisma.InputJsonValue,
+        definitionSnapshot: workflow.definition as Prisma.InputJsonValue,
       },
     });
 

@@ -36,12 +36,21 @@ import { redactPreviewValue } from "@/lib/cloud-workflow-features";
 
 function serializeWorkflowDefinition(nodes: Node[], edges: Edge[]) {
   const serializedNodes = nodes.map((n) => {
-    const data = (n.data as any)?.data ?? n.data ?? {};
+    const nodeData = n.data as { data?: unknown } | undefined;
+    const rawData =
+      nodeData?.data &&
+      typeof nodeData.data === "object" &&
+      !Array.isArray(nodeData.data)
+        ? nodeData.data
+        : n.data ?? {};
     return {
       id: n.id,
       type: n.type ?? "unknown",
       position: n.position,
-      data: typeof data === "object" ? data : {},
+      data:
+        rawData && typeof rawData === "object" && !Array.isArray(rawData)
+          ? (rawData as Record<string, unknown>)
+          : {},
     };
   });
   const serializedEdges = edges.map((e) => ({
@@ -53,6 +62,19 @@ function serializeWorkflowDefinition(nodes: Node[], edges: Edge[]) {
   }));
   return { nodes: serializedNodes, edges: serializedEdges };
 }
+
+type PolledNodeResult = {
+  nodeId: string;
+  nodeType: string;
+  status: string;
+  inputSnapshot: unknown;
+  outputSnapshot: unknown;
+  error?: string | null;
+  duration?: number | null;
+  logs?: unknown;
+  startedAt?: string | Date | null;
+  completedAt?: string | Date | null;
+};
 
 function encodePreviewSnapshot(value: unknown): string {
   const json = JSON.stringify(value);
@@ -245,6 +267,8 @@ export function EditorToolbar() {
         definition: simulation.definition,
         settings: workflowSettings,
       });
+      useWorkflowStore.setState({ isDirty: false });
+      if (isDirty) addLog("info", "Latest workflow changes saved for this run");
 
       // Trigger execution via tRPC
       const execution = await runExecution.mutateAsync({ workflowId });
@@ -265,7 +289,7 @@ export function EditorToolbar() {
 
           // Update node statuses from DB results
           if (result.nodeResults) {
-            for (const nr of result.nodeResults as any[]) {
+            for (const nr of result.nodeResults as PolledNodeResult[]) {
               const baseResult = {
                 nodeType: nr.nodeType,
                 input: nr.inputSnapshot,

@@ -8,8 +8,18 @@ import { Workflow, Plus, Play, Power, PowerOff, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
+import { NewWorkflowDialog } from "@/components/workflows/NewWorkflowDialog";
+
+type WorkflowListItem = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+  _count?: { executions?: number };
+};
 
 export default function WorkflowsPage() {
+  const [showNewWorkflow, setShowNewWorkflow] = React.useState(false);
   const { data: workflows, isLoading } = trpc.workflow.list.useQuery();
   const activate = trpc.workflow.activate.useMutation({
     onSuccess: () => { toast.success("Workflow activated"); refetch(); },
@@ -38,13 +48,14 @@ export default function WorkflowsPage() {
           <h1 className="text-lg font-bold">Workflows</h1>
           <p className="text-xs text-muted-foreground">Manage your automation workflows</p>
         </div>
-        <Link
-          href="/editor/new"
+        <button
+          type="button"
+          onClick={() => setShowNewWorkflow(true)}
           className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <Plus size={13} />
           New Workflow
-        </Link>
+        </button>
       </div>
 
       {isLoading && (
@@ -55,7 +66,7 @@ export default function WorkflowsPage() {
 
       {!isLoading && workflows && (
         <div className="space-y-2">
-          {workflows.map((wf: any) => {
+          {(workflows as WorkflowListItem[]).map((wf) => {
             const isActive = wf.status === "ACTIVE";
             const isToggling =
               (activate.isPending && activate.variables?.id === wf.id) ||
@@ -126,16 +137,20 @@ export default function WorkflowsPage() {
               <p className="text-xs text-muted-foreground/60 mb-4">
                 Create your first workflow to get started
               </p>
-              <Link
-                href="/editor/new"
+              <button
+                type="button"
+                onClick={() => setShowNewWorkflow(true)}
                 className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground"
               >
                 <Plus size={13} />
                 Create Workflow
-              </Link>
+              </button>
             </div>
           )}
         </div>
+      )}
+      {showNewWorkflow && (
+        <NewWorkflowDialog onClose={() => setShowNewWorkflow(false)} />
       )}
     </AppShell>
   );

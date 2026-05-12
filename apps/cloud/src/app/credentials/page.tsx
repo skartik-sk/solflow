@@ -14,6 +14,14 @@ const CREDENTIAL_TYPES = [
   { value: "birdeye", label: "Birdeye" },
   { value: "jupiter", label: "Jupiter" },
   { value: "helius", label: "Helius" },
+  { value: "rpcfast", label: "RPCFast" },
+  { value: "quicknode", label: "QuickNode" },
+  { value: "alchemy", label: "Alchemy" },
+  { value: "triton", label: "Triton" },
+  { value: "jito", label: "Jito" },
+  { value: "discord", label: "Discord" },
+  { value: "telegram", label: "Telegram" },
+  { value: "dialect", label: "Dialect" },
   { value: "switchboard", label: "Switchboard" },
   { value: "squads", label: "Squads" },
   { value: "webhook", label: "Webhook" },
@@ -45,6 +53,9 @@ const emptyForm: FormState = {
 const inputClass =
   "w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50";
 
+const RPC_ENDPOINT_TYPES: CredentialType[] = ["helius", "rpcfast", "quicknode", "alchemy", "triton"];
+const API_URL_TYPES: CredentialType[] = ["jupiter", "switchboard", "squads", "dialect"];
+
 function buildCredentialData(form: FormState, requireSecret: boolean): Record<string, unknown> | undefined {
   if (form.type === "webhook") {
     const data: Record<string, unknown> = {};
@@ -58,13 +69,39 @@ function buildCredentialData(form: FormState, requireSecret: boolean): Record<st
     return Object.keys(data).length ? data : undefined;
   }
 
+  if (form.type === "discord") {
+    const data: Record<string, unknown> = {};
+    if (form.baseUrl.trim()) data.webhookUrl = form.baseUrl.trim();
+    if (!data.webhookUrl && requireSecret) {
+      throw new Error("Discord credentials need a webhook URL");
+    }
+    return Object.keys(data).length ? data : undefined;
+  }
+
+  if (form.type === "telegram") {
+    const data: Record<string, unknown> = {};
+    if (form.apiKey.trim()) data.botToken = form.apiKey.trim();
+    if (!data.botToken && requireSecret) {
+      throw new Error("Telegram credentials need a bot token");
+    }
+    return Object.keys(data).length ? data : undefined;
+  }
+
   const data: Record<string, unknown> = {};
   if (form.apiKey.trim()) data.apiKey = form.apiKey.trim();
   if (form.type === "jupiter" && form.baseUrl.trim()) data.baseUrl = form.baseUrl.trim();
   if (form.type === "helius" && form.baseUrl.trim()) data.rpcUrl = form.baseUrl.trim();
+  if (form.type === "rpcfast" && form.baseUrl.trim()) data.rpcUrl = form.baseUrl.trim();
+  if (form.type === "quicknode" && form.baseUrl.trim()) data.rpcUrl = form.baseUrl.trim();
+  if (form.type === "alchemy" && form.baseUrl.trim()) data.rpcUrl = form.baseUrl.trim();
+  if (form.type === "triton" && form.baseUrl.trim()) data.rpcUrl = form.baseUrl.trim();
   if (form.type === "switchboard" && form.baseUrl.trim()) data.apiUrl = form.baseUrl.trim();
   if (form.type === "squads" && form.baseUrl.trim()) data.apiUrl = form.baseUrl.trim();
-  if (!data.apiKey && requireSecret) {
+  if (form.type === "dialect" && form.baseUrl.trim()) data.apiUrl = form.baseUrl.trim();
+  if (["rpcfast", "quicknode", "alchemy", "triton"].includes(form.type) && !data.apiKey && !data.rpcUrl && requireSecret) {
+    throw new Error(`${form.type} credentials need an API key or HTTPS RPC endpoint`);
+  }
+  if (!["rpcfast", "quicknode", "alchemy", "triton"].includes(form.type) && !data.apiKey && requireSecret) {
     throw new Error(`${form.type} credentials need an API key`);
   }
   return Object.keys(data).length ? data : undefined;
@@ -213,7 +250,7 @@ export default function CredentialsPage() {
               <KeyRound className="mb-3 h-10 w-10 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">No credentials yet</p>
               <p className="mb-4 text-xs text-muted-foreground/60">
-                Add provider keys for AI, price, Jupiter, Helius, Switchboard, Squads, or webhook nodes
+                Add provider keys for AI, Solana RPC, Jupiter, Helius, Jito, notifications, Squads, or webhook nodes
               </p>
             </div>
           )}
@@ -258,6 +295,13 @@ export default function CredentialsPage() {
                   <input className={inputClass} value={form.apiKeyHeader} onChange={(e) => setForm({ ...form, apiKeyHeader: e.target.value })} placeholder="API key header, default X-API-Key" />
                   <textarea className={`${inputClass} font-mono text-[11px]`} rows={3} value={form.headers} onChange={(e) => setForm({ ...form, headers: e.target.value })} placeholder='{"X-Signature": "..."}' />
                 </>
+              ) : form.type === "discord" ? (
+                <input
+                  className={inputClass}
+                  value={form.baseUrl}
+                  onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                  placeholder={form.id ? "New Discord webhook URL (optional)" : "Discord webhook URL"}
+                />
               ) : (
                 <>
                   <input
@@ -269,10 +313,14 @@ export default function CredentialsPage() {
                         ? "New API key (optional)"
                         : form.type === "gemini"
                           ? "Gemini API key"
-                          : "API key"
+                          : form.type === "telegram"
+                            ? "Telegram bot token"
+                            : ["rpcfast", "quicknode", "alchemy", "triton"].includes(form.type)
+                              ? `${form.type} API key (optional if endpoint includes it)`
+                            : "API key"
                     }
                   />
-                  {["jupiter", "helius", "switchboard", "squads"].includes(form.type) && (
+                  {[...API_URL_TYPES, ...RPC_ENDPOINT_TYPES].includes(form.type) && (
                     <input
                       className={inputClass}
                       value={form.baseUrl}
@@ -280,11 +328,21 @@ export default function CredentialsPage() {
                       placeholder={
                         form.type === "helius"
                           ? "Optional Helius RPC URL"
-                          : form.type === "switchboard"
-                            ? "Optional Switchboard API URL"
-                            : form.type === "squads"
-                              ? "Optional Squads API URL"
-                              : "Optional Jupiter base URL"
+                        : form.type === "rpcfast"
+                            ? "RPCFast HTTPS endpoint from dashboard"
+                            : form.type === "quicknode"
+                              ? "QuickNode Solana endpoint URL"
+                              : form.type === "alchemy"
+                                ? "Optional Alchemy Solana RPC URL"
+                                : form.type === "triton"
+                                  ? "Triton Solana endpoint URL"
+                            : form.type === "switchboard"
+                              ? "Optional Switchboard API URL"
+                              : form.type === "squads"
+                                ? "Optional Squads API URL"
+                                : form.type === "dialect"
+                                  ? "Optional Dialect API URL"
+                                : "Optional Jupiter base URL"
                       }
                     />
                   )}

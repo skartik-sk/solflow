@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Prisma } from "@solflow/db";
 import { router, protectedProcedure, publicProcedure } from "../trpc";
 
 export const templateRouter = router({
@@ -11,7 +12,7 @@ export const templateRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const where: any = { status: "PUBLISHED" };
+      const where: Prisma.WorkflowTemplateWhereInput = { status: "PUBLISHED" };
       if (input.category) where.category = input.category;
       if (input.featured) where.featured = true;
 
@@ -67,8 +68,8 @@ export const templateRouter = router({
           user: { connect: { id: ctx.session.user.id } },
           name: input.name ?? template.title,
           description: `From template: ${template.title}`,
-          definition: template.definition as any,
-          settings: template.settings as any,
+          definition: template.definition as Prisma.InputJsonValue,
+          settings: template.settings as Prisma.InputJsonValue,
           tags: template.tags,
         },
       });

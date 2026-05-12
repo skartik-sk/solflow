@@ -104,7 +104,7 @@ jobs:
         run: bun run build
         env:
           # Stub required env vars so the build succeeds without real infra
-          DATABASE_URL: "postgresql://test:test@localhost:5432/solflow_test"
+          DATABASE_URL: "postgresql://localhost:5432/solflow_test"
           NEXTAUTH_SECRET: "ci-test-secret"
           NEXTAUTH_URL: "http://localhost:3000"
           NEXT_PUBLIC_SOLANA_NETWORK: "devnet"
@@ -147,4 +147,4 @@ jobs:
       - name: Run compilation test
         run: bun run test:compile
         env:
-          DATABASE_URL: "postgresql://test:test@localhost:5432/solflow_test"
+          DATABASE_URL: "postgresql://localhost:5432/solflow_test"

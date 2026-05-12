@@ -31,6 +31,23 @@ const selectClass =
   "w-full rounded-md border border-border bg-input px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
+const CREDENTIAL_TYPES = [
+  "openai",
+  "anthropic",
+  "gemini",
+  "birdeye",
+  "jupiter",
+  "helius",
+  "switchboard",
+  "squads",
+  "webhook",
+] as const;
+
+type CredentialType = (typeof CREDENTIAL_TYPES)[number];
+
+function isCredentialType(value: string): value is CredentialType {
+  return (CREDENTIAL_TYPES as readonly string[]).includes(value);
+}
 
 function formatList(value: string[] | undefined): string {
   return (value ?? []).join("\n");
@@ -60,9 +77,11 @@ function CredentialSelect({
   value: unknown;
   onChange: (value: unknown) => void;
 }) {
-  const types = property.credentialTypes ?? (property.credentialType ? [property.credentialType] : undefined);
+  const types = (
+    property.credentialTypes ?? (property.credentialType ? [property.credentialType] : undefined)
+  )?.filter(isCredentialType);
   const { data: credentials, isLoading } = trpc.credential.list.useQuery(
-    types?.length ? { types: types as any } : undefined,
+    types?.length ? { types } : undefined,
   );
   const createHref = `/credentials${types?.[0] ? `?type=${encodeURIComponent(types[0])}` : ""}`;
   const typeLabel = types?.length === 1 ? types[0] : "provider";

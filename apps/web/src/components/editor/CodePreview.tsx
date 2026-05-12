@@ -9,6 +9,8 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import type { editor as MonacoEditorTypes } from "monaco-editor";
+import type * as MonacoNamespace from "monaco-editor";
 import { useCodeStore } from "@/store/code-store";
 import type { CodeFocusRequest, GeneratedFile } from "@/store/code-store";
 import { CodeCompareView } from "./CodeCompareView";
@@ -135,8 +137,8 @@ export function CodePreview() {
   const [compareMode, setCompareMode] = useState(false);
   const [focusTarget, setFocusTarget] = useState<CodeFocusTarget | null>(null);
   const [monacoReadyPath, setMonacoReadyPath] = useState<string | null>(null);
-  const editorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
+  const editorRef = useRef<MonacoEditorTypes.ICodeEditor | null>(null);
+  const monacoRef = useRef<typeof MonacoNamespace | null>(null);
   const decorationsRef = useRef<string[]>([]);
 
   const files = generatedCode?.files ?? [];
@@ -250,27 +252,27 @@ export function CodePreview() {
       {/* File tabs + compare toggle */}
       <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-card">
         <div className="flex min-w-0 flex-1 overflow-x-auto">
-        {files.map((file) => {
-          const isActive = file.path === (activeFile ?? files[0]?.path);
-          return (
-            <button
-              key={file.path}
-              onClick={() => handleTabClick(file.path)}
-              title={file.path}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs transition-colors",
-                "hover:bg-accent hover:text-accent-foreground",
-                isActive
-                  ? "border-b-2 border-b-primary bg-background text-foreground"
-                  : "text-muted-foreground",
-              )}
-            >
-              <FileIcon path={file.path} />
-              {shortName(file.path)}
-            </button>
-          );
-        })}
-              </div>
+          {files.map((file) => {
+            const isActive = file.path === (activeFile ?? files[0]?.path);
+            return (
+              <button
+                key={file.path}
+                onClick={() => handleTabClick(file.path)}
+                title={file.path}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs transition-colors",
+                  "hover:bg-accent hover:text-accent-foreground",
+                  isActive
+                    ? "border-b-2 border-b-primary bg-background text-foreground"
+                    : "text-muted-foreground",
+                )}
+              >
+                <FileIcon path={file.path} />
+                {shortName(file.path)}
+              </button>
+            );
+          })}
+        </div>
         <button
           onClick={() => setCompareMode(true)}
           title="Compare generated framework output side-by-side"

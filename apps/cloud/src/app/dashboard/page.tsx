@@ -22,6 +22,23 @@ import { trpc } from "@/lib/trpc/client";
 import { AppShell } from "@/components/layout/AppShell";
 import { NewWorkflowDialog } from "@/components/workflows/NewWorkflowDialog";
 
+type WorkflowSummary = {
+  id: string;
+  name: string;
+  status: string;
+  updatedAt: string | Date;
+  nextRunAt?: string | Date | null;
+  _count?: { executions?: number };
+};
+
+type ExecutionSummary = {
+  id: string;
+  status: string;
+  startedAt?: string | Date | null;
+  createdAt?: string | Date | null;
+  workflow?: { name?: string | null } | null;
+};
+
 function statusClass(status: string): string {
   if (status === "ACTIVE" || status === "COMPLETED") return "bg-emerald-500/10 text-emerald-300";
   if (status === "FAILED" || status === "TIMED_OUT") return "bg-red-500/10 text-red-300";
@@ -39,16 +56,16 @@ export default function DashboardPage() {
   const { data: workflows } = trpc.workflow.list.useQuery();
   const { data: executionData } = trpc.execution.list.useQuery({ limit: 8 });
 
-  const workflowItems = workflows ?? [];
-  const recentExecutions = executionData?.items ?? [];
-  const activeWorkflows = workflowItems.filter((workflow: any) => workflow.status === "ACTIVE");
-  const completedRuns = recentExecutions.filter((execution: any) => execution.status === "COMPLETED").length;
+  const workflowItems = (workflows ?? []) as WorkflowSummary[];
+  const recentExecutions = (executionData?.items ?? []) as ExecutionSummary[];
+  const activeWorkflows = workflowItems.filter((workflow) => workflow.status === "ACTIVE");
+  const completedRuns = recentExecutions.filter((execution) => execution.status === "COMPLETED").length;
   const successRate =
     recentExecutions.length > 0 ? Math.round((completedRuns / recentExecutions.length) * 100) : 0;
   const nextRun = activeWorkflows
-    .map((workflow: any) => workflow.nextRunAt)
+    .map((workflow) => workflow.nextRunAt)
     .filter(Boolean)
-    .sort((a: string, b: string) => new Date(a).getTime() - new Date(b).getTime())[0];
+    .sort((a, b) => new Date(a!).getTime() - new Date(b!).getTime())[0];
 
   return (
     <AppShell>
@@ -105,7 +122,7 @@ export default function DashboardPage() {
 
           {workflowItems.length > 0 ? (
             <div className="rounded-xl border border-border bg-card">
-              {workflowItems.slice(0, 8).map((workflow: any) => (
+              {workflowItems.slice(0, 8).map((workflow) => (
                 <Link
                   key={workflow.id}
                   href={`/editor/${workflow.id}`}
@@ -161,7 +178,7 @@ export default function DashboardPage() {
 
           {recentExecutions.length > 0 ? (
             <div className="rounded-xl border border-border bg-card">
-              {recentExecutions.slice(0, 6).map((execution: any) => (
+              {recentExecutions.slice(0, 6).map((execution) => (
                 <Link
                   key={execution.id}
                   href={`/executions/${execution.id}`}

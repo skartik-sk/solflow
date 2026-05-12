@@ -27,7 +27,7 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Family    | Nodes                                                                                                                                                                                                        | Use                                                             |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
 | Trigger   | Manual Trigger, Cron Trigger, Webhook Trigger                                                                                                                                                                | Start a workflow run                                            |
-| Action    | Fetch Price, Token Transfer, Jupiter Price/Token/Swap nodes, Pyth Price/Search/Latest Prices, Helius activity/transaction/enhanced-history nodes, Token Account Query, Metaplex asset nodes, Squads Proposal | Fetch data or perform Solana-aware work                         |
+| Action    | Fetch Price, Token Transfer, Jupiter Price/Token/Swap nodes, Solana RPC, Custom API Request, Pyth Price/Search/Latest Prices, Helius activity/transaction/enhanced-history/webhook nodes, Jito bundle nodes, Discord/Telegram/Dialect notification nodes, Token Account Query, Metaplex asset nodes, Squads Proposal, Umbra nodes | Fetch data or perform Solana-aware work                         |
 | AI        | AI Agent                                                                                                                                                                                                     | Summarize, classify, score risk, or create structured decisions |
 | Logic     | If / Else, Wait                                                                                                                                                                                              | Branch or delay execution                                       |
 | Transform | Filter                                                                                                                                                                                                       | Keep only items matching a condition                            |
@@ -48,9 +48,17 @@ Cloud is for automation. Use the visual builder when you need generated Solana p
 | Switchboard Price                            | `switchboard` or `webhook`           | Required unless API URL is provided                             | Reads a Switchboard-compatible endpoint                                        |
 | Helius activity / JSON-RPC transaction nodes | `helius`                             | Required unless RPC URL is provided                             | API key can build the Helius RPC URL                                           |
 | Helius enhanced parse / address history      | `helius`                             | Yes                                                             | Uses the Enhanced Transactions API with `api-key`                              |
+| Helius Webhook Create / List / Delete         | `helius`                             | Yes                                                             | Creates and manages realtime event webhooks                                    |
+| Jito Tip / Bundle nodes                       | `jito`                               | Optional for public/default limits                              | Auth UUID can be saved for authenticated limits                                |
+| Discord Message                               | `discord`                            | Required unless Webhook URL is pasted on the node                | Mentions are disabled by default                                               |
+| Telegram Message                              | `telegram`                           | Yes                                                             | Stores bot token server-side                                                   |
+| Dialect Alert                                 | `dialect`                            | Yes                                                             | Uses the Dialect Alerts REST API                                               |
 | Token Account Query                          | `helius` or `webhook`                | Required unless RPC URL is provided                             | Supports SPL Token and Token-2022 queries                                      |
 | Metaplex asset nodes                         | `helius`                             | Required unless DAS RPC URL is provided                         | Reads DAS asset, proof, owner, collection, creator, authority, and search data |
 | Squads Proposal                              | `squads` or `webhook`                | Usually required                                                | Sends proposal payload to a Squads-compatible API                              |
+| Umbra Indexer / Relayer / Transfer Plan      | Cloud wallet for transfer handoff    | Wallet required for final SDK execution                         | Health/info calls use Umbra public endpoints; transfer node emits a handoff plan |
+| Solana RPC                                   | `rpcfast`, `helius`, `quicknode`, `alchemy`, `triton`, or `webhook` | No for public RPC; yes for private providers | Calls standard Solana JSON-RPC methods                                         |
+| Custom API Request                           | `webhook`                            | Optional                                                        | Calls any HTTPS API and passes the response forward                            |
 | If / Else                                    | None                                 | No                                                              | Branches on item JSON fields                                                   |
 | Filter                                       | None                                 | No                                                              | Drops non-matching items                                                       |
 | Wait                                         | None                                 | No                                                              | Delays the item before continuing; wait is capped for worker safety            |
@@ -187,9 +195,15 @@ Use Webhook Trigger when another product, bot, backend, or alerting system shoul
 | Pyth Price / Feed Search / Latest Prices                                       | Optional incoming item             | Feed ID, Feed IDs, or Search, Asset Type                                              | Price payloads or feed search result           |
 | Switchboard Price                                                              | Optional incoming item             | Feed ID, API URL, Credential                                                          | Endpoint response                              |
 | Helius Wallet Activity / Transaction / Enhanced History                        | Optional incoming item             | Wallet Address, Signature, filters, RPC URL, Credential                               | JSON-RPC or enhanced transaction result        |
+| Helius Webhook Create / List / Delete                                          | Optional incoming item             | Webhook URL, Webhook Type, Addresses, Transaction Types, Credential                    | Helius webhook response                        |
+| Jito Tip Accounts / Bundle Status / Send Bundle / Tip Floor                    | Optional incoming item             | Region, Bundle IDs, Signed Transactions, Credential                                   | Jito tip or bundle response                    |
+| Discord / Telegram / Dialect notification nodes                                | Optional incoming item             | Webhook URL or Credential, Message, Chat/App/Recipient fields                          | Notification response                          |
 | Token Account Query                                                            | Optional incoming item             | Owner, Mint, Token Program, RPC URL, Credential                                       | Token account list                             |
 | Metaplex Get Asset / Proof / Owner / Collection / Creator / Authority / Search | Optional incoming item             | Asset ID, Owner, Creator, Authority, Collection, Display Options, RPC URL, Credential | DAS asset results                              |
 | Squads Proposal                                                                | Incoming item or fixed payload     | API URL, Multisig, Title, Payload, Credential                                         | Proposal API response                          |
+| Umbra Indexer Health / Relayer Info / Transfer Plan                            | Optional incoming item             | Network, Recipient, Mint, Amount, Wallet, Endpoint overrides                          | Service health/info or private transfer plan   |
+| Solana RPC                                                                     | Optional incoming item             | Provider, RPC URL, Credential, Method, Params JSON                                    | `solanaRpc` result payload                     |
+| Custom API Request                                                             | Optional incoming item             | URL, Method, Headers, Credential, Body, Output Field                                  | Custom response field                          |
 
 ### Fetch Price
 
@@ -200,7 +214,7 @@ Use it before AI, If / Else, alerts, and swap guards.
 Example connection:
 
 ```text
-Cron Trigger -> Fetch Price -> If / Else -> HTTP Request
+Cron Trigger -> Fetch Price -> If / Else -> Run Log
 ```
 
 ### Token Transfer
@@ -217,7 +231,7 @@ Use it only after confirming:
 Example connection:
 
 ```text
-Manual Trigger -> Token Transfer -> HTTP Request
+Manual Trigger -> Token Transfer -> Workflow Result
 ```
 
 ### Jupiter Nodes
@@ -240,7 +254,7 @@ Jupiter features are split into separate nodes so each workflow step only shows 
 Use swap operations behind a guard step when the swap depends on external data:
 
 ```text
-Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Direct Swap -> HTTP Request
+Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Direct Swap -> Workflow Result
 ```
 
 `slippageBps` is basis points. `50` means `0.5%`. Leaving advanced order fields blank keeps more routers eligible. Receiver, referral, payer, and router-exclusion fields can change routing behavior.
@@ -268,6 +282,18 @@ Helius RPC is the low-level escape hatch for DAS and Solana JSON-RPC calls. It s
 
 Use Params JSON as the exact JSON-RPC params array. For DAS calls, add a Helius credential or a DAS-compatible RPC URL.
 
+### Helius Webhooks
+
+Helius webhook nodes turn realtime Solana activity into a Cloud trigger source.
+
+| Node                  | Required fields                                          | Output                   |
+| --------------------- | -------------------------------------------------------- | ------------------------ |
+| Helius Webhook Create | Webhook URL, Webhook Type, Account Addresses, Credential | Created webhook metadata |
+| Helius Webhook List   | Credential                                               | Existing webhook list    |
+| Helius Webhook Delete | Webhook ID, Credential                                   | Delete response          |
+
+Use `Webhook Trigger` first to create a Cloud webhook URL, then point `Helius Webhook Create` at that URL. For production, configure `authHeader` so Helius sends a secret your workflow can check.
+
 ### Metaplex Asset
 
 Metaplex Asset is the guided DAS node for NFT, compressed NFT, and token metadata reads.
@@ -288,6 +314,78 @@ This node requires a Helius credential unless you provide another DAS-compatible
 
 Squads Proposal sends a prepared approval payload to your own Squads-compatible API or webhook adapter. Squads v4 itself is SDK/program driven, so this node does not claim to directly create on-chain proposals without an adapter service. Use it to hand off treasury workflow output, transaction summaries, or token-account snapshots into an approval backend.
 
+### Umbra Privacy
+
+Umbra nodes are split into service checks and transfer planning:
+
+| Node                 | API / SDK surface                         | Requires wallet?              | Output                                      |
+| -------------------- | ----------------------------------------- | ----------------------------- | ------------------------------------------- |
+| Umbra Indexer Health | `GET /health` on the UTXO indexer         | No                            | Indexer health payload                      |
+| Umbra Relayer Info   | `GET /v1/relayer/info` on the relayer     | No                            | Relayer address, supported mints, pools     |
+| Umbra Transfer Plan  | `@umbra-privacy/sdk` wallet/ZK handoff    | Yes for final private transfer | Transfer plan, warnings, endpoints, relayer |
+
+The transfer node intentionally prepares a plan instead of pretending the server completed a private transfer. Umbra execution requires a wallet signer, `@umbra-privacy/web-zk-prover`, the UTXO indexer, and the relayer. Use the plan in the Output tab to verify recipient, mint, amount in base units, network, and endpoint selection before wiring final wallet execution.
+
+Example starter:
+
+```text
+Manual Trigger -> Umbra Relayer Info -> Umbra Transfer Plan -> Workflow Result
+```
+
+### Solana RPC Providers
+
+Solana RPC calls standard JSON-RPC methods through public RPC, RPCFast, Helius, QuickNode, Alchemy, Triton, or a custom HTTPS endpoint.
+
+| Provider        | Required setup                     | Good for                                      |
+| --------------- | ---------------------------------- | --------------------------------------------- |
+| Public Mainnet  | None                               | Quick health checks and low-volume reads      |
+| Public Devnet   | None                               | Safe testing                                  |
+| Helius          | API key or RPC URL                 | Solana RPC plus DAS-compatible workflows      |
+| RPCFast         | RPCFast HTTPS endpoint or credential | Production RPC, low latency, paid-plan methods |
+| QuickNode       | Solana endpoint URL                | Standard Solana RPC and marketplace add-ons   |
+| Alchemy         | API key or Solana RPC URL          | Hosted Solana mainnet RPC                     |
+| Triton          | Solana endpoint URL                | Premium RPC, historical data, streaming stack |
+| Custom RPC      | Any HTTPS Solana JSON-RPC endpoint | User-owned infra or another provider          |
+
+Paste the full HTTPS endpoint into the node or save it as a provider credential. If the endpoint needs the key inserted, use `{apiKey}` in the URL and store the key in the credential.
+
+Example:
+
+```text
+Manual Trigger -> Solana RPC -> Display Output
+```
+
+### Jito Bundles
+
+Jito nodes are for priority transaction flow around already-signed transactions.
+
+| Node               | Purpose                                                      |
+| ------------------ | ------------------------------------------------------------ |
+| Jito Tip Accounts  | Reads accounts eligible for bundle tips                      |
+| Jito Tip Floor     | Reads recent landed tip percentiles                          |
+| Jito Bundle Status | Checks landed or in-flight statuses for submitted bundle IDs |
+| Jito Send Bundle   | Submits 1-5 already-signed transactions to the Block Engine  |
+
+`Jito Send Bundle` does not sign transactions. Build and review the signed transaction bundle first, include a real Jito tip, then use `Jito Bundle Status` to confirm landing.
+
+### Notifications
+
+Notification nodes are split by destination so non-developers do not have to shape raw HTTP payloads.
+
+| Node             | Credential | Notes                                               |
+| ---------------- | ---------- | --------------------------------------------------- |
+| Discord Message  | `discord`  | Incoming webhook URL; disables mentions by default  |
+| Telegram Message | `telegram` | Bot token plus Chat ID                              |
+| Dialect Alert    | `dialect`  | App ID, channels, wallet recipient, title, and body |
+
+Use Display Output or Workflow Result before a notification node when you want the exact payload visible in the run output before it leaves Cloud.
+
+### Custom API Request
+
+Custom API Request is the user-defined node escape hatch. Use it when a workflow needs a provider that SolStudio does not have a dedicated node for yet.
+
+It can call any HTTPS endpoint, merge a webhook credential into request headers, send a body from `{{ $json }}`, and store the response under a custom output field so later nodes can branch or display it.
+
 ## AI Agent
 
 AI Agent calls an LLM to process workflow data.
@@ -307,6 +405,7 @@ AI Agent calls an LLM to process workflow data.
 | Response Format   | Plain text or JSON object                                                   |
 | Output Field      | JSON field where the AI result is stored                                    |
 | Include Input     | Keeps incoming item data next to the AI result                              |
+| Redact Sensitive Prompt Data | Masks obvious API keys, bearer tokens, private keys, and passwords before provider calls |
 
 Prefer JSON output when the next node is `If / Else`. For example:
 
@@ -349,7 +448,7 @@ Use display-only output nodes when you want the result inside SolStudio, and HTT
 | Workflow Result | Mark a final branch result for inspection after a run    | `result` object with name, status, value   |
 | HTTP Request    | Send workflow results to another HTTP endpoint           | `httpResponse` with status, headers, body  |
 
-HTTP Request, also shown in learning materials as Webhook Output, sends data to another system.
+HTTP Request sends data to another system. Keep first test workflows on Display Output, Run Log, or Workflow Result, then add HTTP Request only when an external service must receive the payload.
 
 | Property   | Meaning                                       |
 | ---------- | --------------------------------------------- |
@@ -384,13 +483,22 @@ Cloud workflows can use encrypted wallets and credentials for automated actions.
 
 | Resource             | Used by                                                   | Notes                                                              |
 | -------------------- | --------------------------------------------------------- | ------------------------------------------------------------------ |
-| Cloud wallet         | Token Transfer, Jupiter Swap Execute, Jupiter Direct Swap | Used for transaction signing                                       |
+| Cloud wallet         | Token Transfer, Jupiter Swap Execute, Jupiter Direct Swap, Umbra Transfer Plan | Used for transaction signing or wallet execution handoff           |
 | Birdeye credential   | Fetch Price                                               | Optional when `BIRDEYE_API_KEY` is available                       |
 | Jupiter credential   | Jupiter Price, Token, Portfolio, and Swap nodes           | Optional for keyless reads; recommended for production rate limits |
 | OpenAI credential    | AI Agent                                                  | Optional when `OPENAI_API_KEY` is available                        |
 | Anthropic credential | AI Agent                                                  | Optional when `ANTHROPIC_API_KEY` is available                     |
 | Gemini credential    | AI Agent                                                  | Optional when `GEMINI_API_KEY` or `GOOGLE_API_KEY` is available    |
-| Webhook credential   | HTTP Request                                              | Merged into outbound request headers                               |
+| Webhook credential   | HTTP Request, Custom API Request                          | Merged into outbound request headers                               |
+| RPCFast credential   | Solana RPC                                                | Stores the RPCFast HTTPS endpoint and optional API key              |
+| Helius credential    | Helius RPC, Helius Webhooks, Solana RPC                   | Can store API key and optional RPC/API URL                         |
+| QuickNode credential | Solana RPC                                                | Stores the QuickNode Solana endpoint and optional API key          |
+| Alchemy credential   | Solana RPC                                                | Stores Alchemy API key or Solana endpoint                           |
+| Triton credential    | Solana RPC                                                | Stores Triton Solana endpoint and optional API key                  |
+| Jito credential      | Jito bundle nodes                                         | Stores `x-jito-auth` / UUID for authenticated block engine access   |
+| Discord credential   | Discord Message                                           | Stores the incoming webhook URL                                     |
+| Telegram credential  | Telegram Message                                          | Stores the bot token                                                |
+| Dialect credential   | Dialect Alert                                             | Stores the Dialect API key and optional API URL                     |
 
 Operational rules:
 
@@ -403,11 +511,16 @@ Operational rules:
 
 | Pattern                | Graph                                                                                            |
 | ---------------------- | ------------------------------------------------------------------------------------------------ |
-| Scheduled market alert | `Cron Trigger -> Fetch Price -> If / Else -> HTTP Request`                                       |
-| AI price monitor       | `Cron Trigger -> Fetch Price -> AI Agent -> If / Else -> HTTP Request`                           |
-| Manual payout          | `Manual Trigger -> Token Transfer -> Filter -> HTTP Request`                                     |
-| AI-assisted swap guard | `Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Direct Swap -> HTTP Request` |
-| Delayed follow-up      | `Manual Trigger -> Wait -> HTTP Request`                                                         |
+| Scheduled market alert | `Cron Trigger -> Fetch Price -> If / Else -> Run Log`                                            |
+| AI price monitor       | `Cron Trigger -> Fetch Price -> AI Agent -> If / Else -> Display Output`                         |
+| Manual payout          | `Manual Trigger -> Token Transfer -> Filter -> Workflow Result`                                  |
+| AI-assisted swap guard | `Webhook Trigger -> Fetch Price -> AI Agent -> If / Else -> Jupiter Direct Swap -> Workflow Result` |
+| Private transfer plan  | `Manual Trigger -> Umbra Relayer Info -> Umbra Transfer Plan -> Workflow Result`                  |
+| RPC health check       | `Manual Trigger -> Solana RPC -> Display Output`                                                  |
+| Helius webhook source  | `Manual Trigger -> Helius Webhook Create -> Workflow Result`                                      |
+| Jito readiness check   | `Manual Trigger -> Jito Tip Floor -> Jito Tip Accounts -> Display Output`                         |
+| Custom provider call   | `Manual Trigger -> Custom API Request -> Display Output`                                          |
+| External notification  | `Manual Trigger -> Discord Message or Telegram Message or Dialect Alert -> Workflow Result`       |
 
 ## Cloud Versus Other Surfaces
 

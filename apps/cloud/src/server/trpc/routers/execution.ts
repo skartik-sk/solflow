@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import type { Prisma } from "@solflow/db";
 import { manualExecutionRateLimit } from "@/lib/rate-limit";
 import { router, protectedProcedure } from "../trpc";
 import { queueExecution, startExecutionWorker } from "../../execution-worker/queue";
@@ -15,7 +16,9 @@ export const executionRouter = router({
       })
     )
     .query(async ({ ctx, input }) => {
-      const where: any = { workflow: { userId: ctx.session.user.id } };
+      const where: Prisma.WorkflowExecutionWhereInput = {
+        workflow: { userId: ctx.session.user.id },
+      };
       if (input.workflowId) where.workflowId = input.workflowId;
 
       const executions = await ctx.prisma.workflowExecution.findMany({
@@ -80,7 +83,7 @@ export const executionRouter = router({
           status: "QUEUED",
           triggerType: "manual",
           triggerData: input.testData ?? undefined,
-          definitionSnapshot: workflow.definition as any,
+          definitionSnapshot: workflow.definition as Prisma.InputJsonValue,
         },
       });
 
@@ -119,8 +122,11 @@ export const executionRouter = router({
             replayOf: original.id,
             originalTriggerType: original.triggerType,
             originalTriggerData: original.triggerData,
-          } as any,
-          definitionSnapshot: original.definitionSnapshot as any,
+          } as Prisma.InputJsonValue,
+          definitionSnapshot:
+            original.definitionSnapshot === null
+              ? undefined
+              : (original.definitionSnapshot as Prisma.InputJsonValue),
         },
       });
 
@@ -168,8 +174,11 @@ export const executionRouter = router({
             walletAutomationApproved: true,
             originalTriggerType: original.triggerType,
             originalTriggerData: original.triggerData,
-          } as any,
-          definitionSnapshot: original.definitionSnapshot as any,
+          } as Prisma.InputJsonValue,
+          definitionSnapshot:
+            original.definitionSnapshot === null
+              ? undefined
+              : (original.definitionSnapshot as Prisma.InputJsonValue),
         },
       });
 

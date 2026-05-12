@@ -61,6 +61,21 @@ const ALL_NODE_TYPES = [
   "action:metaplex-search-assets",
   "action:metaplex-asset",
   "action:squads-proposal",
+  "action:umbra-indexer-health",
+  "action:umbra-relayer-info",
+  "action:umbra-transfer",
+  "action:solana-rpc",
+  "action:custom-api",
+  "action:helius-webhook-create",
+  "action:helius-webhook-list",
+  "action:helius-webhook-delete",
+  "action:jito-tip-accounts",
+  "action:jito-bundle-status",
+  "action:jito-send-bundle",
+  "action:jito-tip-floor",
+  "action:discord-message",
+  "action:telegram-message",
+  "action:dialect-alert",
   "transform:filter",
   "logic:if-else",
   "logic:wait",
@@ -78,8 +93,8 @@ describe("All nodes registered", () => {
     expect(def!.type).toBe(type);
   });
 
-  it("has exactly 43 nodes", () => {
-    expect(cloudNodeRegistry.getAll()).toHaveLength(43);
+  it("has exactly 58 nodes", () => {
+    expect(cloudNodeRegistry.getAll()).toHaveLength(58);
   });
 });
 
@@ -257,6 +272,82 @@ describe("Action nodes", () => {
     const prop = def.properties.find((p) => p.key === "walletId");
     expect(prop).toBeDefined();
     expect(prop!.type).toBe("wallet-select");
+  });
+
+  it("action:umbra-transfer creates a wallet execution plan", () => {
+    const def = cloudNodeRegistry.get("action:umbra-transfer")!;
+    const keys = def.properties.map((p) => p.key);
+    expect(keys).toEqual([
+      "network",
+      "transferMode",
+      "senderWalletId",
+      "recipientAddress",
+      "mint",
+      "amountBaseUnits",
+      "validateRelayer",
+      "indexerEndpoint",
+      "relayerEndpoint",
+      "rpcUrl",
+      "rpcSubscriptionsUrl",
+    ]);
+    expect(def.properties.find((p) => p.key === "senderWalletId")!.type).toBe(
+      "wallet-select",
+    );
+  });
+
+  it("action:solana-rpc supports private RPC providers and custom endpoints", () => {
+    const def = cloudNodeRegistry.get("action:solana-rpc")!;
+    const providerValues = def.properties
+      .find((p) => p.key === "provider")!
+      .options!.map((option) => option.value);
+    expect(providerValues).toEqual(
+      expect.arrayContaining([
+        "rpcfast",
+        "helius",
+        "quicknode",
+        "alchemy",
+        "triton",
+        "custom",
+        "public-mainnet",
+        "public-devnet",
+      ]),
+    );
+    expect(def.properties.find((p) => p.key === "credentialId")!.credentialTypes).toEqual([
+      "rpcfast",
+      "helius",
+      "quicknode",
+      "alchemy",
+      "triton",
+      "webhook",
+    ]);
+  });
+
+  it("has provider-specific realtime and notification nodes", () => {
+    for (const type of [
+      "action:helius-webhook-create",
+      "action:jito-tip-accounts",
+      "action:discord-message",
+      "action:telegram-message",
+      "action:dialect-alert",
+    ]) {
+      const def = cloudNodeRegistry.get(type)!;
+      expect(def.category).toBe("action");
+      expect(def.execute).toBeDefined();
+    }
+  });
+
+  it("action:custom-api is an action node for user-defined HTTPS calls", () => {
+    const def = cloudNodeRegistry.get("action:custom-api")!;
+    expect(def.category).toBe("action");
+    expect(def.properties.map((p) => p.key)).toEqual([
+      "url",
+      "method",
+      "headers",
+      "credentialId",
+      "body",
+      "outputField",
+      "timeoutMs",
+    ]);
   });
 
   it("action:ai-agent has provider and model properties", () => {
@@ -678,6 +769,35 @@ describe("Execute functions", () => {
     await expect(def.execute!(makeCtx({ provider: "openai" }))).rejects.toThrow(
       "Prompt is required",
     );
+  });
+
+  it("action:ai-agent redacts obvious secrets before provider calls", async () => {
+    process.env.OPENAI_API_KEY = "test-openai";
+    const def = cloudNodeRegistry.get("action:ai-agent")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ output_text: "ok" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await def.execute!(
+      makeCtx({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        systemPrompt: "Authorization: Bearer secret-token",
+        prompt: "apiKey: my-secret-value",
+        redactSensitiveInput: true,
+      }),
+    );
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.input).toContain("[redacted]");
+    expect(body.input).not.toContain("my-secret-value");
+    expect(body.instructions).toContain("[redacted]");
+    expect(body.instructions).not.toContain("secret-token");
   });
 
   it("logic:wait has execute function defined", () => {
@@ -1326,6 +1446,400 @@ describe("Execute functions", () => {
     expect((result[0].json as any).squadsProposal).toEqual({
       proposalId: "proposal-1",
     });
+  });
+
+  it("action:umbra-indexer-health checks the selected indexer", async () => {
+    const def = cloudNodeRegistry.get("action:umbra-indexer-health")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({ network: "mainnet" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://utxo-indexer.api.umbraprivacy.com/health",
+      expect.objectContaining({
+        headers: { Accept: "application/json" },
+      }),
+    );
+    expect((result[0].json as any).umbraIndexer).toMatchObject({
+      provider: "umbra",
+      operation: "indexer-health",
+      network: "mainnet",
+      response: { status: "ok" },
+    });
+  });
+
+  it("action:umbra-relayer-info reads supported relayer mints", async () => {
+    const def = cloudNodeRegistry.get("action:umbra-relayer-info")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            address: "Relayer111111111111111111111111111111111111",
+            supported_mints: ["So11111111111111111111111111111111111111112"],
+            active_stealth_pool_indices: ["0"],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({ network: "mainnet" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://relayer.api.umbraprivacy.com/v1/relayer/info",
+      expect.any(Object),
+    );
+    expect((result[0].json as any).umbraRelayer.response).toMatchObject({
+      supported_mints: ["So11111111111111111111111111111111111111112"],
+    });
+  });
+
+  it("action:umbra-transfer prepares a plan and validates relayer support", async () => {
+    const def = cloudNodeRegistry.get("action:umbra-transfer")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            address: "Relayer111111111111111111111111111111111111",
+            supported_mints: ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+            active_stealth_pool_indices: [],
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(
+      makeCtx({
+        network: "mainnet",
+        transferMode: "public-to-receiver-utxo",
+        senderWalletId: "wallet-1",
+        recipientAddress: "Recipient1111111111111111111111111111111111",
+        mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+        amountBaseUnits: "1000000",
+        validateRelayer: true,
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://relayer.api.umbraprivacy.com/v1/relayer/info",
+      expect.any(Object),
+    );
+    expect((result[0].json as any).umbraTransfer).toMatchObject({
+      provider: "umbra",
+      operation: "transfer-plan",
+      network: "mainnet",
+      programId: "UMBRAD2ishebJTcgCLkTkNUx1v3GyoAgpTRPeWoLykh",
+      transferMode: "public-to-receiver-utxo",
+      senderWalletId: "wallet-1",
+      senderPublicKey: "pk",
+      recipientAddress: "Recipient1111111111111111111111111111111111",
+      amountBaseUnits: "1000000",
+      requiresWalletSignature: true,
+      requiresZkProver: true,
+      requiresIndexer: true,
+    });
+  });
+
+  it("action:solana-rpc calls standard JSON-RPC through a selected RPCFast credential", async () => {
+    const def = cloudNodeRegistry.get("action:solana-rpc")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: "ok", id: "test-exec" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-rpcfast",
+      label: "RPCFast",
+      type: "rpcfast",
+      data: {
+        apiKey: "rpcfast-key",
+        rpcUrl: "https://rpcfast.example.com/solana/{apiKey}",
+      },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        provider: "rpcfast",
+        credentialId: "cred-rpcfast",
+        method: "getHealth",
+        params: [],
+      }),
+      credentials: { get: getCredential },
+    });
+
+    expect(getCredential).toHaveBeenCalledWith("cred-rpcfast", [
+      "rpcfast",
+      "helius",
+      "quicknode",
+      "alchemy",
+      "triton",
+      "webhook",
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://rpcfast.example.com/solana/rpcfast-key",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "test-exec",
+          method: "getHealth",
+          params: [],
+        }),
+      }),
+    );
+    expect((result[0].json as any).solanaRpc).toMatchObject({
+      provider: "rpcfast",
+      method: "getHealth",
+      result: "ok",
+    });
+  });
+
+  it("action:solana-rpc redacts path and query secrets from result endpoints", async () => {
+    const def = cloudNodeRegistry.get("action:solana-rpc")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: "ok", id: "test-exec" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(
+      makeCtx({
+        provider: "custom",
+        rpcUrl: "https://solana-mainnet.g.alchemy.com/v2/alchemy-key-secret-1234567890?api-key=query-secret",
+        method: "getHealth",
+        params: [],
+      }),
+    );
+
+    const endpoint = (result[0].json as any).solanaRpc.endpoint as string;
+    expect(endpoint).not.toContain("alchemy-key-secret");
+    expect(endpoint).not.toContain("query-secret");
+  });
+
+  it("action:custom-api calls HTTPS APIs and stores the response under a custom field", async () => {
+    const def = cloudNodeRegistry.get("action:custom-api")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ signal: "ready" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-webhook",
+      label: "Webhook",
+      type: "webhook",
+      data: { apiKey: "custom-api-key", apiKeyHeader: "X-Test-Key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        url: "https://api.example.com/signal",
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: { token: "SOL" },
+        outputField: "providerResponse",
+        credentialId: "cred-webhook",
+      }),
+      inputs: [[{ json: { token: "SOL" } }]],
+      credentials: { get: getCredential },
+    });
+
+    expect(getCredential).toHaveBeenCalledWith("cred-webhook", ["webhook"]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.example.com/signal",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ "X-Test-Key": "custom-api-key" }),
+        body: JSON.stringify({ token: "SOL" }),
+      }),
+    );
+    expect((result[0].json as any).providerResponse.body).toEqual({ signal: "ready" });
+    expect((result[0].json as any).providerResponse.headers["X-Test-Key"]).toBe("[redacted]");
+  });
+
+  it("action:custom-api redacts URL secrets from response output", async () => {
+    const def = cloudNodeRegistry.get("action:custom-api")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ signal: "ready" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(
+      makeCtx({
+        url: "https://api.example.com/v1/token-secret-1234567890/status?api_key=query-secret",
+        method: "GET",
+        outputField: "providerResponse",
+      }),
+    );
+
+    const outputUrl = (result[0].json as any).providerResponse.url as string;
+    expect(outputUrl).not.toContain("token-secret");
+    expect(outputUrl).not.toContain("query-secret");
+  });
+
+  it("action:helius-webhook-create calls the Helius webhook API with credential auth", async () => {
+    const def = cloudNodeRegistry.get("action:helius-webhook-create")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ webhookID: "wh_123" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-helius",
+      label: "Helius",
+      type: "helius",
+      data: { apiKey: "helius-key" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({
+        webhookUrl: "https://example.com/hook?token=target-secret",
+        webhookType: "enhanced",
+        accountAddresses: ["Wallet111111111111111111111111111111111111"],
+        transactionTypes: ["SWAP"],
+        credentialId: "cred-helius",
+      }),
+      credentials: { get: getCredential },
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api-mainnet.helius-rpc.com/v0/webhooks?api-key=helius-key",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining("https://example.com/hook"),
+      }),
+    );
+    expect((result[0].json as any).heliusWebhook.response).toEqual({ webhookID: "wh_123" });
+    expect((result[0].json as any).heliusWebhook.endpoint).not.toContain("helius-key");
+    expect((result[0].json as any).heliusWebhook.webhookUrl).not.toContain("target-secret");
+  });
+
+  it("action:jito-tip-accounts calls the selected Jito block engine", async () => {
+    const def = cloudNodeRegistry.get("action:jito-tip-accounts")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ jsonrpc: "2.0", result: ["tip1"], id: "test-exec" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!(makeCtx({ region: "singapore" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://singapore.mainnet.block-engine.jito.wtf/api/v1/getTipAccounts",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "test-exec",
+          method: "getTipAccounts",
+          params: [],
+        }),
+      }),
+    );
+    expect((result[0].json as any).jito.result).toEqual(["tip1"]);
+  });
+
+  it("action:jito-tip-accounts preserves provider error bodies", async () => {
+    const def = cloudNodeRegistry.get("action:jito-tip-accounts")!;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { message: "rate limited" } }), {
+            status: 429,
+            statusText: "Too Many Requests",
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+
+    await expect(def.execute!(makeCtx({ region: "mainnet" }))).rejects.toThrow("rate limited");
+  });
+
+  it("action:dialect-alert rejects empty channel lists", async () => {
+    const def = cloudNodeRegistry.get("action:dialect-alert")!;
+    const getCredential = vi.fn(async () => ({
+      id: "cred-dialect",
+      label: "Dialect",
+      type: "dialect",
+      data: { apiKey: "dialect-key" },
+    }));
+
+    await expect(
+      def.execute!({
+        ...makeCtx({
+          credentialId: "cred-dialect",
+          appId: "255d6163-7e25-43e9-a188-c2f8d0980a4a",
+          recipientType: "all-subscribers",
+          channels: [],
+          title: "Price alert",
+          body: "SOL moved",
+        }),
+        credentials: { get: getCredential },
+      }),
+    ).rejects.toThrow("at least one channel");
+  });
+
+  it("action:discord-message disables mentions and redacts webhook secrets from output", async () => {
+    const def = cloudNodeRegistry.get("action:discord-message")!;
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "msg_1" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const getCredential = vi.fn(async () => ({
+      id: "cred-discord",
+      label: "Discord",
+      type: "discord",
+      data: { webhookUrl: "https://discord.com/api/webhooks/123/token" },
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await def.execute!({
+      ...makeCtx({ credentialId: "cred-discord", content: "hello @everyone" }),
+      credentials: { get: getCredential },
+    });
+
+    const [, init] = fetchMock.mock.calls[0];
+    expect(JSON.parse((init as RequestInit).body as string)).toMatchObject({
+      content: "hello @everyone",
+      allowed_mentions: { parse: [] },
+    });
+    expect((result[0].json as any).notification.provider).toBe("discord");
   });
 
   it("action:token-transfer builds and sends a SOL transfer", async () => {

@@ -37,14 +37,13 @@ const workflow: WorkflowDefinition = {
       },
     },
     {
-      id: "webhook",
-      type: "output:webhook",
+      id: "result",
+      type: "output:result",
       position: { x: 720, y: 0 },
       data: {
-        url: "https://example.com/solstudio/manual-smoke",
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: {
+        name: "Manual smoke result",
+        status: "success",
+        value: {
           source: "manual-smoke",
           price: "{{ $json.price }}",
           pair: "{{ $json.priceData.pairAddress }}",
@@ -55,7 +54,7 @@ const workflow: WorkflowDefinition = {
   edges: [
     { id: "e1", source: "manual", target: "price" },
     { id: "e2", source: "price", target: "branch" },
-    { id: "e3", source: "branch", target: "webhook", sourceHandle: "true" },
+    { id: "e3", source: "branch", target: "result", sourceHandle: "true" },
   ],
   settings: {
     timeout: 30,
@@ -80,16 +79,6 @@ globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise
       { pairAddress: "low-liquidity", priceUsd: "125", liquidity: { usd: 5 } },
       { pairAddress: "sol-usdc-smoke", priceUsd: "250", liquidity: { usd: 1_000_000 } },
     ]);
-  }
-
-  if (url === "https://example.com/solstudio/manual-smoke") {
-    const body = typeof init?.body === "string" ? safeJson(init.body) : init?.body ?? null;
-    return jsonResponse({
-      ok: true,
-      url,
-      method: init?.method ?? "GET",
-      receivedBody: body,
-    });
   }
 
   return new Response(`Unexpected smoke fetch URL: ${url}`, { status: 500 });
@@ -125,12 +114,4 @@ function jsonResponse(value: unknown): Response {
     status: 200,
     headers: { "content-type": "application/json" },
   });
-}
-
-function safeJson(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return value;
-  }
 }

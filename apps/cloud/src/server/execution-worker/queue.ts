@@ -2,7 +2,7 @@
 // SERVER ONLY — never import from client components.
 
 import { Queue, Worker, type Job } from "bullmq";
-import { prisma } from "@solflow/db";
+import { prisma, type Prisma } from "@solflow/db";
 import { WorkflowExecutor } from "@solflow/cloud-engine";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
 import type {
@@ -62,13 +62,15 @@ function getMasterKey(): string {
 
 function normalizeWorkflowSettings(raw: unknown): WorkflowSettings {
   const settings =
-    raw && typeof raw === "object" ? (raw as Record<string, any>) : {};
+    raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const retryPolicy =
     settings.retryPolicy && typeof settings.retryPolicy === "object"
       ? (settings.retryPolicy as Record<string, unknown>)
       : {};
-  const onError = ["stop", "continue", "branch"].includes(settings.onError)
-    ? (settings.onError as WorkflowSettings["onError"])
+  const requestedOnError =
+    typeof settings.onError === "string" ? settings.onError : "";
+  const onError = ["stop", "continue", "branch"].includes(requestedOnError)
+    ? (requestedOnError as WorkflowSettings["onError"])
     : "stop";
 
   return {
@@ -168,11 +170,17 @@ async function writeNodeExecution(
     nodeId: nodeResult.nodeId,
     nodeType: nodeResult.nodeType,
     status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
-    inputSnapshot: nodeResult.inputSnapshot as any,
-    outputSnapshot: nodeResult.outputSnapshot as any,
+    inputSnapshot:
+      nodeResult.inputSnapshot === undefined
+        ? undefined
+        : (nodeResult.inputSnapshot as Prisma.InputJsonValue),
+    outputSnapshot:
+      nodeResult.outputSnapshot === undefined
+        ? undefined
+        : (nodeResult.outputSnapshot as Prisma.InputJsonValue),
     duration: nodeResult.duration,
     error: nodeResult.error,
-    logs: nodeResult.logs as any,
+    logs: nodeResult.logs as Prisma.InputJsonValue,
     startedAt: nodeResult.startedAt
       ? new Date(nodeResult.startedAt)
       : undefined,
@@ -490,7 +498,7 @@ export function startExecutionWorker(): void {
             retryPolicy: settings.retryPolicy,
             onError: settings.onError,
             safety: redactSafetyForTimeline(settings.safety),
-          } as any,
+          } as Prisma.InputJsonValue,
         },
       });
 

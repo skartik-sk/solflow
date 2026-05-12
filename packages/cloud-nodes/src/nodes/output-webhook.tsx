@@ -5,7 +5,7 @@ import { Send } from "lucide-react";
 import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl } from "../security/outbound-url";
+import { assertSafeOutboundUrl, redactUrlSecrets } from "../security/outbound-url";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 60_000;
@@ -27,7 +27,7 @@ function redactHeaders(
 ): Record<string, string> {
   const redacted: Record<string, string> = {};
   for (const [key, value] of Object.entries(headers)) {
-    if (/authorization|api[-_]?key|token|secret|cookie/i.test(key)) {
+    if (/authorization|api[-_]?key|[-_]?key$|token|secret|cookie/i.test(key)) {
       redacted[key] = "[redacted]";
     } else {
       redacted[key] = value;
@@ -253,7 +253,7 @@ export const webhookOutputDef: CloudNodeDefinition = {
       status: response.status,
       statusText: response.statusText,
       ok: response.ok,
-      url: response.url || url,
+      url: redactUrlSecrets(response.url || url),
       method,
       headers: redactHeaders(headers),
       body: responseBody,
