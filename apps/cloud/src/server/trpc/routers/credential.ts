@@ -4,7 +4,7 @@ import { encryptString } from "@solflow/cloud-wallet";
 import { router, protectedProcedure } from "../trpc";
 import { cloudCredentialPublicSelect } from "../public-selects";
 
-const credentialTypeSchema = z.enum([
+export const credentialTypeSchema = z.enum([
   "openai",
   "anthropic",
   "gemini",
@@ -24,7 +24,7 @@ const credentialTypeSchema = z.enum([
   "webhook",
 ]);
 
-const secretDataSchema = z.record(z.string(), z.unknown()).refine(
+export const secretDataSchema = z.record(z.string(), z.unknown()).refine(
   (data) => Object.keys(data).length > 0,
   "Credential data is required",
 );
@@ -37,7 +37,7 @@ function getMasterKey(): string {
   return masterKey;
 }
 
-function validateCredentialData(type: z.infer<typeof credentialTypeSchema>, data: Record<string, unknown>) {
+export function validateCredentialData(type: z.infer<typeof credentialTypeSchema>, data: Record<string, unknown>) {
   if (type === "webhook") {
     const hasBearer = typeof data.bearerToken === "string" && data.bearerToken.length > 0;
     const hasApiKey = typeof data.apiKey === "string" && data.apiKey.length > 0;
@@ -120,7 +120,7 @@ function validateCredentialData(type: z.infer<typeof credentialTypeSchema>, data
   }
 }
 
-function encryptedPayload(data: Record<string, unknown>) {
+export function encryptedCredentialPayload(data: Record<string, unknown>) {
   const encrypted = encryptString(JSON.stringify(data), getMasterKey());
   return {
     encryptedData: encrypted.encrypted,
@@ -157,7 +157,7 @@ export const credentialRouter = router({
           user: { connect: { id: ctx.session.user.id } },
           label: input.label,
           type: input.type,
-          ...encryptedPayload(input.data),
+          ...encryptedCredentialPayload(input.data),
         },
         select: cloudCredentialPublicSelect,
       });
@@ -180,7 +180,7 @@ export const credentialRouter = router({
       if (input.label) data.label = input.label;
       if (input.data) {
         validateCredentialData(existing.type as z.infer<typeof credentialTypeSchema>, input.data);
-        Object.assign(data, encryptedPayload(input.data));
+        Object.assign(data, encryptedCredentialPayload(input.data));
       }
 
       return ctx.prisma.cloudCredential.update({

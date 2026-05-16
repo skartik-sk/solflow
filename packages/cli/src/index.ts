@@ -11,6 +11,7 @@ import { testCommand } from "./commands/test";
 import { doctorCommand } from "./commands/doctor";
 import { ciCommand } from "./commands/ci";
 import { patchCommand } from "./commands/patch";
+import { cloudCommand } from "./commands/cloud";
 
 const program = new Command();
 
@@ -28,5 +29,6 @@ program.addCommand(testCommand);
 program.addCommand(doctorCommand);
 program.addCommand(ciCommand);
 program.addCommand(patchCommand);
+program.addCommand(cloudCommand);
 
 program.parse();

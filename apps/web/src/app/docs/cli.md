@@ -2,6 +2,8 @@
 
 The SolStudio CLI is the local-project surface. Use it when the source of truth is on your machine: an Anchor, Pinocchio, Quasar, or unknown Solana project, a single Rust file, or an IDL JSON file.
 
+It also includes `solstudio cloud` for the Cloud workflow platform. Use that namespace when the source of truth is hosted or self-hosted SolStudio Cloud: workflows, executions, credentials, node registry, and Cloud-only self-host setup.
+
 ### Install
 
 ```bash
@@ -35,6 +37,15 @@ bun run solstudio parse . --format summary
 bun run solstudio view .
 ```
 
+For Cloud control:
+
+```bash
+solstudio cloud login --endpoint https://cloud.solstudio.fun --token sst_your_token
+solstudio cloud whoami
+solstudio cloud workflow list
+solstudio cloud nodes list
+```
+
 Use this sequence when you only have an IDL file:
 
 ```bash
@@ -50,6 +61,7 @@ The CLI stores local metadata in `.solstudio`.
 | ------------------------- | ---------------------------- | -------------------------------------------------------- |
 | `.solstudio/config.json`  | `init` or `view`             | Project name, detected framework, mode, and default port |
 | `.solstudio/project.json` | Local server parse/save flow | Last visual graph for the local project                  |
+| `~/.solstudio/cloud.json` | `cloud login`                | Hosted/self-hosted Cloud endpoint profiles and tokens    |
 
 The config shape is:
 
@@ -198,6 +210,48 @@ Use `idl` when:
 | IDL file only                         | `solstudio idl ./target/idl/name.json`                |
 | Need graph JSON for another tool      | `solstudio parse . --format json --output flow.json`  |
 | Need canonical IR                     | `solstudio parse . --format ir --output flow-ir.json` |
+| Need to control Cloud workflows       | `solstudio cloud workflow ...`                        |
+| Need to self-host the Cloud app       | `solstudio cloud self-host deploy`                    |
+
+## `cloud`
+
+Control hosted or self-hosted SolStudio Cloud from the terminal.
+
+```bash
+solstudio cloud login --endpoint https://cloud.solstudio.fun --token sst_your_token
+solstudio cloud whoami
+solstudio cloud status
+solstudio cloud workflow list
+solstudio cloud workflow create --name "SOL price alert" --definition workflow.json
+solstudio cloud workflow run <workflow-id> --data payload.json
+solstudio cloud execution list --workflow <workflow-id>
+solstudio cloud credential create --label helius --type helius --set apiKey=...
+solstudio cloud wallet list
+solstudio cloud wallet create --label ops --network devnet
+solstudio cloud nodes list
+solstudio cloud profile set selfhost --endpoint https://203.0.113.10 --active
+```
+
+Profiles let one machine control hosted and self-hosted instances:
+
+```bash
+solstudio cloud login --profile hosted --endpoint https://cloud.solstudio.fun --token sst_hosted
+solstudio cloud login --profile local --endpoint http://localhost:3001 --token sst_local
+solstudio cloud profile use local
+```
+
+Self-host Cloud without the main IDE:
+
+```bash
+solstudio cloud self-host deploy ./solstudio-cloud --domain cloud.example.com
+solstudio cloud self-host check ./solstudio-cloud
+solstudio cloud self-host status ./solstudio-cloud
+solstudio cloud self-host logs ./solstudio-cloud --tail 100
+```
+
+The default self-host image is `ghcr.io/skartik-sk/solstudio-cloud:latest`. Pass `--image` if you mirror the image to another registry.
+
+Create API tokens from the Cloud app session with `POST /api/cli/token`, then store the returned token once with `cloud login`. New tokens are stored server-side as SHA-256 hashes.
 
 ## Common Fixes
 

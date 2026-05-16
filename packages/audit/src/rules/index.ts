@@ -115,6 +115,96 @@ function looksLikeAuthorityAccount(acc: Account): boolean {
   );
 }
 
+function looksLikeTokenHoldingAccount(acc: Account): boolean {
+  return (
+    acc.accountType === "token-account" ||
+    acc.accountType === "associated-token"
+  );
+}
+
+function inferRoleForTokenAccount(
+  acc: Account,
+  accountNames: Set<string>,
+): string | undefined {
+  const tokenName = acc.name.toLowerCase();
+  const suffixes = [
+    "_token_account",
+    "_associated_token_account",
+    "_associated_token",
+    "_token",
+    "_ata",
+    "_ta",
+  ];
+
+  for (const accountName of accountNames) {
+    if (accountName === acc.name) continue;
+    const roleName = accountName.toLowerCase();
+    if (
+      suffixes.some((suffix) => tokenName === `${roleName}${suffix}`) ||
+      (tokenName.startsWith(`${roleName}_`) && tokenName.includes("token"))
+    ) {
+      return accountName;
+    }
+  }
+
+  return undefined;
+}
+
+function hasTokenRoleAnchor(acc: Account, roleName: string): boolean {
+  return acc.constraints.some((c) => {
+    if (
+      (c.type === "token-authority" ||
+        c.type === "associated-token-authority") &&
+      c.authority === roleName
+    ) {
+      return true;
+    }
+    if (c.type !== "custom") return false;
+    const expression = c.expression.toLowerCase();
+    return (
+      expression.includes(acc.name.toLowerCase()) &&
+      expression.includes(roleName.toLowerCase()) &&
+      (expression.includes("owner") || expression.includes("authority"))
+    );
+  });
+}
+
+function expectedWellKnownAccountType(
+  acc: Account,
+): Account["accountType"] | "sysvar-instructions" | undefined {
+  const name = acc.name.toLowerCase();
+  if (name === "system_program" || name === "system") {
+    return "system-program";
+  }
+  if (name === "token_program" || name === "spl_token_program") {
+    return "token-program";
+  }
+  if (
+    name === "associated_token_program" ||
+    name === "associated_token_program_id"
+  ) {
+    return "associated-token-program";
+  }
+  if (name === "rent" || name === "rent_sysvar") {
+    return "rent";
+  }
+  if (name === "clock" || name === "clock_sysvar") {
+    return "clock";
+  }
+  if (
+    name === "instructions_sysvar" ||
+    name === "instruction_sysvar" ||
+    name === "sysvar_instructions"
+  ) {
+    return "sysvar-instructions";
+  }
+  return undefined;
+}
+
+function hasWellKnownAccountValidation(acc: Account): boolean {
+  return hasConstraint(acc, "address") || hasConstraint(acc, "custom");
+}
+
 function hasAccountReferenceSeed(
   acc: Account,
   accountNames: Set<string>,
@@ -754,6 +844,60 @@ export const RULES: AuditRule[] = [
     },
   },
 
+  {
+    id: "SOL-032",
+    name: "Token Account Role Not Anchored",
+    description:
+      "Role-named token account is not anchored to that role's pubkey",
+    severity: "critical",
+    category: "token-security",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        const accountNames = new Set(ix.accounts.map((acc) => acc.name));
+        const destinationTokenAccounts = new Map<string, LogicOperation>();
+
+        for (const op of flattenOps(ix.body)) {
+          if (op.type === "transfer-token") {
+            destinationTokenAccounts.set(op.to, op);
+          } else if (op.type === "mint-to") {
+            destinationTokenAccounts.set(op.to, op);
+          }
+        }
+
+        for (const [tokenAccountName, op] of destinationTokenAccounts) {
+          const tokenAcc = ix.accounts.find(
+            (acc) => acc.name === tokenAccountName,
+          );
+          if (!tokenAcc || !looksLikeTokenHoldingAccount(tokenAcc)) continue;
+
+          const roleName = inferRoleForTokenAccount(tokenAcc, accountNames);
+          if (!roleName || hasTokenRoleAnchor(tokenAcc, roleName)) continue;
+
+          const roleAcc = ix.accounts.find((acc) => acc.name === roleName);
+          const roleSigns = !!roleAcc && hasSigner(roleAcc);
+          const cpiAuthority =
+            op.type === "transfer-token" || op.type === "mint-to"
+              ? op.authority
+              : undefined;
+          const authorityIsRole = cpiAuthority === roleName;
+
+          findings.push({
+            ruleId: "SOL-032",
+            severity: roleSigns || authorityIsRole ? "high" : "critical",
+            title: `Token account "${tokenAcc.name}" is not anchored to "${roleName}"`,
+            description: `Instruction "${ix.name}" sends tokens to role-named account "${tokenAcc.name}" but does not verify its internal token owner/authority is "${roleName}".`,
+            location: nodeLocation(ix, tokenAcc),
+            recommendation:
+              "Add a token-authority or associated-token-authority constraint tying the token account to the named role, or add an equivalent custom owner check.",
+            cweId: "CWE-862",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
   // ── CPI SECURITY ───────────────────────────────────────────────────────────
 
   {
@@ -831,6 +975,38 @@ export const RULES: AuditRule[] = [
             recommendation:
               "Use a typed Program account where possible, or add an address constraint pinned to the expected program ID.",
             cweId: "CWE-346",
+          });
+        }
+      }
+      return findings;
+    },
+  },
+
+  {
+    id: "SOL-043",
+    name: "Well-Known Account Type Confusion",
+    description:
+      "Well-known sysvar or program account is modeled as unchecked/raw AccountInfo",
+    severity: "critical",
+    category: "account-validation",
+    check: (ir: ProgramIR): AuditFinding[] => {
+      const findings: AuditFinding[] = [];
+      for (const ix of ir.instructions) {
+        for (const acc of ix.accounts) {
+          const expectedType = expectedWellKnownAccountType(acc);
+          if (!expectedType) continue;
+          if (acc.accountType === expectedType) continue;
+          if (hasWellKnownAccountValidation(acc)) continue;
+
+          findings.push({
+            ruleId: "SOL-043",
+            severity: "critical",
+            title: `Unchecked well-known account "${acc.name}"`,
+            description: `Account "${acc.name}" in "${ix.name}" looks like a well-known ${expectedType} account but is typed as "${acc.accountType}" without an address/custom validation constraint.`,
+            location: nodeLocation(ix, acc),
+            recommendation:
+              "Use the typed account wrapper for this sysvar/program account, or pin it with an address/custom constraint.",
+            cweId: "CWE-345",
           });
         }
       }

@@ -608,6 +608,165 @@ describe("SOL-030: Missing Mint Check", () => {
   });
 });
 
+// ─── Tests: SOL-032 Token Account Role Anchoring ────────────────────────────
+
+describe("SOL-032: Token Account Role Anchoring", () => {
+  it("detects role-named token accounts without an internal owner anchor", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "payout",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "authority",
+              accountType: "signer",
+              constraints: [{ type: "signer" }],
+            },
+            {
+              id: uuid(),
+              name: "recipient",
+              accountType: "system-account",
+              constraints: [],
+            },
+            {
+              id: uuid(),
+              name: "recipient_token_account",
+              accountType: "token-account",
+              constraints: [
+                { type: "mut" },
+                { type: "token-mint", mint: "mint" },
+              ],
+            },
+          ],
+          body: [
+            {
+              type: "transfer-token",
+              from: "vault_token_account",
+              to: "recipient_token_account",
+              authority: "authority",
+              amount: "amount",
+            },
+          ],
+        },
+      ],
+    });
+
+    const finding = runInstantAudit(ir).findings.find(
+      (f) => f.ruleId === "SOL-032",
+    );
+    expect(finding?.severity).toBe("critical");
+    expect(finding?.location.accountName).toBe("recipient_token_account");
+  });
+
+  it("does NOT flag token accounts anchored to the matching role", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "claim",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "claimant",
+              accountType: "signer",
+              constraints: [{ type: "signer" }],
+            },
+            {
+              id: uuid(),
+              name: "claimant_token_account",
+              accountType: "token-account",
+              constraints: [
+                { type: "mut" },
+                { type: "token-mint", mint: "mint" },
+                { type: "token-authority", authority: "claimant" },
+              ],
+            },
+          ],
+          body: [
+            {
+              type: "transfer-token",
+              from: "vault_token_account",
+              to: "claimant_token_account",
+              authority: "claimant",
+              amount: "amount",
+            },
+          ],
+        },
+      ],
+    });
+
+    const findings = runInstantAudit(ir).findings.filter(
+      (f) => f.ruleId === "SOL-032",
+    );
+    expect(findings).toHaveLength(0);
+  });
+});
+
+// ─── Tests: SOL-043 Well-Known Account Type Confusion ───────────────────────
+
+describe("SOL-043: Well-Known Account Type Confusion", () => {
+  it("detects sysvars modeled as unchecked accounts", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "verify_ed25519",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "instructions_sysvar",
+              accountType: "unchecked-account",
+              constraints: [],
+            },
+          ],
+          body: [],
+        },
+      ],
+    });
+
+    const finding = runInstantAudit(ir).findings.find(
+      (f) => f.ruleId === "SOL-043",
+    );
+    expect(finding?.severity).toBe("critical");
+    expect(finding?.location.accountName).toBe("instructions_sysvar");
+  });
+
+  it("does NOT flag typed well-known accounts", () => {
+    const ir = baseIR({
+      instructions: [
+        {
+          id: uuid(),
+          name: "read_clock",
+          accessControl: "none",
+          args: [],
+          accounts: [
+            {
+              id: uuid(),
+              name: "clock",
+              accountType: "clock",
+              constraints: [],
+            },
+          ],
+          body: [],
+        },
+      ],
+    });
+
+    const findings = runInstantAudit(ir).findings.filter(
+      (f) => f.ruleId === "SOL-043",
+    );
+    expect(findings).toHaveLength(0);
+  });
+});
+
 // ─── Tests: SW011-SW020 Extended Rules ──────────────────────────────────────
 
 describe("Extended Solana Warden rules", () => {
@@ -1047,7 +1206,7 @@ describe("Score calculation", () => {
   });
 });
 
-describe("SW001-SW020 security standard mapping", () => {
+describe("SW001-SW022 security standard mapping", () => {
   it("covers every product-facing Solana security rule", () => {
     expect(SOLANA_SECURITY_STANDARD_RULES.map((rule) => rule.id)).toEqual([
       "SW001",
@@ -1070,6 +1229,8 @@ describe("SW001-SW020 security standard mapping", () => {
       "SW018",
       "SW019",
       "SW020",
+      "SW021",
+      "SW022",
     ]);
 
     for (const rule of SOLANA_SECURITY_STANDARD_RULES) {
@@ -1111,5 +1272,7 @@ describe("SW001-SW020 security standard mapping", () => {
     expect(getStandardIdsForAuditRule("SOL-040")).toEqual(["SW003"]);
     expect(getStandardIdsForAuditRule("SOL-042")).toEqual(["SW020"]);
     expect(getStandardIdsForAuditRule("SOL-073")).toEqual(["SW019"]);
+    expect(getStandardIdsForAuditRule("SOL-032")).toEqual(["SW021"]);
+    expect(getStandardIdsForAuditRule("SOL-043")).toEqual(["SW022"]);
   });
 });

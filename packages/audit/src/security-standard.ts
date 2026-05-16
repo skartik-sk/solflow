@@ -105,6 +105,16 @@ export const SOLANA_SECURITY_STANDARD_RULES: SolanaSecurityStandardRule[] = [
     title: "AccountInfo as CPI target program",
     auditRuleIds: ["SOL-042"],
   },
+  {
+    id: "SW021",
+    title: "Token account role not anchored to token owner",
+    auditRuleIds: ["SOL-032"],
+  },
+  {
+    id: "SW022",
+    title: "Well-known account typed as unchecked",
+    auditRuleIds: ["SOL-043"],
+  },
 ];
 
 export const AUDIT_RULE_TO_STANDARD_IDS = new Map<string, string[]>(
