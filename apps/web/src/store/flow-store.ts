@@ -28,6 +28,7 @@ interface FlowState {
   selectedNodeId: string | null;
   selectedEdgeId: string | null;
   selectedNodeIds: string[];
+  nodeClipboard: NodeClipboard | null;
 
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
@@ -40,6 +41,8 @@ interface FlowState {
     data: Partial<Record<string, unknown>>,
   ) => void;
   duplicateNodes: (nodeIds: string[]) => void;
+  copySelectedNodes: () => boolean;
+  pasteCopiedNodes: () => boolean;
 
   removeEdge: (edgeId: string) => void;
 
@@ -54,6 +57,12 @@ interface FlowState {
 
   regenerateCode: () => void;
   _debouncedRegenerate: () => void;
+}
+
+interface NodeClipboard {
+  nodes: Node[];
+  edges: Edge[];
+  pasteCount: number;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -75,6 +84,45 @@ function validateConnection(connection: Connection, nodes: Node[]): boolean {
     normalizeEditorNodeType(source.type),
     normalizeEditorNodeType(target.type),
   );
+}
+
+function cloneNodeData(data: Node["data"]): Node["data"] {
+  try {
+    return structuredClone(data);
+  } catch {
+    return JSON.parse(JSON.stringify(data)) as Node["data"];
+  }
+}
+
+function cloneEdgeData(data: Edge["data"]): Edge["data"] {
+  if (data === undefined) return undefined;
+  try {
+    return structuredClone(data);
+  } catch {
+    return JSON.parse(JSON.stringify(data)) as Edge["data"];
+  }
+}
+
+function cloneNodeSnapshot(node: Node): Node {
+  return {
+    ...node,
+    position: { ...node.position },
+    data: cloneNodeData(node.data),
+    selected: false,
+    dragging: false,
+  };
+}
+
+function cloneEdgeSnapshot(edge: Edge): Edge {
+  return {
+    ...edge,
+    data: cloneEdgeData(edge.data),
+    selected: false,
+  };
+}
+
+function createId() {
+  return crypto.randomUUID();
 }
 
 /**
@@ -121,6 +169,7 @@ export const useFlowStore = create<FlowState>()(
         selectedNodeId: null,
         selectedEdgeId: null,
         selectedNodeIds: [],
+        nodeClipboard: null,
 
         // ─── React Flow handlers ──────────────────────────────
         onNodesChange: (changes) => {
@@ -226,6 +275,94 @@ export const useFlowStore = create<FlowState>()(
           set({ nodes: [...get().nodes, ...newNodes], edges: [...get().edges, ...newEdges] });
           get()._debouncedRegenerate();
           useProjectStore.getState().markDirty();
+        },
+
+        copySelectedNodes: () => {
+          const state = get();
+          const selectedIds =
+            state.selectedNodeIds.length > 0
+              ? state.selectedNodeIds
+              : state.nodes.filter((node) => node.selected).map((node) => node.id);
+
+          if (selectedIds.length === 0) return false;
+
+          const selectedIdSet = new Set(selectedIds);
+          const copiedNodes = state.nodes
+            .filter((node) => selectedIdSet.has(node.id))
+            .map(cloneNodeSnapshot);
+
+          if (copiedNodes.length === 0) return false;
+
+          const copiedEdges = state.edges
+            .filter(
+              (edge) =>
+                selectedIdSet.has(edge.source) && selectedIdSet.has(edge.target),
+            )
+            .map(cloneEdgeSnapshot);
+
+          set({
+            nodeClipboard: {
+              nodes: copiedNodes,
+              edges: copiedEdges,
+              pasteCount: 0,
+            },
+          });
+
+          return true;
+        },
+
+        pasteCopiedNodes: () => {
+          const state = get();
+          const clipboard = state.nodeClipboard;
+          if (!clipboard || clipboard.nodes.length === 0) return false;
+
+          const pasteCount = clipboard.pasteCount + 1;
+          const offset = pasteCount * 50;
+          const idMap = new Map<string, string>();
+
+          const pastedNodes = clipboard.nodes.map((node) => {
+            const newId = createId();
+            idMap.set(node.id, newId);
+            return {
+              ...cloneNodeSnapshot(node),
+              id: newId,
+              position: {
+                x: node.position.x + offset,
+                y: node.position.y + offset,
+              },
+              selected: true,
+            };
+          });
+
+          const pastedEdges = clipboard.edges.map((edge) => ({
+            ...cloneEdgeSnapshot(edge),
+            id: createId(),
+            source: idMap.get(edge.source)!,
+            target: idMap.get(edge.target)!,
+          }));
+
+          const pastedNodeIds = pastedNodes.map((node) => node.id);
+
+          set({
+            nodes: [
+              ...state.nodes.map((node) => ({ ...node, selected: false })),
+              ...pastedNodes,
+            ],
+            edges: [
+              ...state.edges.map((edge) => ({ ...edge, selected: false })),
+              ...pastedEdges,
+            ],
+            selectedNodeId: pastedNodeIds.at(-1) ?? null,
+            selectedNodeIds: pastedNodeIds,
+            selectedEdgeId: null,
+            nodeClipboard: {
+              ...clipboard,
+              pasteCount,
+            },
+          });
+          get()._debouncedRegenerate();
+          useProjectStore.getState().markDirty();
+          return true;
         },
 
         // ─── Edge mutations ───────────────────────────────────

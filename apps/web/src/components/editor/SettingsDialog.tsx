@@ -293,6 +293,8 @@ function ShortcutsTab() {
         <ShortcutRow keys="Ctrl+Z" label="Undo" />
         <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
         <ShortcutRow keys="Ctrl+F" label="Find node" />
+        <ShortcutRow keys="Ctrl+C" label="Copy selected nodes" />
+        <ShortcutRow keys="Ctrl+V" label="Paste copied nodes" />
         <ShortcutRow keys="Del / Bksp" label="Delete selected" />
         <ShortcutRow keys="Drag canvas" label="Box select" />
         <ShortcutRow keys="Shift+Click" label="Multi-select" />

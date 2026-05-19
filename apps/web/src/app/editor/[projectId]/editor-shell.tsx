@@ -45,6 +45,17 @@ interface EditorShellProps {
   flowData: { nodes: Node[]; edges: Edge[] } | null;
 }
 
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName.toLowerCase();
+  return (
+    target.isContentEditable ||
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select"
+  );
+}
+
 export function EditorShell({
   projectId,
   projectName,
@@ -188,7 +199,21 @@ export function EditorShell({
     const mod = e.ctrlKey || e.metaKey;
     if (!mod) return;
 
-    switch (e.key) {
+    const key = e.key.toLowerCase();
+
+    switch (key) {
+      case "c": {
+        if (isEditableShortcutTarget(e.target)) return;
+        const copied = useFlowStore.getState().copySelectedNodes();
+        if (copied) e.preventDefault();
+        break;
+      }
+      case "v": {
+        if (isEditableShortcutTarget(e.target)) return;
+        const pasted = useFlowStore.getState().pasteCopiedNodes();
+        if (pasted) e.preventDefault();
+        break;
+      }
       case "s":
         e.preventDefault();
         useProjectStore

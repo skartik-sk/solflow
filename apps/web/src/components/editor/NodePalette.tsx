@@ -311,6 +311,7 @@ export function NodePalette() {
         </p>
         <div className="space-y-0.5">
           <HintRow keys="Ctrl+F" label="Find node" />
+          <HintRow keys="Ctrl+C/V" label="Copy/paste" />
           <HintRow keys="Ctrl+S" label="Save" />
           <HintRow keys="Del" label="Delete" />
         </div>
