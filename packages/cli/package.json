@@ -1,11 +1,11 @@
 {
   "name": "@solstudio/cli",
-  "version": "0.1.2",
+  "version": "0.1.5",
   "private": false,
   "publishConfig": {
     "access": "public"
   },
-  "description": "SolStudio CLI for parsing, visualizing, testing, and auditing local Solana projects.",
+  "description": "SolStudio CLI for local Solana development plus hosted and self-hosted Cloud workflow automation.",
   "keywords": [
     "solana",
     "anchor",
@@ -15,6 +15,9 @@
     "cli",
     "visualizer",
     "audit",
+    "cloud",
+    "workflow-automation",
+    "self-host",
     "smart-contracts",
     "web3"
   ],

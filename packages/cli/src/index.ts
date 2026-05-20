@@ -17,8 +17,8 @@ const program = new Command();
 
 program
   .name("solstudio")
-  .description("Visualize any Solana codebase locally")
-  .version("0.1.2");
+  .description("Visualize Solana projects locally and control SolStudio Cloud")
+  .version("0.1.5");
 
 program.addCommand(parseCommand);
 program.addCommand(idlCommand);

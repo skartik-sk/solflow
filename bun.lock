@@ -257,7 +257,7 @@
     },
     "packages/cli": {
       "name": "@solstudio/cli",
-      "version": "0.1.2",
+      "version": "0.1.5",
       "bin": {
         "solstudio": "./dist/index.js",
       },
