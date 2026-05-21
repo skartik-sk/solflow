@@ -1,7 +1,15 @@
 import type { NextConfig } from "next";
-import { FLOATING_BROWSER_EMBED_ORIGINS } from "./src/lib/floating-browser-policy";
 
-const frameSrc = ["'self'", ...FLOATING_BROWSER_EMBED_ORIGINS].join(" ");
+const floatingBrowserEmbedOrigins = [
+  "https://explorer.solana.com",
+  "https://www.anchor-lang.com",
+  "https://anchor-lang.com",
+  "https://docs.solanalabs.com",
+  "https://docs.anza.xyz",
+  "https://faucet.solana.com",
+];
+
+const frameSrc = ["'self'", ...floatingBrowserEmbedOrigins].join(" ");
 
 const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
