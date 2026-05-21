@@ -13,6 +13,7 @@ import {
   Globe,
 } from "lucide-react";
 import { useFloatingBrowserStore } from "@/store/floating-browser-store";
+import { resolveFloatingBrowserTarget } from "@/lib/floating-browser-policy";
 
 // ─── Quick links ────────────────────────────────────────────────────────────
 
@@ -31,10 +32,12 @@ export function FloatingBrowser() {
     useFloatingBrowserStore();
   const [currentUrl, setCurrentUrl] = useState("");
   const [inputUrl, setInputUrl] = useState("");
+  const [openUrl, setOpenUrl] = useState("");
   const [iframeKey, setIframeKey] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [isFrameLoading, setIsFrameLoading] = useState(false);
 
   // Position & size — default to 75% of viewport
   const [pos, setPos] = useState({ x: 0, y: 40 });
@@ -45,18 +48,32 @@ export function FloatingBrowser() {
   // Center on first open
   useEffect(() => {
     if (isOpen && url) {
+      const target = resolveFloatingBrowserTarget(url, window.location.origin);
       const w = Math.round(window.innerWidth * 0.75);
       const h = Math.round(window.innerHeight * 0.75);
       setSize({ w, h });
       const cx = Math.max(20, (window.innerWidth - w) / 2);
       const cy = Math.max(20, (window.innerHeight - h) / 2);
       setPos({ x: cx, y: cy });
-      setCurrentUrl(url);
-      setInputUrl(url);
-      setBlocked(false);
-      setIframeKey((k) => k + 1);
+      if (target) {
+        setCurrentUrl(target.frameSrc);
+        setInputUrl(target.displayUrl);
+        setOpenUrl(target.openUrl);
+        setBlocked(!target.canEmbed);
+        setIsFrameLoading(target.canEmbed);
+        setIframeKey((k) => k + 1);
+      }
     }
   }, [isOpen, url]);
+
+  useEffect(() => {
+    if (!isOpen || !currentUrl || blocked || !isFrameLoading) return;
+    const timer = window.setTimeout(() => {
+      setBlocked(true);
+      setIsFrameLoading(false);
+    }, 12_000);
+    return () => window.clearTimeout(timer);
+  }, [blocked, currentUrl, iframeKey, isFrameLoading, isOpen]);
 
   // ─── Drag ──────────────────────────────────────────────────────────────
   const onDragDown = useCallback(
@@ -130,15 +147,13 @@ export function FloatingBrowser() {
 
   // ─── Navigate ─────────────────────────────────────────────────────────
   const navigate = (target: string) => {
-    let href = target.trim();
-    if (!href) return;
-    // Prepend https:// if no protocol
-    if (!/^https?:\/\//i.test(href) && !href.startsWith("/")) {
-      href = "https://" + href;
-    }
-    setCurrentUrl(href);
-    setInputUrl(href);
-    setBlocked(false);
+    const resolved = resolveFloatingBrowserTarget(target, window.location.origin);
+    if (!resolved) return;
+    setCurrentUrl(resolved.frameSrc);
+    setInputUrl(resolved.displayUrl);
+    setOpenUrl(resolved.openUrl);
+    setBlocked(!resolved.canEmbed);
+    setIsFrameLoading(resolved.canEmbed);
     setIframeKey((k) => k + 1);
   };
 
@@ -148,12 +163,11 @@ export function FloatingBrowser() {
   };
 
   const refresh = () => {
-    setBlocked(false);
-    setIframeKey((k) => k + 1);
+    navigate(inputUrl || currentUrl);
   };
 
   const openExternal = () => {
-    window.open(currentUrl, "_blank", "noopener,noreferrer");
+    window.open(openUrl || currentUrl, "_blank", "noopener,noreferrer");
   };
 
   if (!isOpen) return null;
@@ -257,7 +271,7 @@ export function FloatingBrowser() {
       </div>
 
       {/* ── iframe / content ───────────────────────────────────────── */}
-      <div className="relative flex-1 bg-white overflow-hidden">
+      <div className="relative flex-1 overflow-hidden bg-background">
         {!currentUrl ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
             <Globe size={32} className="text-muted-foreground/30" />
@@ -267,26 +281,40 @@ export function FloatingBrowser() {
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
             <Globe size={32} className="text-muted-foreground/30" />
             <p className="text-sm text-muted-foreground">
-              This site doesn&apos;t allow embedding
+              This page can&apos;t be shown inside SolStudio
             </p>
             <button
               onClick={openExternal}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
               <ExternalLink size={12} />
               Open in new tab
             </button>
           </div>
         ) : (
-          <iframe
-            key={iframeKey}
-            src={currentUrl}
-            className="h-full w-full border-0"
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-            referrerPolicy="no-referrer"
-            onError={() => setBlocked(true)}
-            title="Floating browser"
-          />
+          <>
+            <iframe
+              key={iframeKey}
+              src={currentUrl}
+              className="h-full w-full border-0 bg-background"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+              referrerPolicy="no-referrer"
+              onError={() => {
+                setBlocked(true);
+                setIsFrameLoading(false);
+              }}
+              onLoad={() => setIsFrameLoading(false)}
+              title="Floating browser"
+            />
+            {isFrameLoading ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <RefreshCw size={13} className="animate-spin" />
+                  Loading
+                </div>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
 

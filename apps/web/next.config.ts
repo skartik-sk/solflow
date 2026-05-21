@@ -1,8 +1,11 @@
 import type { NextConfig } from "next";
+import { FLOATING_BROWSER_EMBED_ORIGINS } from "./src/lib/floating-browser-policy";
+
+const frameSrc = ["'self'", ...FLOATING_BROWSER_EMBED_ORIGINS].join(" ");
 
 const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
-  { key: "X-Frame-Options", value: "DENY" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
@@ -16,7 +19,7 @@ const securityHeaders = [
       "default-src 'self'",
       "base-uri 'self'",
       "object-src 'none'",
-      "frame-ancestors 'none'",
+      "frame-ancestors 'self'",
       "form-action 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:",
       "style-src 'self' 'unsafe-inline'",
@@ -24,7 +27,7 @@ const securityHeaders = [
       "font-src 'self' data:",
       "connect-src 'self' https: wss: ws:",
       "worker-src 'self' blob:",
-      "frame-src 'self'",
+      `frame-src ${frameSrc}`,
       "manifest-src 'self'",
     ].join("; "),
   },
