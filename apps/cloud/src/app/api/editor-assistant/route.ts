@@ -1,5 +1,6 @@
 import { auth } from "@solflow/auth";
 import {
+  DEFAULT_DEEPSEEK_BASE_URL,
   DEFAULT_DEEPSEEK_EDITOR_MODEL,
   createDeepSeekEditorAssistantReply,
   type CreateEditorAssistantReplyInput,
