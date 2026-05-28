@@ -35,6 +35,29 @@ export {
   TooltipProvider,
   TooltipTrigger,
 } from "./components/tooltip";
+export {
+  EditorAiAssistant,
+} from "./components/editor-ai-assistant";
+export type {
+  EditorAiAssistantProps,
+} from "./components/editor-ai-assistant";
+export {
+  DEFAULT_DEEPSEEK_BASE_URL,
+  DEFAULT_DEEPSEEK_EDITOR_MODEL,
+  EDITOR_AI_PROMPT_OPTIONS,
+  createDeepSeekEditorAssistantReply,
+  createEditorAssistantReply,
+} from "./lib/editor-ai-assistant";
+export type {
+  CreateEditorAssistantReplyInput,
+  DeepSeekEditorAssistantOptions,
+  DeepSeekEditorAssistantReply,
+  EditorAiAssistantPromptInput,
+  EditorAiPromptOption,
+  EditorAiPromptOptionId,
+  EditorAssistantContext,
+  EditorAssistantSurface,
+} from "./lib/editor-ai-assistant";
 
 // Utils
 export { cn } from "./lib/utils";

@@ -26,6 +26,11 @@ import { AccountStateInspector } from "@/components/editor/AccountStateInspector
 import { TransactionBuilderPanel } from "@/components/editor/TransactionBuilderPanel";
 import { ErrorBoundary } from "@/components/editor/ErrorBoundary";
 import type { Node, Edge } from "@xyflow/react";
+import {
+  EditorAiAssistant,
+  type EditorAiAssistantPromptInput,
+  type EditorAssistantContext,
+} from "@solflow/ui";
 import { toast } from "sonner";
 import type { AuditExportFormat, AuditFinding, AuditReport } from "@solflow/audit";
 
@@ -56,6 +61,39 @@ function isEditableShortcutTarget(target: EventTarget | null): boolean {
   );
 }
 
+function getEditorNodeLabel(node: Node | undefined): string | null {
+  if (!node) return null;
+  const data = node.data as Record<string, unknown> | undefined;
+  const label = data?.label ?? data?.name ?? data?.title;
+  if (typeof label === "string" && label.trim()) return label;
+  if (typeof node.type === "string" && node.type.trim()) return node.type;
+  return node.id;
+}
+
+async function askEditorAssistant(input: EditorAiAssistantPromptInput) {
+  const response = await fetch("/api/editor-assistant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    reply?: unknown;
+    error?: unknown;
+  };
+
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.error === "string" ? payload.error : "Assistant request failed",
+    );
+  }
+
+  if (typeof payload.reply === "string" && payload.reply.trim()) {
+    return payload.reply;
+  }
+
+  throw new Error("Assistant returned an empty response");
+}
+
 export function EditorShell({
   projectId,
   projectName,
@@ -75,6 +113,10 @@ export function EditorShell({
     setBottomPanelTab,
     openBottomPanelTab,
   } = useUIStore();
+  const nodes = useFlowStore((s) => s.nodes);
+  const edges = useFlowStore((s) => s.edges);
+  const selectedNodeId = useFlowStore((s) => s.selectedNodeId);
+  const isDirty = useProjectStore((s) => s.isDirty);
 
   // ─── Audit state ──────────────────────────────────────────────────
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
@@ -134,6 +176,18 @@ export function EditorShell({
   useEffect(() => {
     return () => dragCleanupRef.current?.();
   }, []);
+
+  const assistantContext = React.useMemo<EditorAssistantContext>(() => {
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+    return {
+      surface: "web",
+      projectName,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      selectedNodeLabel: getEditorNodeLabel(selectedNode),
+      dirty: isDirty,
+    };
+  }, [edges.length, isDirty, nodes, projectName, selectedNodeId]);
 
   // ─── Boot stores with server-fetched data ──────────────────────────
   useEffect(() => {
@@ -470,6 +524,8 @@ export function EditorShell({
           <span className="text-muted-foreground/40 text-xs">Ctrl+B</span>
         </div>
       )}
+
+      <EditorAiAssistant context={assistantContext} onPrompt={askEditorAssistant} />
     </div>
   );
 }

@@ -6,6 +6,11 @@ import React, { useEffect } from "react";
 import type { Edge, Node } from "@xyflow/react";
 import { useParams } from "next/navigation";
 import { AlertCircle, Loader2 } from "lucide-react";
+import {
+  EditorAiAssistant,
+  type EditorAiAssistantPromptInput,
+  type EditorAssistantContext,
+} from "@solflow/ui";
 import { WorkflowCanvas } from "@/components/editor/WorkflowCanvas";
 import { CloudNodePalette } from "@/components/editor/CloudNodePalette";
 import { CloudPropertiesPanel } from "@/components/editor/CloudPropertiesPanel";
@@ -86,6 +91,40 @@ function hydrateEdges(savedEdges: SavedWorkflowDefinition["edges"] = []): Edge[]
   }));
 }
 
+function getCloudNodeLabel(node: Node | undefined): string | null {
+  if (!node) return null;
+  const data = node.data as Record<string, unknown> | undefined;
+  const nestedData = data?.data as Record<string, unknown> | undefined;
+  const label = data?.label ?? nestedData?.name ?? nestedData?.label;
+  if (typeof label === "string" && label.trim()) return label;
+  if (typeof node.type === "string" && node.type.trim()) return node.type;
+  return node.id;
+}
+
+async function askEditorAssistant(input: EditorAiAssistantPromptInput) {
+  const response = await fetch("/api/editor-assistant", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    reply?: unknown;
+    error?: unknown;
+  };
+
+  if (!response.ok) {
+    throw new Error(
+      typeof payload.error === "string" ? payload.error : "Assistant request failed",
+    );
+  }
+
+  if (typeof payload.reply === "string" && payload.reply.trim()) {
+    return payload.reply;
+  }
+
+  throw new Error("Assistant returned an empty response");
+}
+
 export default function EditorPage() {
   const params = useParams();
   const workflowId = params.workflowId as string;
@@ -96,6 +135,23 @@ export default function EditorPage() {
 
   // Load workflow data when page mounts
   const setWorkflow = useWorkflowStore((s) => s.setWorkflow);
+  const nodes = useWorkflowStore((s) => s.nodes);
+  const edges = useWorkflowStore((s) => s.edges);
+  const selectedNodeId = useWorkflowStore((s) => s.selectedNodeId);
+  const workflowName = useWorkflowStore((s) => s.workflowName);
+  const isDirty = useWorkflowStore((s) => s.isDirty);
+
+  const assistantContext = React.useMemo<EditorAssistantContext>(() => {
+    const selectedNode = nodes.find((node) => node.id === selectedNodeId);
+    return {
+      surface: "cloud",
+      projectName: workflowName || workflow?.name,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+      selectedNodeLabel: getCloudNodeLabel(selectedNode),
+      dirty: isDirty,
+    };
+  }, [edges.length, isDirty, nodes, selectedNodeId, workflow?.name, workflowName]);
 
   useEffect(() => {
     if (!workflow) return;
@@ -144,6 +200,7 @@ export default function EditorPage() {
         <div className="relative flex-1">
           <WorkflowCanvas />
           <ExecutionPanel />
+          <EditorAiAssistant context={assistantContext} onPrompt={askEditorAssistant} />
         </div>
         {propertiesOpen && <CloudPropertiesPanel />}
       </div>
