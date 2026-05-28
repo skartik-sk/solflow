@@ -108,17 +108,17 @@ async function askEditorAssistant(input: EditorAiAssistantPromptInput) {
     body: JSON.stringify(input),
   });
   const payload = (await response.json().catch(() => ({}))) as {
-    reply?: unknown;
-    error?: unknown;
+    reply?: string;
+    source?: string;
+    error?: string;
+    warning?: string;
   };
 
-  if (!response.ok) {
-    throw new Error(
-      typeof payload.error === "string" ? payload.error : "Assistant request failed",
-    );
+  if (!response.ok || payload.error) {
+    throw new Error(payload.error ?? "Assistant request failed");
   }
 
-  if (typeof payload.reply === "string" && payload.reply.trim()) {
+  if (payload.reply && payload.reply.trim()) {
     return payload.reply;
   }
 

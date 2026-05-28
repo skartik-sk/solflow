@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Bot, Loader2, Send, Sparkles, X } from "lucide-react";
+import Markdown from "react-markdown";
 import { cn } from "../lib/utils";
 import {
   EDITOR_AI_PROMPT_OPTIONS,
@@ -28,7 +29,9 @@ function createMessageId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function initialAssistantMessage(context: EditorAssistantContext): EditorAiMessage {
+function initialAssistantMessage(
+  context: EditorAssistantContext,
+): EditorAiMessage {
   const noun = context.surface === "cloud" ? "workflow" : "project";
   return {
     id: "initial",
@@ -58,7 +61,10 @@ export function EditorAiAssistant({
     });
   }, [messages, pending]);
 
-  async function submitPrompt(promptText: string, optionId?: EditorAiPromptOptionId) {
+  async function submitPrompt(
+    promptText: string,
+    optionId?: EditorAiPromptOptionId,
+  ) {
     const prompt = promptText.trim();
     if (!prompt || pending) return;
 
@@ -83,7 +89,10 @@ export function EditorAiAssistant({
         {
           id: createMessageId(),
           role: "assistant",
-          text: error instanceof Error ? error.message : "Assistant request failed.",
+          text:
+            error instanceof Error
+              ? error.message
+              : "Assistant request failed.",
         },
       ]);
     } finally {
@@ -92,18 +101,28 @@ export function EditorAiAssistant({
   }
 
   return (
-    <div className={cn("pointer-events-none fixed bottom-4 left-4 z-50", className)}>
+    <div className={cn("fixed bottom-4 right-4 z-50", className)}>
       {open ? (
-        <section className="pointer-events-auto flex max-h-[min(560px,calc(100vh-2rem))] w-[min(360px,calc(100vw-2rem))] flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl shadow-black/35">
+        <section
+          className="flex flex-col overflow-hidden rounded-lg border border-border bg-card shadow-2xl shadow-black/35"
+          style={{
+            width: "380px",
+            maxWidth: "100vw",
+            maxHeight: "min(560px, calc(100vh - 2rem))",
+          }}
+        >
           <header className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
             <div className="flex min-w-0 items-center gap-2">
               <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
                 <Bot className="h-4 w-4" />
               </span>
               <div className="min-w-0">
-                <h2 className="truncate text-sm font-semibold text-foreground">AI Assistant</h2>
+                <h2 className="truncate text-sm font-semibold text-foreground">
+                  AI Assistant
+                </h2>
                 <p className="truncate text-[11px] text-muted-foreground">
-                  {context.projectName || (context.surface === "cloud" ? "Workflow" : "Project")}
+                  {context.projectName ||
+                    (context.surface === "cloud" ? "Workflow" : "Project")}
                 </p>
               </div>
             </div>
@@ -133,24 +152,35 @@ export function EditorAiAssistant({
             </div>
           </div>
 
-          <div ref={scrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+          <div
+            ref={scrollRef}
+            className="min-h-0 flex-1 space-y-2 overflow-y-auto overflow-x-hidden p-3"
+          >
             {messages.map((message) => (
               <div
                 key={message.id}
                 className={cn(
-                  "max-w-[92%] rounded-lg px-3 py-2 text-xs leading-relaxed",
+                  "rounded-lg px-3 py-2 text-xs leading-relaxed",
                   message.role === "user"
-                    ? "ml-auto bg-primary text-primary-foreground"
-                    : "bg-background text-foreground",
+                    ? "ml-auto max-w-[85%] bg-primary text-primary-foreground whitespace-pre-wrap break-words"
+                    : "w-full min-w-0 max-w-full overflow-hidden break-words bg-background text-foreground",
                 )}
               >
-                {message.text}
+                {message.role === "user" ? (
+                  <div className="whitespace-pre-wrap break-words">
+                    {message.text}
+                  </div>
+                ) : (
+                  <div className="prose-xs prose-invert min-w-0 max-w-full break-words [&_img]:max-w-full [&_img]:h-auto [&_img]:object-contain [&_p]:mb-1 [&_p]:mt-0 [&_pre]:max-w-full [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-2 [&_pre]:text-[11px] [&_pre]:overflow-x-auto [&_code]:text-[11px] [&_code]:break-all [&_ul]:mb-1 [&_ul]:mt-0 [&_ol]:mb-1 [&_ol]:mt-0 [&_li]:mb-0 [&_h1]:text-sm [&_h2]:text-sm [&_h3]:text-xs [&_h4]:text-xs [&_strong]:text-foreground">
+                    <Markdown>{message.text}</Markdown>
+                  </div>
+                )}
               </div>
             ))}
             {pending && (
-              <div className="flex max-w-[92%] items-center gap-2 rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
+              <div className="flex max-w-[85%] items-center gap-2 rounded-lg bg-background px-3 py-2 text-xs text-muted-foreground">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Thinking
+                Thinking...
               </div>
             )}
           </div>
@@ -192,14 +222,11 @@ export function EditorAiAssistant({
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="pointer-events-auto flex h-11 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground shadow-xl shadow-black/30 transition-colors hover:border-primary/50 hover:bg-accent"
+          className="flex h-12 w-12 items-center justify-center rounded-full border border-border bg-primary text-primary-foreground shadow-xl shadow-black/30 transition-all hover:scale-110 hover:bg-primary/90"
           aria-label="Open AI assistant"
           title="Open AI assistant"
         >
-          <span className="flex h-6 w-6 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <Sparkles className="h-3.5 w-3.5" />
-          </span>
-          AI
+          <Sparkles className="h-5 w-5" />
         </button>
       )}
     </div>

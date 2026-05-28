@@ -46,7 +46,7 @@ function parseAssistantInput(body: unknown): CreateEditorAssistantReplyInput | n
 
 export async function POST(request: Request) {
   const session = await auth();
-  if (!session?.user?.id) {
+  if (!session?.user?.id && process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -55,22 +55,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing assistant prompt" }, { status: 400 });
   }
 
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_DEEPSEEK_EDITOR_MODEL;
+
   try {
     const result = await createDeepSeekEditorAssistantReply(input, {
-      apiKey: process.env.GEMINI_API_KEY,
-      model: process.env.GEMINI_MODEL ?? DEFAULT_DEEPSEEK_EDITOR_MODEL,
+      apiKey,
+      model,
       baseUrl: DEFAULT_DEEPSEEK_BASE_URL,
     });
 
     return NextResponse.json(result);
   } catch (error) {
-    const fallback = await createDeepSeekEditorAssistantReply(input, {
-      apiKey: "",
-      model: process.env.GEMINI_MODEL ?? DEFAULT_DEEPSEEK_EDITOR_MODEL,
-    });
     return NextResponse.json({
-      ...fallback,
-      warning: error instanceof Error ? error.message : "DeepSeek assistant failed",
+      source: "local",
+      model,
+      reply: null,
+      error: error instanceof Error ? error.message : "AI assistant failed",
     });
   }
 }

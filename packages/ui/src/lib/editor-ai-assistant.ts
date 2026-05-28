@@ -26,27 +26,27 @@ export const EDITOR_AI_PROMPT_OPTIONS: EditorAiPromptOption[] = [
   {
     id: "fix-bugs",
     label: "Fix bugs",
-    prompt: "Find likely bugs in this project and tell me what to fix first.",
+    prompt: "Find likely bugs in this project. List each bug, explain why it's a problem, and suggest a fix. If you'd change any node config, describe exactly what to change.",
   },
   {
     id: "connect-nodes",
-    label: "Connect correct nodes",
-    prompt: "Connect correct nodes and explain which links are missing.",
+    label: "Connect nodes",
+    prompt: "Analyze the current graph and tell me which nodes should be connected but aren't. For each missing connection, say which node output should go to which node input.",
   },
   {
     id: "explain-project",
-    label: "Explain my project",
-    prompt: "Explain what this project does from the current graph.",
+    label: "Explain project",
+    prompt: "Explain what this Solana project does step by step based on the current graph. Describe each node's role and how data flows through the connections.",
   },
   {
     id: "security-check",
     label: "Security check",
-    prompt: "Review this graph for security and safety risks.",
+    prompt: "Review this Solana project graph for security risks. Check for missing validation, unauthorized access, unchecked accounts, and other common Solana vulnerabilities. Suggest fixes for each issue.",
   },
   {
     id: "next-steps",
     label: "Next steps",
-    prompt: "Tell me the next steps to finish this project.",
+    prompt: "What should I do next to complete this project? Give me a prioritized checklist of specific actions I should take in the editor.",
   },
 ];
 
@@ -79,79 +79,71 @@ function plural(count: number, singular: string, pluralForm = `${singular}s`) {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-function normalizedPrompt(input: CreateEditorAssistantReplyInput) {
-  return `${input.optionId ?? ""} ${input.prompt}`.toLowerCase();
-}
-
 function describeContext(context: EditorAssistantContext) {
   const surfaceName = context.surface === "cloud" ? "workflow" : "project";
   const name = context.projectName?.trim() || `this ${surfaceName}`;
   const nodeCount = context.nodeCount ?? 0;
   const edgeCount = context.edgeCount ?? 0;
-  const base = `${name} ${surfaceName} currently has ${plural(nodeCount, "node")} and ${plural(edgeCount, "connection")}.`;
-  const selected = context.selectedNodeLabel?.trim()
-    ? ` I will start from selected node: ${context.selectedNodeLabel.trim()}.`
-    : "";
-  const dirty = context.dirty
-    ? " Save the latest canvas changes before running compile, tests, or execution."
-    : "";
-
-  return `${base}${selected}${dirty}`;
+  const parts = [`${name} ${surfaceName} has ${plural(nodeCount, "node")} and ${plural(edgeCount, "connection")}.`];
+  if (context.selectedNodeLabel?.trim()) {
+    parts.push(`Selected node: ${context.selectedNodeLabel.trim()}`);
+  }
+  if (context.dirty) {
+    parts.push("Canvas has unsaved changes");
+  }
+  return parts.join(". ");
 }
 
 export function createEditorAssistantReply(input: CreateEditorAssistantReplyInput) {
-  const intent = normalizedPrompt(input);
   const context = describeContext(input.context);
-  const surfaceName = input.context.surface === "cloud" ? "workflow" : "project";
-
-  if (intent.includes("connect") || intent.includes("node")) {
-    return `${context} To connect correct nodes, check every node with no incoming or outgoing edge, then draw from output handles into valid handles on the next step. Keep trigger or program nodes at the start, branch or validation nodes in the middle, and output or account/result nodes at the end.`;
-  }
-
-  if (intent.includes("bug") || intent.includes("fix")) {
-    return `${context} I would debug this ${surfaceName} in this order: inspect disconnected nodes, run the built-in validation/audit tools, generate or compile once, then fix the first concrete error before changing anything else.`;
-  }
-
-  if (intent.includes("explain")) {
-    return `${context} In plain terms, this ${surfaceName} is a graph of steps. The nodes define the main actions and data shapes, while the connections show the order data should move through the system.`;
-  }
-
-  if (intent.includes("security") || intent.includes("risk") || intent.includes("safety")) {
-    return `${context} I would review signer requirements, writable accounts, unchecked external calls, wallet actions, and missing validation branches first. Any risky operation should have a clear approval, simulation, or output check before it runs.`;
-  }
-
-  return `${context} I captured your request: "${input.prompt.trim()}". Start with the selected node if there is one, then make the smallest graph change that proves the idea works.`;
+  return `${context}\n\nI'm unable to connect to the AI service right now. Here's what I can suggest based on your graph:\n\n- Review disconnected nodes and ensure all outputs connect to valid inputs\n- Use the **Security check** option to validate your Solana program\n- Compile your project to catch any errors\n- Check that account roles (signer, writable) are set correctly on each node`;
 }
 
 function normalizeBaseUrl(baseUrl: string) {
   return baseUrl.replace(/\/+$/, "");
 }
 
-function createDeepSeekMessages(input: CreateEditorAssistantReplyInput) {
+const SYSTEM_PROMPT = `You are the SolStudio AI assistant — an expert in Solana blockchain development, Anchor framework, and visual node-based programming.
+
+Your role:
+- Help users build Solana programs using the visual graph editor
+- Each node in the graph represents a Solana instruction, account, type, or condition
+- Connections between nodes define the program's logic flow
+
+When responding:
+1. Use **markdown** formatting for readability (headers, bold, code blocks, lists)
+2. Be specific and actionable — tell the user exactly what to do
+3. If you suggest adding, removing, or configuring nodes, describe the exact steps
+4. For code suggestions, use proper Solana/Anchor/Rust syntax in code blocks
+5. When reviewing for bugs or security, list each issue with:
+   - **What** the problem is
+   - **Why** it matters
+   - **How** to fix it (specific action)
+6. Keep responses focused and practical — no filler text
+7. If the user asks about something outside the graph, briefly answer and redirect to what they can do in the editor`;
+
+function createAiMessages(input: CreateEditorAssistantReplyInput) {
   const surfaceName = input.context.surface === "cloud" ? "Cloud workflow" : "Solana program graph";
+  const contextParts = [
+    `${surfaceName}: ${input.context.projectName ?? "Untitled"}`,
+    `Nodes: ${input.context.nodeCount ?? 0}`,
+    `Connections: ${input.context.edgeCount ?? 0}`,
+  ];
+  if (input.context.selectedNodeLabel) {
+    contextParts.push(`Selected node: ${input.context.selectedNodeLabel}`);
+  }
+  if (input.context.dirty) {
+    contextParts.push("Canvas has unsaved changes.");
+  }
+  contextParts.push(`\nUser request: ${input.prompt}`);
+
   return [
-    {
-      role: "system",
-      content:
-        "You are the SolStudio editor assistant. Give concise, practical help for the current graph. Do not claim you changed files or canvas nodes unless the request explicitly includes an action result. Prefer small next steps.",
-    },
-    {
-      role: "user",
-      content: [
-        `${surfaceName}: ${input.context.projectName ?? "Untitled"}`,
-        `Nodes: ${input.context.nodeCount ?? 0}`,
-        `Connections: ${input.context.edgeCount ?? 0}`,
-        input.context.selectedNodeLabel
-          ? `Selected node: ${input.context.selectedNodeLabel}`
-          : "Selected node: none",
-        input.context.dirty ? "Canvas has unsaved changes." : "Canvas is saved or clean.",
-        `Request: ${input.prompt}`,
-      ].join("\n"),
-    },
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "user", content: contextParts.join("\n") },
   ];
 }
 
-function extractDeepSeekReply(payload: unknown) {
+function extractReply(payload: unknown) {
   if (!payload || typeof payload !== "object") return "";
   const choices = (payload as { choices?: unknown }).choices;
   if (!Array.isArray(choices)) return "";
@@ -195,22 +187,22 @@ export async function createDeepSeekEditorAssistantReply(
     signal: options.signal,
     body: JSON.stringify({
       model,
-      messages: createDeepSeekMessages(input),
-      temperature: 0.2,
-      max_tokens: 700,
+      messages: createAiMessages(input),
+      temperature: 0.3,
+      max_tokens: 2048,
     }),
   });
 
   if (!response.ok) {
     const body = await readErrorBody(response);
     throw new Error(
-      `DeepSeek assistant failed (${response.status} ${response.statusText})${body ? `: ${body}` : ""}`,
+      `AI assistant failed (${response.status} ${response.statusText})${body ? `: ${body}` : ""}`,
     );
   }
 
-  const reply = extractDeepSeekReply(await response.json());
+  const reply = extractReply(await response.json());
   if (!reply) {
-    throw new Error("DeepSeek assistant returned an empty response");
+    throw new Error("AI assistant returned an empty response");
   }
 
   return {

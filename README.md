@@ -194,6 +194,9 @@ Optional provider keys:
 | `OPENAI_API_KEY`                     | OpenAI-backed AI nodes.                      |
 | `ANTHROPIC_API_KEY`                  | Anthropic-backed AI nodes.                   |
 | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Gemini-backed AI nodes.                      |
+| `DEEPSEEK_API_KEY`                   | Editor AI assistant chat.                    |
+| `DEEPSEEK_MODEL`                     | Editor assistant model, defaults to `deepseek-v4`. |
+| `DEEPSEEK_BASE_URL`                  | Optional DeepSeek-compatible API base URL.   |
 
 Do not commit `.env`, provider API keys, wallet keys, cookies, or production secrets.
 

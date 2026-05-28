@@ -11,8 +11,8 @@ describe("editor AI assistant helpers", () => {
     expect(EDITOR_AI_PROMPT_OPTIONS.map((option) => option.label)).toEqual(
       expect.arrayContaining([
         "Fix bugs",
-        "Connect correct nodes",
-        "Explain my project",
+        "Connect nodes",
+        "Explain project",
       ]),
     );
     expect(new Set(EDITOR_AI_PROMPT_OPTIONS.map((option) => option.id)).size).toBe(
@@ -20,7 +20,7 @@ describe("editor AI assistant helpers", () => {
     );
   });
 
-  it("builds connection guidance with current web project context", () => {
+  it("builds fallback reply with project context", () => {
     const reply = createEditorAssistantReply({
       optionId: "connect-nodes",
       prompt: "connect correct nodes",
@@ -36,8 +36,7 @@ describe("editor AI assistant helpers", () => {
     expect(reply).toContain("Escrow Flow");
     expect(reply).toContain("4 nodes");
     expect(reply).toContain("1 connection");
-    expect(reply).toContain("selected node: deposit");
-    expect(reply).toContain("valid handles");
+    expect(reply).toContain("deposit");
   });
 
   it("uses workflow wording for cloud editor context", () => {
@@ -58,7 +57,7 @@ describe("editor AI assistant helpers", () => {
     expect(reply).toContain("4 connections");
   });
 
-  it("prepares DeepSeek v4 requests and falls back without an API key", async () => {
+  it("calls Gemini API and falls back locally without an API key", async () => {
     const input = {
       optionId: "fix-bugs" as const,
       prompt: "fix bugs",
@@ -84,7 +83,7 @@ describe("editor AI assistant helpers", () => {
         calls.push({ url: String(url), init: init ?? {} });
         return new Response(
           JSON.stringify({
-            choices: [{ message: { content: "DeepSeek answer" } }],
+            choices: [{ message: { content: "AI answer" } }],
           }),
           { status: 200 },
         );
@@ -94,15 +93,15 @@ describe("editor AI assistant helpers", () => {
     expect(response).toEqual({
       source: "deepseek",
       model: DEFAULT_DEEPSEEK_EDITOR_MODEL,
-      reply: "DeepSeek answer",
+      reply: "AI answer",
     });
     expect(calls[0]?.url).toBe("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
     expect(calls[0]?.init.headers).toMatchObject({
       Authorization: "Bearer test-key",
       "Content-Type": "application/json",
     });
-    expect(JSON.parse(String(calls[0]?.init.body))).toMatchObject({
-      model: DEFAULT_DEEPSEEK_EDITOR_MODEL,
-    });
+    const body = JSON.parse(String(calls[0]?.init.body));
+    expect(body.model).toBe(DEFAULT_DEEPSEEK_EDITOR_MODEL);
+    expect(body.messages[0].role).toBe("system");
   });
 });
