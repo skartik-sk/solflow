@@ -1,7 +1,0 @@
-[package]
-name = "quasar-events"
-version = "0.3.0"
-edition = "2021"
-
-[dependencies]
-quasar-lang = "0.1"

@@ -1,7 +1,0 @@
-[package]
-name = "pinocchio-dispatch"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-pinocchio = "0.8"
