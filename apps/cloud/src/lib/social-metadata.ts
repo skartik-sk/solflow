@@ -3,17 +3,16 @@ export const CLOUD_ORIGIN = normalizeOrigin(
 );
 export const CLOUD_URL = `${CLOUD_ORIGIN}/`;
 export const CLOUD_SITE_NAME = "SolStudio Cloud";
-export const CLOUD_TITLE = "SolStudio Cloud - Solana Workflow Automation";
+export const CLOUD_TITLE = "SolStudio Cloud - Maintenance Mode";
 export const CLOUD_DESCRIPTION =
-  "Automate your Solana operations with visual workflows. DeFi, tokens, monitoring - no code required.";
+  "SolStudio Cloud is currently under maintenance while we upgrade the platform.";
 export const CLOUD_SOCIAL_DESCRIPTION =
-  "Build powerful Solana workflows for DeFi. Just drag, connect, deploy.";
-export const CLOUD_OG_IMAGE_PATH = "/cloud-og.png";
+  "We are upgrading SolStudio Cloud. The site will be back online soon.";
+export const CLOUD_OG_IMAGE_PATH = "/maintenance-social.png";
 export const CLOUD_OG_IMAGE_URL = absoluteCloudUrl(CLOUD_OG_IMAGE_PATH);
-export const CLOUD_OG_IMAGE_ALT =
-  "SolStudio Cloud visual workflow automation for Solana operations";
-export const CLOUD_OG_IMAGE_WIDTH = 1200;
-export const CLOUD_OG_IMAGE_HEIGHT = 630;
+export const CLOUD_OG_IMAGE_ALT = "SolStudio Cloud maintenance announcement";
+export const CLOUD_OG_IMAGE_WIDTH = 1254;
+export const CLOUD_OG_IMAGE_HEIGHT = 1254;
 export const CLOUD_OG_IMAGE_TYPE = "image/png";
 
 export function absoluteCloudUrl(path: string): string {

@@ -11,20 +11,24 @@ import {
 } from "./social-metadata";
 
 describe("cloud social preview metadata", () => {
-  it("uses a Cloud-specific static PNG URL", () => {
+  it("uses a maintenance-specific static PNG URL", () => {
     const url = new URL(CLOUD_OG_IMAGE_URL);
 
-    expect(CLOUD_OG_IMAGE_PATH).toBe("/cloud-og.png");
+    expect(CLOUD_OG_IMAGE_PATH).toBe("/maintenance-social.png");
     expect(url.origin).toBe("https://cloud.solstudio.fun");
-    expect(url.pathname).toBe("/cloud-og.png");
+    expect(url.pathname).toBe("/maintenance-social.png");
     expect(CLOUD_OG_IMAGE_TYPE).toBe("image/png");
     expect(normalizeOrigin("https://cloud.solstudio.fun///")).toBe(
       "https://cloud.solstudio.fun",
     );
   });
 
-  it("ships an X-compatible Cloud large-card image", () => {
-    const imagePath = path.join(process.cwd(), "public", "cloud-og.png");
+  it("ships a maintenance social preview image", () => {
+    const imagePath = path.join(
+      process.cwd(),
+      "public",
+      "maintenance-social.png",
+    );
     const image = readFileSync(imagePath);
     const stats = statSync(imagePath);
 
