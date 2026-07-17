@@ -20,7 +20,8 @@
     "db:seed": "bun run --cwd packages/db db:seed",
     "db:cloud-seed": "bun run --cwd packages/db db:cloud-seed",
     "db:seed:all": "bun run db:seed && bun run db:cloud-seed",
-    "clean": "turbo clean && rm -rf node_modules"
+    "clean": "turbo clean && rm -rf node_modules",
+    "postinstall": "bun run --cwd packages/db db:generate"
   },
   "devDependencies": {
     "turbo": "^2.5.0",
