@@ -5,8 +5,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS='--max-old-space-size=4096' tsx server.ts",
     "dev:next": "next dev --port 3000",
-    "build": "bunx prisma generate && next build",
-    "start": "node dist-server/server.js",
+    "build": "bunx prisma generate --schema=../../packages/db/prisma/schema.prisma && next build","start": "node dist-server/server.js",
     "start:next": "next start",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
