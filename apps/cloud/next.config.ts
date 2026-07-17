@@ -47,6 +47,9 @@ const nextConfig: NextConfig = {
     "@solflow/auth",
     "@solflow/db",
   ],
+  // Keep Prisma out of the webpack bundle so its native query-engine binary
+  // stays in node_modules and is found at runtime on Vercel serverless.
+  serverExternalPackages: ["@prisma/client", ".prisma/client"],
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "avatars.githubusercontent.com" },
