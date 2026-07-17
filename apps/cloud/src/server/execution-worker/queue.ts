@@ -1,7 +1,7 @@
 // Execution Queue + Worker — picks up workflow execution jobs via BullMQ.
 // SERVER ONLY — never import from client components.
 
-import { Queue, Worker, type Job } from "bullmq";
+import { Queue, Worker, QueueEvents, type Job } from "bullmq";
 import { prisma, type Prisma } from "@solflow/db";
 import { WorkflowExecutor } from "@solflow/cloud-engine";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
@@ -19,6 +19,7 @@ import type {
   WorkflowSettings,
 } from "@solflow/cloud-engine";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
+import { shouldRunWorkersInThisProcess } from "../runtime-mode";
 
 // Ensure nodes are registered
 registerBuiltinNodes();
@@ -219,11 +220,47 @@ export function getExecutionQueue(): Queue<ExecutionJobData> {
   return _queue;
 }
 
+let _queueEvents: QueueEvents | null = null;
+
+function getQueueEvents(): QueueEvents {
+  if (!_queueEvents) {
+    _queueEvents = new QueueEvents("cloud-execution", {
+      connection: getRedisConnectionConfig(),
+    });
+    _queueEvents.on("error", createRedisErrorLogger("execution-queue-events"));
+  }
+  return _queueEvents;
+}
+
+/**
+ * Enqueue a workflow execution and return the job id.
+ *
+ * Serverless (api-only) mode has NO separate worker process to consume the
+ * queue, so we execute inline: start a worker in THIS process, add the job, and
+ * wait for it to finish before returning. This keeps the cloud app free of any
+ * always-on worker — it runs on-demand on Vercel and scales to zero.
+ *
+ * In dev/VM ("all"/"worker" mode) a dedicated worker process consumes the
+ * queue, so we just enqueue and return immediately (existing behavior).
+ */
 export async function queueExecution(
   executionId: string,
   workflowId: string,
 ): Promise<string> {
   const queue = getExecutionQueue();
+
+  if (!shouldRunWorkersInThisProcess()) {
+    // Serverless: no dedicated worker — run inline and wait for completion.
+    startExecutionWorker(); // idempotent — boots a worker in this process
+    const job = await queue.add(
+      "execute",
+      { executionId, workflowId },
+      { jobId: executionId },
+    );
+    await job.waitUntilFinished(getQueueEvents());
+    return job.id ?? executionId;
+  }
+
   const job = await queue.add(
     "execute",
     { executionId, workflowId },

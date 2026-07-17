@@ -11,6 +11,11 @@ import {
   validateWebhookReplayProtection,
 } from "./webhook-security";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
+import {
+  isQstashConfigured,
+  qstashCreateSchedule,
+  qstashDeleteScheduleForWorkflow,
+} from "./qstash-scheduler";
 
 registerBuiltinNodes();
 
@@ -90,6 +95,20 @@ class TriggerManager {
     const cronExpression =
       (node.data.cronExpression as string) || "*/5 * * * *";
     const timezone = (node.data.timezone as string) || "UTC";
+
+    // Serverless: schedule via QStash (no always-on worker). Falls back to the
+    // BullMQ repeatable job below for dev/VM when QStash isn't configured.
+    if (isQstashConfigured()) {
+      await qstashCreateSchedule({ workflowId, cron: cronExpression });
+      await prisma.workflow.update({
+        where: { id: workflowId },
+        data: { cronExpression, cronTimezone: timezone },
+      });
+      console.log(
+        `[trigger-manager] QStash cron schedule set: ${cronExpression} for workflow ${workflowId}`,
+      );
+      return;
+    }
 
     if (!this.cronQueue) {
       this.cronQueue = new Queue("cloud-cron-triggers", {
@@ -188,6 +207,10 @@ class TriggerManager {
   }
 
   private async deactivateCronTrigger(workflowId: string): Promise<void> {
+    if (isQstashConfigured()) {
+      await qstashDeleteScheduleForWorkflow(workflowId);
+      return;
+    }
     if (!this.cronQueue) return;
 
     const repeatJobId = `cron:${workflowId}`;
