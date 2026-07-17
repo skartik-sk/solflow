@@ -2,6 +2,7 @@ import type { ProgramIR } from "@solflow/ir";
 import { execFile } from "child_process";
 import { runWasmBuild } from "./wasm-compiler";
 import { runDockerBuild } from "./docker-runner";
+import { runGitHubActionsBuild, isGitHubActionsConfigured } from "./gh-actions-runner";
 
 // ─── Fast availability checks ────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ export interface CompileResult {
   binaryPath: string | null;
   binarySize: number | null;
   duration: number;
-  method: "cloud" | "wasm" | "local-cli" | "docker" | "codegen-only";
+  method: "cloud" | "wasm" | "local-cli" | "docker" | "github-actions" | "codegen-only";
   idlJson?: string | null;
 }
 
@@ -72,7 +73,57 @@ export async function compileWithStrategy(
     }
   }
 
-  // ── Pinocchio / Quasar: use Docker (local compiler container) ──
+  // ── Pinocchio / Quasar ──
+  // Prefer GitHub Actions (serverless, no VM) when configured; fall back to the
+  // local Docker compiler when running in dev/VM; finally codegen-only.
+  if (isGitHubActionsConfigured()) {
+    onLog("[strategy] Pinocchio/Quasar → GitHub Actions (free runner)", "info");
+    try {
+      const result = await runGitHubActionsBuild(input, onLog);
+      if (result.success) {
+        return {
+          success: true,
+          logs: result.logs,
+          errors: [],
+          warnings: result.warnings,
+          workDir: result.workDir,
+          binaryPath: result.binaryPath,
+          binarySize: result.binarySize,
+          duration: result.duration,
+          method: "github-actions",
+          idlJson: result.idlJson,
+        };
+      }
+      onLog("[strategy] GitHub Actions build failed.", "error");
+      return {
+        success: false,
+        logs: result.logs,
+        errors: result.errors.length > 0 ? result.errors : ["GitHub Actions build failed"],
+        warnings: result.warnings,
+        workDir: result.workDir,
+        binaryPath: null,
+        binarySize: null,
+        duration: result.duration,
+        method: "github-actions",
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      onLog(`[strategy] GitHub Actions error: ${msg}`, "error");
+      return {
+        success: false,
+        logs: [`[strategy] GitHub Actions error: ${msg}`],
+        errors: [msg],
+        warnings: [],
+        workDir: "",
+        binaryPath: null,
+        binarySize: null,
+        duration: 0,
+        method: "github-actions",
+      };
+    }
+  }
+
+  // ── Docker fallback (local dev / VM compiler container) ──
   const dockerReady = await isDockerAvailable();
   console.error(`[compile] Docker available: ${dockerReady}`);
 
