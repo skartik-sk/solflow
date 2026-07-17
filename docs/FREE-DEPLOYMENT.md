@@ -1,75 +1,80 @@
 # Free-tier deployment (no VM)
 
-Goal: run **web + cloud** for **$0/month**, no always-on VM, no Docker compiler.
+Same app, same features, same auth, same schema/data — only WHERE it runs changes
+(paid VM → free Vercel + GitHub Actions + Neon + Upstash). Build-verified:
+both apps pass `next build` (Vercel's build path) and `tsc --noEmit` = 0 errors.
 
-## Architecture (what was built)
-
+## Architecture
 ```
-WEB (editor)     → Vercel Hobby (free Next.js)
-                   - Anchor compile    → solpg.io API (free)
-                   - Pinocchio/Quasar  → GitHub Actions on-demand (free)
-                   - Deploy            → browser web3.js (already)
-                   - DB                → Neon free (sleeps — no always-on worker)
-
-CLOUD (autom.)   → Vercel Hobby (free Next.js)
-                   - Execution         → runs INLINE in Vercel functions via
-                                         queueExecution() serverless mode
-                                         (no always-on worker, scales to zero)
-                   - Cron triggers     → Upstash QStash schedules → /api/cron/fire
-                   - Webhook triggers  → /api/webhook/[path] (already request-driven)
-                   - Queue/Redis       → Upstash Redis (BullMQ over Upstash)
-                   - DB                → Neon free
+WEB (editor)    → Vercel Hobby. Anchor→solpg API; Pinocchio/Quasar→GitHub Actions.
+CLOUD (autom.)  → Vercel Hobby. Execution inline (serverless); cron→QStash; Redis→Upstash.
+Compiler repo   → github.com/<owner>/solflow-gh-compiler (separate, tiny; proven working).
+DB              → Neon (same schema you already have, just a new empty database).
 ```
 
-No Lambda required for the common case (workflows < ~300s). If you later have
-workflows longer than Vercel's function cap, move execution to a Lambda — the
-`executeWorkflow` logic is unchanged.
+## WEB env vars (real names, from `apps/web/src` + `packages/auth`)
 
-## Build status (verified on branch test/solpg-pinocchio-quasar)
-- Web:  `tsc --noEmit` 0 errors · `next build` passes
-- Cloud: `tsc --noEmit` 0 errors · `turbo build --filter=@solflow/cloud...` passes
-
-## Phase 1 — WEB app (code complete + builds)
-
-Env vars (Vercel):
+Required:
 ```
-DATABASE_URL=            # Neon
-AUTH_SECRET=             # openssl rand -base64 32
+DATABASE_URL=                    # Neon (read by Prisma)
+AUTH_SECRET=                     # openssl rand -base64 32
 AUTH_URL=https://<web-domain>
 AUTH_TRUST_HOST=true
-ENCRYPTION_MASTER_KEY=   # openssl rand -base64 32
-GITHUB_TOKEN=            # fine-grained PAT: Contents r/w + Actions read on the compiler repo
-GITHUB_COMPILER_OWNER=   # e.g. skartik-sk
-GITHUB_COMPILER_REPO=    # e.g. solflow-gh-compiler
-NEXT_PUBLIC_SOLANA_RPC_URL=https://api.devnet.solana.com
-NEXT_PUBLIC_SOLANA_NETWORK=devnet
+AUTH_GITHUB_ID=  AUTH_GITHUB_SECRET=      # your existing GitHub OAuth (unchanged)
+AUTH_GOOGLE_ID=  AUTH_GOOGLE_SECRET=      # your existing Google OAuth (unchanged)
+AUTH_COOKIE_DOMAIN=.yourdomain.com         # only if sharing login across subdomains
+ENCRYPTION_MASTER_KEY=           # openssl rand -base64 32
+REDIS_URL=                       # Upstash Redis (rate-limit + compile queue)
+GITHUB_TOKEN=                    # fine-grained PAT: Contents R/W + Actions read on solflow-gh-compiler
+GITHUB_COMPILER_OWNER=skartik-sk
+GITHUB_COMPILER_REPO=solflow-gh-compiler
+DEVNET_RPC_URL=  MAINNET_RPC_URL=
+NEXT_PUBLIC_APP_URL=https://<web-domain>
+NEXT_PUBLIC_CLOUD_URL=https://<cloud-domain>
+NEXT_PUBLIC_SOLANA_RPC_URL=
 ```
-Compiler repo: push `gh-actions-compiler/` contents to a repo (e.g. `solflow-gh-compiler`).
-Deploy: `cd apps/web && vercel --prod`
-
-## Phase 2 — CLOUD app (code complete + builds)
-
-Env vars (Vercel):
+Optional (have defaults / features off):
 ```
-CLOUD_RUNTIME_MODE=api          # CRITICAL — no embedded workers (serverless)
-DATABASE_URL=                   # Neon (same DB is fine)
-AUTH_SECRET / AUTH_URL / AUTH_TRUST_HOST / AUTH_COOKIE_DOMAIN
+GEMINI_API_KEY=  GEMINI_MODEL=             # AI assistant (works without)
+CLOUD_BUILD_URL=                          # solpg build API (default https://api.solpg.io)
+SOLFLOW_TREASURY_WALLET=  NEXT_PUBLIC_SOLFLOW_TREASURY_WALLET=
+NEXT_PUBLIC_SENTRY_DSN=  NEXT_PUBLIC_ERROR_REPORTING_ENDPOINT=
+AXIOM_TOKEN=  AXIOM_DATASET=  AUDIT_API_KEY=  AUDIT_API_URL=
+```
+
+## CLOUD env vars (real names, from `apps/cloud/src`)
+
+Required:
+```
+CLOUD_RUNTIME_MODE=api           # CRITICAL — serverless, no embedded workers
+DATABASE_URL=                    # Neon (same DB as web is fine)
+REDIS_URL=                       # Upstash Redis
+QSTASH_TOKEN=                    # Upstash QStash
+CLOUD_PUBLIC_BASE_URL=https://<cloud-domain>   # set after first deploy, then redeploy
+CRON_SECRET=                     # openssl rand -base64 32 (QStash sends as x-cron-secret)
 ENCRYPTION_MASTER_KEY=
-REDIS_URL=                      # Upstash Redis (rediss://...)
-QSTASH_TOKEN=                   # Upstash QStash token (for cron schedules)
-CLOUD_PUBLIC_BASE_URL=https://<cloud-domain>   # QStash posts back here
-CRON_SECRET=                    # random string; QStash forwards as x-cron-secret
-DEVNET_RPC_URL / MAINNET_RPC_URL / LOCALNET_RPC_URL
-NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_WEB_URL / NEXT_PUBLIC_CLOUD_URL
+AUTH_SECRET=  AUTH_URL=  AUTH_TRUST_HOST=  AUTH_COOKIE_DOMAIN=
+AUTH_GITHUB_ID=  AUTH_GITHUB_SECRET=  AUTH_GOOGLE_ID=  AUTH_GOOGLE_SECRET=
+DEVNET_RPC_URL=  MAINNET_RPC_URL=  LOCALNET_RPC_URL=
+NEXT_PUBLIC_SOLANA_RPC_URL=
+NEXT_PUBLIC_CLOUD_URL=  NEXT_PUBLIC_WEB_URL=  NEXT_PUBLIC_STUDIO_URL=
 ```
-Deploy: `cd apps/cloud && vercel --prod`
+Optional:
+```
+GEMINI_API_KEY=  GEMINI_MODEL=
+CLOUD_QUOTA_ENFORCEMENT=  CLOUD_FREE_ACTIVE_WORKFLOWS=  CLOUD_TRIAL_DAYS=
+CLOUD_WEBHOOK_MAX_BODY_KB=  CLOUD_WEBHOOK_REPLAY_STORE=  CLOUD_HEALTH_DETAILS_TOKEN=
+```
 
-Cron setup: when a user activates a workflow cron trigger, the trigger-manager
-creates a QStash schedule (configured automatically when QSTASH_TOKEN +
-CLOUD_PUBLIC_BASE_URL are set). No always-on cron worker.
+## Steps to go live (all your account actions)
+1. **Neon** → `DATABASE_URL`, then create the same tables once:
+   `DATABASE_URL="..." bun run --cwd packages/db prisma db push`
+2. **Upstash Redis** → `REDIS_URL`  ·  **Upstash QStash** → `QSTASH_TOKEN`
+3. **GitHub PAT** (fine-grained, `solflow-gh-compiler`, Contents R/W + Actions Read) → web's `GITHUB_TOKEN`
+4. `cd apps/web && vercel --prod` (+ web env vars)
+5. `cd apps/cloud && vercel --prod` (+ cloud env vars; set `CLOUD_PUBLIC_BASE_URL` to the URL Vercel gives you, then redeploy)
 
-## Cost: $0/month at low volume
-Free-tier limits to watch:
-- Neon 100 CU-hrs/mo · GH Actions 2000 min/mo (private) / unlimited (public)
-- Upstash Redis 10k cmd/day · QStash 500 msg/day
-- Vercel Hobby function 300s max · bandwidth/CPU generous at low traffic
+## Notes
+- `transpilePackages` is set in both `next.config.ts` → Vercel resolves all `@solflow/*` workspace packages.
+- The custom `server.ts` is NOT used on Vercel (Vercel runs Next.js natively). WebSocket log streaming becomes a no-op; compile logs return in the API response instead.
+- Cost $0/mo at low volume. Limits: Neon 100 CU-hrs, GH Actions 2000 min (private)/unlimited (public), Upstash Redis 10k cmd/day, QStash 500 msg/day.
