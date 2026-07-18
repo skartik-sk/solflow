@@ -20,11 +20,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/client": "^6.0.0"
+    "@neondatabase/serverless": "^1.1.0",
+    "@prisma/adapter-neon": "6",
+    "@prisma/client": "^6.0.0",
+    "ws": "^8.21.1"
   },
   "devDependencies": {
     "@solflow/tsconfig": "workspace:*",
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "prisma": "6.19.2",
     "typescript": "^5.8.0"
   }
