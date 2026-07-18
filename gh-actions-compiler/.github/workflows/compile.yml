@@ -1,7 +1,10 @@
 # SolFlow on-demand compiler — runs on free GitHub Actions runners.
-# Triggered by the web app (workflow_dispatch) to compile Pinocchio/Quasar
+# Triggered by the web app (push to programs/**) to compile Pinocchio/Quasar
 # programs with cargo-build-sbf. Produces a real deployable .so artifact.
 # Free: unlimited minutes on public repos, 2000 min/mo on private.
+#
+# Caching: the Solana toolchain + platform-tools + cargo deps/target are cached,
+# so repeat compiles run in ~25-35s instead of ~2min (cold).
 name: compile
 
 on:
@@ -22,16 +25,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Cache the Solana toolchain + platform-tools (the big cold-start cost) ──
+      - name: Cache Solana toolchain
+        id: solana-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/solana
+            ~/.cache/solana
+          key: solana-${{ runner.os }}-stable-v1
+          restore-keys: |
+            solana-${{ runner.os }}-stable-
+
       - name: Install Solana + Rust toolchain (cargo-build-sbf)
         run: |
-          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
-          # GITHUB_PATH only applies to SUBSEQUENT steps, so also export for THIS step
-          # (otherwise the version checks below fail with "command not found" under set -e).
+          if [ -x "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" ]; then
+            echo "Solana toolchain restored from cache — skipping install"
+          else
+            sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          fi
+          # GITHUB_PATH only applies to SUBSEQUENT steps, so also export for THIS step.
           echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
           export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.cargo/bin:$PATH"
           solana --version
           cargo-build-sbf --version
+
+      # ── Cache cargo deps + build artifacts (so only the program recompiles) ──
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            programs/program/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('programs/program/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
 
       - name: Build program (cargo-build-sbf)
         id: build
