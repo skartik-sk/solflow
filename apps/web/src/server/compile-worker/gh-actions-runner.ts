@@ -353,7 +353,16 @@ export async function runGitHubActionsBuild(
 
   try {
     onLog(`[gh-actions] compiling ${input.framework} via GitHub Actions (${cfg.owner}/${cfg.repo})`, "info");
-    const commitSha = await commitSourceFiles(input.generatedFiles, cfg, onLog);
+    // Force a unique commit every build by adding a BUILD_ID file. Without this,
+    // identical source (same starter template, a re-compile, or another user's
+    // identical code) would produce zero file diff and GitHub's push trigger
+    // would NOT fire. The BUILD_ID guarantees a diff so the workflow always runs.
+    const buildId = `${Date.now()}-${randomBytes(6).toString("hex")}`;
+    const filesWithBuildId = [
+      ...input.generatedFiles,
+      { path: "BUILD_ID", content: `solflow-build-${buildId}\n` },
+    ];
+    const commitSha = await commitSourceFiles(filesWithBuildId, cfg, onLog);
     const runId = await waitForRun(commitSha, cfg, onLog);
     const { bytes, name } = await downloadSoArtifact(runId, cfg);
 
