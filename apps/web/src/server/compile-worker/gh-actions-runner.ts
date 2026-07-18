@@ -203,7 +203,9 @@ async function commitSourceFiles(
       }),
     },
   );
-  await ghJson(`/repos/${owner}/${repo}/git/ref/heads/${BRANCH}`, token, {
+  // NOTE: GitHub's "update a ref" endpoint is git/REFS (plural), unlike the
+  // "get a ref" endpoint which is git/ref (singular). Singular here → HTTP 404.
+  await ghJson(`/repos/${owner}/${repo}/git/refs/heads/${BRANCH}`, token, {
     method: "PATCH",
     body: JSON.stringify({ sha: newCommit.sha }),
   });
