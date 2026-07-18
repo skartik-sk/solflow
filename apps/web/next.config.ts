@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import { PrismaPlugin } from '@prisma/nextjs-monorepo-workaround-plugin';
 
 const floatingBrowserEmbedOrigins = [
   "https://explorer.solana.com",
@@ -66,8 +67,14 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
     ],
   },
+
+ 
   // Monaco editor requires this
   webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.plugins = [...config.plugins, new PrismaPlugin()]
+    }
+    
     config.resolve.alias = {
       ...config.resolve.alias,
     };
