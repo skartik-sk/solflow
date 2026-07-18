@@ -224,14 +224,16 @@ async function waitForRun(
   const { token, owner, repo } = cfg;
   const deadline = Date.now() + TIMEOUT_MS;
 
-  // Wait for the run to appear (push triggers it after a few seconds)
+  // Wait for the run to appear (push triggers it after a few seconds).
+  // NOTE: we list recent runs and match head_sha CLIENT-side, because GitHub's
+  // `?head_sha=` server filter has indexing lag and can miss a run that exists.
   let runId: number | null = null;
   while (Date.now() < deadline && runId === null) {
-    const data = await ghJson<{ workflow_runs: Array<{ id: number; event: string }> }>(
-      `/repos/${owner}/${repo}/actions/runs?head_sha=${commitSha}&per_page=5`,
+    const data = await ghJson<{ workflow_runs: Array<{ id: number; head_sha: string }> }>(
+      `/repos/${owner}/${repo}/actions/runs?per_page=10`,
       token,
     );
-    const run = data.workflow_runs?.[0];
+    const run = data.workflow_runs?.find((r) => r.head_sha === commitSha);
     if (run) runId = run.id;
     else await sleep(POLL_INTERVAL_MS);
   }
