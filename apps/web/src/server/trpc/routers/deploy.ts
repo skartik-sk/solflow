@@ -327,7 +327,21 @@ async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
     select: { id: true, deployerKeypair: true },
   });
   if (user?.deployerKeypair) {
-    const deployerKp = keypairFromStoredSecret(user.deployerKeypair);
+    let deployerKp: Keypair;
+    try {
+      deployerKp = keypairFromStoredSecret(user.deployerKeypair);
+    } catch {
+      // Stored deployer keypair is unreadable (ENCRYPTION_MASTER_KEY was
+      // rotated; old key lost). Regenerate the fee-payer keypair — safe, but
+      // the user must re-fund the new address.
+      deployerKp = Keypair.generate();
+      await ctx.prisma.user.update({
+        where: { id: userId },
+        data: { deployerKeypair: encodeSecretKey(deployerKp.secretKey) },
+      });
+      log("regenerated unreadable deployer keypair:", deployerKp.publicKey.toBase58());
+      return deployerKp;
+    }
     if (!isEncryptedSecretKey(user.deployerKeypair)) {
       await ctx.prisma.user.update({
         where: { id: userId },
@@ -445,7 +459,25 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
   const binaryBuffer = compilation.binaryBytes
     ? Buffer.from(compilation.binaryBytes)
     : await readFile(compilation.binaryUrl);
-  const programKp = keypairFromStoredSecret(programSecretKey!);
+  let programKp: Keypair;
+  try {
+    programKp = keypairFromStoredSecret(programSecretKey!);
+  } catch {
+    // The stored program keypair can't be decrypted (ENCRYPTION_MASTER_KEY was
+    // rotated; the old key is lost). Generate a fresh keypair + persist it, then
+    // bail with a clear message — the user must recompile so the .so's
+    // declare_id! matches the new program id, then deploy again.
+    programKp = Keypair.generate();
+    await ctx.prisma.project.update({
+      where: { id: project.id },
+      data: { programKeypair: encodeSecretKey(programKp.secretKey) },
+    });
+    throw new TRPCError({
+      code: "INTERNAL_SERVER_ERROR",
+      message:
+        "Program keypair was unreadable (ENCRYPTION_MASTER_KEY changed). A new keypair has been generated — recompile your project, then deploy again.",
+    });
+  }
   if (!isEncryptedSecretKey(programSecretKey!)) {
     programSecretKey = encodeSecretKey(programKp.secretKey);
     await ctx.prisma.project.update({

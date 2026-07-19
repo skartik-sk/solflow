@@ -53,7 +53,18 @@ export class WalletSigner {
       return cached.keypair;
     }
 
-    const secretKey = decryptPrivateKey(encryptedKey, this.masterKey);
+    let secretKey: Uint8Array;
+    try {
+      secretKey = decryptPrivateKey(encryptedKey, this.masterKey);
+    } catch {
+      // AES-GCM auth failure — the wallet was encrypted with a different
+      // ENCRYPTION_MASTER_KEY (rotated). The old key is gone, so this wallet's
+      // private key is unrecoverable; surface a clear message instead of the
+      // cryptic crypto error.
+      throw new Error(
+        "Wallet private key is unreadable (ENCRYPTION_MASTER_KEY was changed). Please re-create this wallet.",
+      );
+    }
     const kp = Keypair.fromSecretKey(secretKey);
     secretKey.fill(0);
 
