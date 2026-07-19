@@ -419,3 +419,137 @@ export async function runGitHubActionsBuild(
 export function isGitHubActionsConfigured(): boolean {
   return loadConfig().configured;
 }
+
+// ─── Test runner (cargo test via GitHub Actions, no VM) ───────────────────────
+
+/** Download the test-log artifact text (best-effort). */
+async function downloadTestLog(runId: number, cfg: GhConfig): Promise<string> {
+  const { token, owner, repo } = cfg;
+  try {
+    const arts = await ghJson<{ artifacts: Array<{ name: string; archive_download_url: string }> }>(
+      `/repos/${owner}/${repo}/actions/runs/${runId}/artifacts`,
+      token,
+    );
+    const art = arts.artifacts?.find((a) => a.name === "test-log");
+    if (!art) return "";
+    const res = await fetch(art.archive_download_url, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) return "";
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+    for (const [name, data] of Object.entries(files)) {
+      if (name.endsWith(".log") || name.endsWith(".txt") || !name.includes(".")) {
+        return new TextDecoder().decode(data);
+      }
+    }
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+/** Parse a cargo test log for pass/fail + the meaningful error lines. */
+function parseCargoTestLog(log: string): { success: boolean; errors: string[] } {
+  const lines = log.split("\n");
+  const resultLine = lines.find((l) => l.includes("test result:"));
+  const success = resultLine
+    ? /test result:\s*ok/.test(resultLine)
+    : !/error\[|error:|FAILED/i.test(log);
+  const errors = lines
+    .filter((l) => /error\[|^error:|panicked|test result: FAILED|^failures:|---- .* ----/.test(l))
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 20);
+  return { success, errors };
+}
+
+export interface GitHubActionsTestResult {
+  success: boolean;
+  status: "PASSED" | "FAILED" | "ERROR";
+  runtime: string;
+  runner: string;
+  command: string;
+  setupCommand: string | null;
+  logs: string[];
+  errors: string[];
+  warnings: string[];
+  duration: number;
+  workDir: string;
+}
+
+/**
+ * Run `cargo test` on the generated program via GitHub Actions (no VM).
+ * Same pattern as runGitHubActionsBuild: commit to a unique test/<id> branch,
+ * wait for the "test" workflow, download the test log, parse pass/fail.
+ */
+export async function runGitHubActionsTest(
+  input: { framework: "ANCHOR" | "PINOCCHIO" | "QUASAR"; files: { path: string; content: string }[] },
+  onLog: (line: string, level: "info" | "warn" | "error") => void,
+): Promise<GitHubActionsTestResult> {
+  const startedAt = Date.now();
+  const cfg = loadConfig();
+  const command = "cargo test --manifest-path programs/program/Cargo.toml --lib";
+  const base = {
+    runtime: "cargo-smoke",
+    runner: "github-actions",
+    command,
+    setupCommand: null as string | null,
+    warnings: [] as string[],
+    workDir: "",
+  };
+
+  if (!cfg.configured) {
+    return {
+      success: false,
+      status: "ERROR",
+      ...base,
+      logs: ["GitHub Actions test runner not configured"],
+      errors: [
+        "GitHub Actions test runner not configured (set GITHUB_TOKEN, GITHUB_COMPILER_OWNER, GITHUB_COMPILER_REPO)",
+      ],
+      duration: 0,
+    };
+  }
+
+  try {
+    onLog(`[gh-actions-test] running cargo test via GitHub Actions (${cfg.owner}/${cfg.repo})`, "info");
+    const buildId = `${Date.now()}-${randomBytes(6).toString("hex")}`;
+    const testBranch = `test/${buildId}`;
+    const filesWithBuildId = [
+      ...input.files,
+      { path: "BUILD_ID", content: `solflow-test-${buildId}\n` },
+    ];
+    const commitSha = await commitSourceFiles(filesWithBuildId, cfg, onLog, testBranch);
+    const runId = await waitForRun(commitSha, cfg, onLog);
+    const logText = await downloadTestLog(runId, cfg);
+
+    // Best-effort cleanup of the per-test branch.
+    await ghRequest(
+      `/repos/${cfg.owner}/${cfg.repo}/git/refs/heads/${testBranch}`,
+      cfg.token,
+      { method: "DELETE" },
+    ).catch(() => undefined);
+
+    const { success, errors } = parseCargoTestLog(logText);
+    onLog(`[gh-actions-test] ${success ? "PASSED" : "FAILED"}`, success ? "info" : "error");
+    return {
+      success,
+      status: success ? "PASSED" : "FAILED",
+      ...base,
+      logs: logText ? logText.split("\n") : ["(no test log returned)"],
+      errors,
+      duration: Date.now() - startedAt,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    onLog(`[gh-actions-test] error: ${msg}`, "error");
+    return {
+      success: false,
+      status: "ERROR",
+      ...base,
+      logs: [`[gh-actions-test] error: ${msg}`],
+      errors: [msg],
+      duration: Date.now() - startedAt,
+    };
+  }
+}

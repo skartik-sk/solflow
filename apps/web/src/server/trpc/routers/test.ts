@@ -12,6 +12,7 @@ import type { Node, Edge } from "@xyflow/react";
 import { broadcastToJob } from "@/lib/ws-broadcaster";
 import { runGeneratedProjectTests } from "@/server/test-runner/local-test-runner";
 import type { GeneratedTestRuntime } from "@/server/test-runner/local-test-runner";
+import { runGitHubActionsTest, isGitHubActionsConfigured } from "@/server/compile-worker/gh-actions-runner";
 
 // ─── generateDefaultTests ────────────────────────────────────────────────────
 // Per docs/architecture/09-compilation-deployment.md → Auto-Generated Test Scaffolding.
@@ -214,12 +215,21 @@ export const testRouter = router({
         };
       }
 
-      const runResult = await runGeneratedProjectTests({
-        framework,
-        programName: irData.program.name,
-        files: generated.files,
-        runtime: input.runtime ?? getDefaultGeneratedTestRuntime(),
-      });
+      // In production (Vercel) use the GitHub Actions test runner (no VM).
+      // In local dev (no GITHUB_TOKEN) fall back to the local cargo runner.
+      const runResult = isGitHubActionsConfigured()
+        ? await runGitHubActionsTest(
+            { framework, files: generated.files },
+            () => {
+              /* progress logs are returned in runResult.logs */
+            },
+          )
+        : await runGeneratedProjectTests({
+            framework,
+            programName: irData.program.name,
+            files: generated.files,
+            runtime: input.runtime ?? getDefaultGeneratedTestRuntime(),
+          });
 
       const results = [
         {
@@ -283,7 +293,7 @@ export const testRouter = router({
         results: summary,
         resultItems: results,
         logs: runResult.logs,
-        runtime: runResult.runtime,
+        runtime: runResult.runtime as GeneratedTestRuntime,
         runner: runResult.runner,
         command: runResult.command,
         setupCommand: runResult.setupCommand,

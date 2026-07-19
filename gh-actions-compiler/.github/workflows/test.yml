@@ -1,0 +1,70 @@
+# SolFlow on-demand test runner — runs `cargo test` on free GitHub Actions.
+# Triggered by the web app pushing the program + generated tests to a test/** branch.
+# Kept separate from compile.yml via the branch filter (compile = build/**, test = test/**).
+name: test
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "test/**"
+    paths:
+      - "programs/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Cache the Solana toolchain (the big cold-start cost) ──
+      - name: Cache Solana toolchain
+        id: solana-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.local/share/solana
+            ~/.cache/solana
+          key: solana-${{ runner.os }}-stable-v1
+          restore-keys: |
+            solana-${{ runner.os }}-stable-
+
+      - name: Install Solana + Rust toolchain (cargo-build-sbf / cargo)
+        run: |
+          if [ -x "$HOME/.local/share/solana/install/active_release/bin/cargo-build-sbf" ]; then
+            echo "Solana toolchain restored from cache — skipping install"
+          else
+            sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          fi
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> "$GITHUB_PATH"
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.cargo/bin:$PATH"
+          cargo --version
+
+      # ── Cache cargo deps + build artifacts (only changed code recompiles) ──
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            programs/program/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('programs/program/Cargo.toml') }}
+          restore-keys: |
+            cargo-${{ runner.os }}-
+
+      - name: Run cargo test
+        id: test
+        continue-on-error: true
+        run: |
+          cd programs/program
+          cargo test --manifest-path Cargo.toml --lib 2>&1 | tee /tmp/test.log
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: /tmp/test.log

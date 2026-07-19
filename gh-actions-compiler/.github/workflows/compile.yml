@@ -15,6 +15,9 @@ on:
         required: true
         default: "pinocchio"
   push:
+    branches:
+      - main
+      - "build/**"
     paths:
       - "programs/**"
 
