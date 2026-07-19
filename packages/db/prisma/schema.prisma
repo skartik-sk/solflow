@@ -206,8 +206,9 @@ model Compilation {
   errors    Json?
   warnings  Json?
 
-  binaryUrl  String?
-  binarySize Int?
+  binaryUrl   String?
+  binaryBytes Bytes?
+  binarySize  Int?
   idlData    Json?
 
   startedAt   DateTime  @default(now())

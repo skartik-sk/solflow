@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createHash } from "crypto";
-import { rm, mkdir, copyFile } from "fs/promises";
+import { rm, mkdir, copyFile, readFile } from "fs/promises";
 import { join, resolve } from "path";
 import { router, protectedProcedure } from "../trpc";
 import { compileRateLimit } from "@/lib/rate-limit";
@@ -126,6 +126,7 @@ export const compileRouter = router({
         let buildErrors: string[] = [];
         let binarySize: number | null = null;
         let binaryPath: string | null = null;
+        let binaryBytes: Buffer | null = null;
         let compileMethod: string = "codegen-only";
 
         try {
@@ -180,6 +181,18 @@ export const compileRouter = router({
             }
           }
 
+          // Read the .so bytes NOW (before the temp dir is cleaned) so they can be
+          // persisted in the DB. On serverless (Vercel) the filesystem is read-only
+          // outside /tmp and each instance has its own ephemeral /tmp, so a file
+          // path is useless to the later deploy step — only persisted bytes work.
+          if (buildResult.binaryPath) {
+            try {
+              binaryBytes = await readFile(buildResult.binaryPath);
+            } catch {
+              binaryBytes = null;
+            }
+          }
+
           // Clean up temp directory from build (binary already copied)
           if (buildResult.workDir) {
             await rm(buildResult.workDir, { recursive: true, force: true }).catch(() => undefined);
@@ -208,6 +221,7 @@ export const compileRouter = router({
             ...(buildWarnings.length > 0 ? { warnings: buildWarnings as unknown as any } : {}),
             ...(binarySize ? { binarySize } : {}),
             ...(binaryPath ? { binaryUrl: binaryPath } : {}),
+            ...(binaryBytes ? { binaryBytes: new Uint8Array(binaryBytes) } : {}),
             completedAt: new Date(),
           },
         });

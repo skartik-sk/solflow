@@ -133,6 +133,7 @@ async function commitSourceFiles(
   files: { path: string; content: string }[],
   cfg: GhConfig,
   onLog: (line: string, level: "info" | "warn" | "error") => void,
+  branch: string,
 ): Promise<string> {
   const { token, owner, repo } = cfg;
 
@@ -203,14 +204,15 @@ async function commitSourceFiles(
       }),
     },
   );
-  // NOTE: GitHub's "update a ref" endpoint is git/REFS (plural), unlike the
-  // "get a ref" endpoint which is git/ref (singular). Singular here → HTTP 404.
-  await ghJson(`/repos/${owner}/${repo}/git/refs/heads/${BRANCH}`, token, {
-    method: "PATCH",
-    body: JSON.stringify({ sha: newCommit.sha }),
+  // Create a UNIQUE branch per build (build/<id>) instead of pushing to main.
+  // Concurrent compiles then never race on main's ref (which would 422 on the
+  // second). The push to this new branch triggers the workflow just the same.
+  await ghJson(`/repos/${owner}/${repo}/git/refs`, token, {
+    method: "POST",
+    body: JSON.stringify({ ref: `refs/heads/${branch}`, sha: newCommit.sha }),
   });
 
-  onLog(`[gh-actions] pushed ${desired.size} file(s) (commit ${newCommit.sha.slice(0, 7)})`, "info");
+  onLog(`[gh-actions] pushed ${desired.size} file(s) to ${branch} (commit ${newCommit.sha.slice(0, 7)})`, "info");
   return newCommit.sha;
 }
 
@@ -360,13 +362,21 @@ export async function runGitHubActionsBuild(
     // identical code) would produce zero file diff and GitHub's push trigger
     // would NOT fire. The BUILD_ID guarantees a diff so the workflow always runs.
     const buildId = `${Date.now()}-${randomBytes(6).toString("hex")}`;
+    const buildBranch = `build/${buildId}`;
     const filesWithBuildId = [
       ...input.generatedFiles,
       { path: "BUILD_ID", content: `solflow-build-${buildId}\n` },
     ];
-    const commitSha = await commitSourceFiles(filesWithBuildId, cfg, onLog);
+    const commitSha = await commitSourceFiles(filesWithBuildId, cfg, onLog, buildBranch);
     const runId = await waitForRun(commitSha, cfg, onLog);
     const { bytes, name } = await downloadSoArtifact(runId, cfg);
+
+    // Best-effort cleanup: delete the per-build branch now that we have the .so.
+    await ghRequest(
+      `/repos/${cfg.owner}/${cfg.repo}/git/refs/heads/${buildBranch}`,
+      cfg.token,
+      { method: "DELETE" },
+    ).catch(() => undefined);
 
     await mkdir(workDir, { recursive: true });
     const binaryPath = join(workDir, name);

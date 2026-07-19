@@ -442,7 +442,9 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
     }
   }
 
-  const binaryBuffer = await readFile(compilation.binaryUrl);
+  const binaryBuffer = compilation.binaryBytes
+    ? Buffer.from(compilation.binaryBytes)
+    : await readFile(compilation.binaryUrl);
   const programKp = keypairFromStoredSecret(programSecretKey!);
   if (!isEncryptedSecretKey(programSecretKey!)) {
     programSecretKey = encodeSecretKey(programKp.secretKey);
@@ -495,7 +497,9 @@ export const deployRouter = router({
 
       let needed = 2 * LAMPORTS_PER_SOL;
       if (compilation?.binaryUrl) {
-        const binaryBuffer = await readFile(compilation.binaryUrl);
+        const binaryBuffer = compilation.binaryBytes
+          ? Buffer.from(compilation.binaryBytes)
+          : await readFile(compilation.binaryUrl);
         const totalChunks = Math.ceil(binaryBuffer.length / CHUNK_SIZE);
         const bufferRent = await connection.getMinimumBalanceForRentExemption(
           37 + binaryBuffer.length,
