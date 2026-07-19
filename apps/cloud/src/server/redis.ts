@@ -1,18 +1,35 @@
-type RedisConnectionConfig = {
+// Redis connection options for BullMQ (ioredis). Parses REDIS_URL including the
+// TLS flag (rediss://) + password, which BullMQ needs to connect to Upstash.
+// Previously this returned only {host, port}, dropping TLS + auth → Upstash
+// reset the connection (ECONNRESET).
+
+type RedisOptions = {
   host: string;
   port: number;
+  password?: string;
+  username?: string;
+  tls?: Record<string, unknown>;
+  maxRetriesPerRequest: null;
+  enableReadyCheck: boolean;
 };
 
-export function getRedisConnectionConfig(): RedisConnectionConfig {
+export function getRedisConnectionConfig(): RedisOptions {
   const url = process.env.REDIS_URL ?? "redis://localhost:6379";
   try {
     const parsed = new URL(url);
-    return {
+    const isTls = parsed.protocol === "rediss:";
+    const opts: RedisOptions = {
       host: parsed.hostname || "localhost",
       port: parseInt(parsed.port || "6379", 10),
+      maxRetriesPerRequest: null, // required by BullMQ
+      enableReadyCheck: false,
     };
+    if (parsed.password) opts.password = decodeURIComponent(parsed.password);
+    if (parsed.username) opts.username = parsed.username;
+    if (isTls) opts.tls = {}; // Upstash requires TLS (rediss://)
+    return opts;
   } catch {
-    return { host: "localhost", port: 6379 };
+    return { host: "localhost", port: 6379, maxRetriesPerRequest: null, enableReadyCheck: false };
   }
 }
 
