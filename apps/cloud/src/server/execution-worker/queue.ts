@@ -372,15 +372,25 @@ function createCredentialOperations(workflow: {
         );
       }
 
-      const decrypted = decryptString(
-        {
-          encrypted: credential.encryptedData,
-          iv: credential.dataIv,
-          tag: credential.dataTag,
-          salt: credential.dataSalt,
-        },
-        getMasterKey(),
-      );
+      let decrypted: string;
+      try {
+        decrypted = decryptString(
+          {
+            encrypted: credential.encryptedData,
+            iv: credential.dataIv,
+            tag: credential.dataTag,
+            salt: credential.dataSalt,
+          },
+          getMasterKey(),
+        );
+      } catch {
+        // AES-GCM auth failure — credential was encrypted with a different
+        // ENCRYPTION_MASTER_KEY (rotated). The old key is gone, so this
+        // credential can't be recovered; surface a clear message.
+        throw new Error(
+          `Cloud credential "${credential.label}" is unreadable (ENCRYPTION_MASTER_KEY was changed). Please re-create this credential.`,
+        );
+      }
 
       await prisma.cloudCredential.update({
         where: { id: credential.id },
