@@ -139,11 +139,16 @@ export const webhookTriggerDef: CloudNodeDefinition = {
     ];
   },
   async execute(ctx) {
+    // Runs are queued, so the request arrives as the execution's stored trigger data.
+    const request = ctx.trigger?.triggerType === "webhook" ? ctx.trigger : undefined;
     return [
       {
         json: {
           triggered: true,
           triggerType: "webhook",
+          ...(request
+            ? { method: request.method, headers: request.headers, body: request.body, query: request.query }
+            : {}),
           timestamp: Date.now(),
         },
       },

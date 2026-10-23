@@ -44,19 +44,29 @@ function typeLabel(type: unknown): string {
   return "unknown";
 }
 
+/** Anchor's instruction discriminator: the first 8 bytes of sha256("global:<name>"). */
+async function anchorDiscriminator(ixName: string): Promise<Uint8Array> {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`global:${ixName}`));
+  return new Uint8Array(hash).slice(0, 8);
+}
+
 /** Encode instruction arguments into a Uint8Array discriminator + args. */
-function encodeInstructionData(
+async function encodeInstructionData(
   ixName: string,
   allInstructions: Instruction[],
   ixArgs: InstructionArg[],
   argValues: Record<string, string>,
-): Uint8Array {
+  framework: string,
+): Promise<Uint8Array> {
   const ixIndex = allInstructions.findIndex((i: any) => i.name === ixName);
 
-  // 8-byte discriminator (LE index, matches codegen)
-  const discriminator = new Uint8Array(8);
-  const view = new DataView(discriminator.buffer);
-  view.setUint32(0, ixIndex >= 0 ? ixIndex : 0, true);
+  // Anchor dispatches on a hashed discriminator; the Pinocchio codegen uses the 8-byte LE index.
+  let discriminator: Uint8Array = new Uint8Array(8);
+  if (framework === "anchor") {
+    discriminator = await anchorDiscriminator(ixName);
+  } else {
+    new DataView(discriminator.buffer).setUint32(0, ixIndex >= 0 ? ixIndex : 0, true);
+  }
 
   const argParts: Uint8Array[] = [discriminator];
 
@@ -84,7 +94,7 @@ function encodeInstructionData(
         }
         case "u64": {
           const b = new Uint8Array(8);
-          new DataView(b.buffer).setBigUint64(0, BigInt(parseInt(val) || 0), true);
+          new DataView(b.buffer).setBigUint64(0, /^\d+$/.test(val.trim()) ? BigInt(val.trim()) : BigInt(0), true);
           argParts.push(b);
           break;
         }
@@ -131,6 +141,7 @@ export function TransactionBuilderPanel() {
   const irJson = useCodeStore((s) => s.irJson);
   const network = useProjectStore((s) => s.network);
   const customEndpoints = useProjectStore((s) => s.customEndpoints);
+  const framework = useProjectStore((s) => s.framework);
   const wallet = useWallet();
 
   const [selectedIx, setSelectedIx] = useState<string>("");
@@ -194,9 +205,9 @@ export function TransactionBuilderPanel() {
   }
 
   /** Build instruction data bytes shared by both simulate and send. */
-  function buildData(ix: Instruction): Buffer {
+  async function buildData(ix: Instruction): Promise<Buffer> {
     return Buffer.from(
-      encodeInstructionData(ix.name, allInstructions, ix.args ?? [], args),
+      await encodeInstructionData(ix.name, allInstructions, ix.args ?? [], args, framework),
     );
   }
 
@@ -223,7 +234,7 @@ export function TransactionBuilderPanel() {
         : wallet.publicKey ?? new PublicKey("11111111111111111111111111111111");
 
       const keys = buildAccountKeys(instruction);
-      const data = buildData(instruction);
+      const data = await buildData(instruction);
 
       const ix = new Web3TransactionInstruction({ keys, programId: programPk, data });
 
@@ -262,7 +273,7 @@ export function TransactionBuilderPanel() {
     } finally {
       setLoading(false);
     }
-  }, [instruction, programId, selectedNetwork, payer, accounts, args, allInstructions, wallet.publicKey]);
+  }, [instruction, programId, selectedNetwork, payer, accounts, args, allInstructions, framework, wallet.publicKey]);
 
   // ─── Send (wallet adapter + @solana/kit RPC) ──────────────────
   const send = useCallback(async () => {
@@ -290,7 +301,7 @@ export function TransactionBuilderPanel() {
       const feePayerPk = wallet.publicKey;
 
       const keys = buildAccountKeys(instruction);
-      const data = buildData(instruction);
+      const data = await buildData(instruction);
 
       const ix = new Web3TransactionInstruction({ keys, programId: programPk, data });
 
@@ -326,7 +337,7 @@ export function TransactionBuilderPanel() {
     } finally {
       setLoading(false);
     }
-  }, [instruction, programId, selectedNetwork, payer, accounts, args, allInstructions, wallet]);
+  }, [instruction, programId, selectedNetwork, payer, accounts, args, allInstructions, framework, wallet]);
 
   // ─── Render ──────────────────────────────────────────────────────
 

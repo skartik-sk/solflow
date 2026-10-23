@@ -141,3 +141,39 @@ describe("Ok(()) skip", () => {
     expect(ops).toHaveLength(0);
   });
 });
+
+// ─── init payer reaches the account node data ───────────────────────────
+
+describe("init payer on account nodes", () => {
+  it("copies the init constraint's payer onto the node data", () => {
+    const dir = join(tmpdir(), `solflow-payer-${Date.now()}`);
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, "lib.rs");
+    writeFileSync(file, `
+use anchor_lang::prelude::*;
+declare_id!("11111111111111111111111111111111");
+#[program]
+pub mod vault {
+    use super::*;
+    pub fn init(ctx: Context<Init>) -> Result<()> { Ok(()) }
+}
+#[derive(Accounts)]
+pub struct Init<'info> {
+    #[account(mut)]
+    pub signer: Signer<'info>,
+    #[account(init, payer = signer, space = 8 + 8, seeds = [b"state", signer.key().as_ref()], bump)]
+    pub vault_state: Account<'info, VaultState>,
+    pub system_program: Program<'info, System>,
+}
+#[account]
+pub struct VaultState { pub bump: u8 }
+`);
+    try {
+      const result = parseFile(file);
+      const state = result.nodes.find((n) => n.type === "account" && n.data.name === "vault_state");
+      expect(state?.data.payer).toBe("signer");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

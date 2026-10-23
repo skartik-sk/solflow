@@ -331,10 +331,12 @@ export const RULES: AuditRule[] = [
             }
           }
 
-          // For transfer-sol, the from account must be a signer
+          // For transfer-sol, the from account must be a signer. A PDA source is the
+          // exception: only the program can sign for it (invoke_signed with its seeds).
           if (op.type === "transfer-sol") {
             const fromAcc = ix.accounts.find((a) => a.name === op.from);
-            if (fromAcc && !hasSigner(fromAcc)) {
+            const isPda = !!fromAcc && hasConstraint(fromAcc, "seeds");
+            if (fromAcc && !hasSigner(fromAcc) && !isPda) {
               findings.push({
                 ruleId: "SOL-001",
                 severity: "critical",
@@ -637,8 +639,12 @@ export const RULES: AuditRule[] = [
             (c) => c.type === "seeds",
           );
           if (!seedsConstraint || seedsConstraint.type !== "seeds") continue;
-          // If bump is not stored (no bump field), flag it
-          if (!seedsConstraint.bump) {
+          // A bare `bump` (canonical, verified by Anchor) or `bump = x` counts. The parser can
+          // emit `seeds = [...]` and `bump` as two separate seeds constraints, so check all of them.
+          const hasBump = acc.constraints.some(
+            (c) => c.type === "seeds" && c.bump !== undefined,
+          );
+          if (!hasBump) {
             findings.push({
               ruleId: "SOL-021",
               severity: "medium",
@@ -689,7 +695,7 @@ export const RULES: AuditRule[] = [
           if (
             seedsConstraint &&
             seedsConstraint.type === "seeds" &&
-            !seedsConstraint.bump
+            seedsConstraint.bump === undefined
           ) {
             findings.push({
               ruleId: "SOL-022",
@@ -734,12 +740,25 @@ export const RULES: AuditRule[] = [
         );
         if (authorityNames.size === 0) continue;
 
+        // A PDA seeded from another PDA that is itself authority-scoped is scoped too
+        // (e.g. vault ← vault_state ← signer). Grow the scoped set to a fixed point.
+        const scoped = new Set(authorityNames);
+        for (let grew = true; grew; ) {
+          grew = false;
+          for (const acc of ix.accounts) {
+            if (!scoped.has(acc.name) && hasAccountReferenceSeed(acc, scoped)) {
+              scoped.add(acc.name);
+              grew = true;
+            }
+          }
+        }
+
         for (const acc of ix.accounts) {
           const seedsConstraint = acc.constraints.find(
             (c) => c.type === "seeds",
           );
           if (!seedsConstraint || seedsConstraint.type !== "seeds") continue;
-          if (hasAccountReferenceSeed(acc, authorityNames)) continue;
+          if (hasAccountReferenceSeed(acc, scoped)) continue;
 
           const seedText = seedsConstraint.seeds
             .map((seed) => seed.value.toLowerCase())

@@ -55,13 +55,22 @@
     "commander": "^13.0.0"
   },
   "devDependencies": {
-    "@solflow/tsconfig": "workspace:*",
+    "@solflow/audit": "workspace:*",
+    "@solflow/codegen": "workspace:*",
     "@solflow/eslint-config": "workspace:*",
-    "@types/node": "^22.0.0",
-    "@types/express": "^5.0.0",
-    "@types/ws": "^8.5.0",
+    "@solflow/idl-import": "workspace:*",
+    "@solflow/ir": "workspace:*",
+    "@solflow/rust-parser": "workspace:*",
+    "@solflow/tsconfig": "workspace:*",
     "@types/cors": "^2.8.0",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.0",
+    "chokidar": "4.0.3",
+    "cors": "2.8.5",
+    "express": "5.1.0",
     "typescript": "^5.8.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "ws": "8.18.3"
   }
 }

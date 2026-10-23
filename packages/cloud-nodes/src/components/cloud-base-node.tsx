@@ -76,7 +76,7 @@ export const CloudBaseNode = memo(function CloudBaseNode({
 
       {/* Body — preview of node data */}
       {children && (
-        <div className="px-3 py-2 text-[11px] text-muted-foreground space-y-0.5">
+        <div className="px-3 py-2 text-[11px] text-muted-foreground space-y-0.5 overflow-hidden [&>*]:truncate">
           {children}
         </div>
       )}

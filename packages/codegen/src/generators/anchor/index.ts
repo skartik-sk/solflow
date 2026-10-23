@@ -163,7 +163,7 @@ function generateCargoToml(
   return `[package]
 name = "${kebab}"
 version = "${version}"
-description = "Created with SolFlow"
+description = "Created with SolStudio (Anchor)"
 edition = "2021"
 
 [lib]

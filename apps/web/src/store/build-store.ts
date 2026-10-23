@@ -5,6 +5,10 @@
 
 import { create } from "zustand";
 
+// The SBF linker reports large stack frames (often in dependencies) as "Error: ... Stack offset ... exceeded";
+// the build still succeeds, so show it as a warning.
+const STACK_WARNING = /Stack offset of \d+ exceeded max offset/;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface BuildLogLine {
@@ -174,9 +178,9 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       if (result.logs && Array.isArray(result.logs)) {
         for (const line of result.logs) {
-          const level = /^error/i.test(line)
+          const level = /^error/i.test(line) && !STACK_WARNING.test(line)
             ? "error"
-            : /^warning/i.test(line)
+            : /^warning/i.test(line) || STACK_WARNING.test(line)
               ? "warn"
               : "info";
           get().addLog({ line, level, timestamp: Date.now() });

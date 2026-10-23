@@ -104,6 +104,10 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
 
       const accNodeId = uid("acc");
       totalAccounts++;
+      // The properties panel and IR read payer from node data, not from the constraint list.
+      const initConstraint = acc.constraints?.find((c) => c.type === "init" || c.type === "init-if-needed") as
+        | { payer?: string }
+        | undefined;
 
       nodes.push({
         id: accNodeId,
@@ -116,10 +120,12 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
           isMut: acc.isMut,
           isSigner: acc.isSigner,
           isInit: acc.isInit,
+          ...(initConstraint?.payer ? { payer: initConstraint.payer } : {}),
           isClose: acc.isClose,
           isExecutable: acc.isExecutable,
           description: acc.description,
           seeds: acc.seeds,
+          bump: acc.bump,
           constraints: acc.constraints,
         },
       });
@@ -322,6 +328,15 @@ const UTILITY_ACCOUNT_TYPES: Record<string, string> = {
   instructions: "instructions",
 };
 
+// Editor account types for the shared utility nodes (see ACCOUNT_TYPES in the web PropertiesPanel).
+const UTILITY_EDITOR_TYPES: Record<string, string> = {
+  system_program: "system-program",
+  token_program: "token-program",
+  associated_token_program: "associated-token-program",
+  rent: "rent",
+  clock: "clock",
+};
+
 const utilityNodeCache = new Map<string, string>();
 
 function getUtilityAccountType(acc: ParsedAccount): string | null {
@@ -351,7 +366,8 @@ function getOrCreateUtilityNode(utilityType: string, nodes: Node[], edges: Edge[
     position: { x: 0, y: 0 },
     data: {
       name: UTILITY_ACCOUNT_TYPES[utilityType] || utilityType,
-      accountType: "utility",
+      // Keep the real type so audits/codegen still see a validated Program/Sysvar wrapper.
+      accountType: UTILITY_EDITOR_TYPES[utilityType] ?? "utility",
       isUtility: true,
     },
   });

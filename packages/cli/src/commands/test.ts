@@ -35,11 +35,18 @@ export const testCommand = new Command("test")
       const projectType = detectProjectType(projectPath);
       const plan = resolveFrameworkTestPlan(projectType, projectPath);
       const setup = options.setup === false ? null : plan.setupCommand;
-      const setupResult = setup ? runCommand(setup, projectPath) : null;
+      // Stream output live unless the caller wants one JSON document at the end.
+      const live = !options.json;
+      if (live) {
+        console.log(`Runtime: ${setup ? plan.runtime : "native"}`);
+        console.log(`Command: ${formatCommand(plan.testCommand)}`);
+        if (setup) console.log(`Setup  : ${formatCommand(setup)}`);
+      }
+      const setupResult = setup ? runCommand(setup, projectPath, live) : null;
       const testResult =
         setupResult && setupResult.exitCode !== 0
           ? null
-          : runCommand(plan.testCommand, projectPath);
+          : runCommand(plan.testCommand, projectPath, live);
       const success = !!testResult && testResult.exitCode === 0;
       const result = {
         success,
@@ -54,21 +61,7 @@ export const testCommand = new Command("test")
 
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(`Runner : ${result.runner}`);
-        console.log(`Runtime: ${result.runtime}`);
-        console.log(`Command: ${result.command}`);
-        if (result.setupCommand) console.log(`Setup  : ${result.setupCommand}`);
-        if (setupResult) {
-          process.stdout.write(setupResult.stdout);
-          process.stderr.write(setupResult.stderr);
-        }
-        if (testResult) {
-          process.stdout.write(testResult.stdout);
-          process.stderr.write(testResult.stderr);
-        }
       }
-
       process.exit(success ? 0 : setupResult?.exitCode ?? testResult?.exitCode ?? 1);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -81,13 +74,14 @@ export const testCommand = new Command("test")
     }
   });
 
-function runCommand(spec: CommandSpec, fallbackCwd: string): CommandRunResult {
+function runCommand(spec: CommandSpec, fallbackCwd: string, live = false): CommandRunResult {
   const started = Date.now();
   const cwd = spec.cwd ?? fallbackCwd;
   const result = spawnSync(spec.cmd, spec.args, {
     cwd,
     encoding: "utf-8",
     maxBuffer: 20 * 1024 * 1024,
+    stdio: live ? "inherit" : "pipe",
   });
   return {
     command: formatCommand(spec),

@@ -8,6 +8,7 @@ type RedisOptions = {
   port: number;
   password?: string;
   username?: string;
+  db?: number;
   tls?: Record<string, unknown>;
   maxRetriesPerRequest: null;
   enableReadyCheck: boolean;
@@ -25,7 +26,9 @@ export function getRedisConnectionConfig(): RedisOptions {
       enableReadyCheck: false,
     };
     if (parsed.password) opts.password = decodeURIComponent(parsed.password);
-    if (parsed.username) opts.username = parsed.username;
+    if (parsed.username) opts.username = decodeURIComponent(parsed.username);
+    const db = parseInt(parsed.pathname.slice(1), 10);
+    if (Number.isInteger(db)) opts.db = db; // redis://host:6379/2
     if (isTls) opts.tls = {}; // Upstash requires TLS (rediss://)
     return opts;
   } catch {
