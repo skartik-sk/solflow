@@ -377,3 +377,18 @@ describe("generateCode (quasar)", () => {
     expect(r1.metadata.irHash).toBe(r2.metadata.irHash);
   });
 });
+
+describe("Quasar system accounts", () => {
+  it("emits an owner-checked SystemAccount, not a Signer", () => {
+    const ir: ProgramIR = structuredClone(COUNTER_IR);
+    ir.instructions[0].accounts.push({
+      id: "00000000-0000-0000-0000-000000000099",
+      name: "recipient",
+      accountType: "system-account",
+      constraints: [{ type: "mut" }],
+    } as ProgramIR["instructions"][number]["accounts"][number]);
+    const code = generateCode(ir, "quasar").files.map((f) => f.content).join("\n");
+    expect(code).toContain("pub recipient: &'info mut SystemAccount");
+    expect(code).not.toMatch(/pub recipient: &'info mut (Signer|AccountView)/);
+  });
+});
