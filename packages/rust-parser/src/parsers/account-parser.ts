@@ -4,7 +4,7 @@
 import { RE_ACCOUNTS_STRUCT } from "../utils/anchor-patterns";
 import { extractBalancedBlock } from "../utils/regex-helpers";
 import { detectAccountKind } from "../utils/type-mapper";
-import { parseConstraints } from "./constraint-parser";
+import { mergeConstraints, parseConstraints } from "./constraint-parser";
 import type { ParsedAccount } from "../types";
 
 /**
@@ -145,7 +145,7 @@ function parseAccountFields(body: string): ParsedAccount[] {
 
       const { accountType, stateType } = detectAccountKind(rawType);
       const constraints = pendingAttrs.length > 0
-        ? pendingAttrs.flatMap(a => parseConstraints(a))
+        ? mergeConstraints(pendingAttrs.flatMap(a => parseConstraints(a)))
         : [];
 
       const isMut = constraints.some((c) => c.type === "mut") || rawType.includes("Mut");
@@ -170,6 +170,7 @@ function parseAccountFields(body: string): ParsedAccount[] {
         constraints,
         description: pendingDoc || undefined,
         seeds: seeds.length > 0 ? seeds : undefined,
+        bump: (constraints.find((c) => c.type === "seeds") as { bump?: string } | undefined)?.bump,
       });
 
       pendingDoc = undefined;

@@ -15,7 +15,8 @@ function makeDefinition(
   nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data: Record<string, unknown> }>,
   edges: Array<{ id: string; source: string; target: string; sourceHandle?: string; targetHandle?: string }>,
 ) {
-  return { nodes, edges };
+  // Nodes render up to 240px wide; the hand-written positions are ~250px apart, so spread columns out.
+  return { nodes: nodes.map((n) => ({ ...n, position: { x: Math.round(n.position.x * 1.32), y: n.position.y } })), edges };
 }
 
 // ─── Template definitions ───────────────────────────────────────────────────

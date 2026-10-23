@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* Workspace node packages live outside this app; Tailwind v4 does not scan them automatically. */
+@source "../../../../packages/flow-nodes/src";
+@source "../../../../packages/ui/src";
 
 @custom-variant dark (&:is(.dark *));
 

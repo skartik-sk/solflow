@@ -44,6 +44,8 @@ export interface ParsedAccount {
   constraints: ParsedConstraint[];
   description?: string;
   seeds?: Array<{ type: string; value: string }>;
+  /** "" for a bare `bump` (canonical), the expression for `bump = x`, undefined when absent. */
+  bump?: string;
 }
 
 // ─── Parsed State (from #[account] data structs) ─────────────────────

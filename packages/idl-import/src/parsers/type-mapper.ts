@@ -20,7 +20,11 @@ export function mapType(raw: unknown): SolanaType {
     const obj = raw as Record<string, unknown>;
     if ("vec" in obj) return { vec: mapType(obj.vec) };
     if ("option" in obj) return { option: mapType(obj.option) };
-    if ("defined" in obj) return { defined: obj.defined as string };
+    if ("defined" in obj) {
+      // Anchor >= 0.30 wraps it: { defined: { name, generics? } }
+      const d = obj.defined as string | { name?: string };
+      return { defined: typeof d === "string" ? d : d?.name ?? "unknown" };
+    }
     if ("array" in obj && Array.isArray(obj.array)) {
       return { array: [mapType(obj.array[0]), obj.array[1] as number] };
     }

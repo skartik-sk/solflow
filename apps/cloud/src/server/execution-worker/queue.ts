@@ -451,6 +451,7 @@ export function startExecutionWorker(): void {
           settings,
         },
         executionId,
+        triggerData,
       );
 
       // Update execution record with results

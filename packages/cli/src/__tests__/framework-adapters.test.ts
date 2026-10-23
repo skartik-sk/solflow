@@ -16,7 +16,7 @@ describe("framework adapters", () => {
     const root = mkdtempSync(join(tmpdir(), "solstudio-anchor-"));
     const testConfigPath = join(root, "Test.toml");
     writeFileSync(testConfigPath, "[test]\n");
-    const plan = resolveFrameworkTestPlan("anchor", root);
+    const plan = resolveFrameworkTestPlan("anchor", root, "linux");
 
     expect(plan.runtime).toBe("surfpool");
     expect(plan.setupCommand?.cmd).toBe("surfpool");
@@ -34,12 +34,21 @@ describe("framework adapters", () => {
     mkdirSync(join(root, "examples", "hello", "src"), { recursive: true });
     mkdirSync(join(root, ".surfpool"));
 
-    const plan = resolveFrameworkTestPlan("pinocchio", join(root, "examples", "hello"));
+    const plan = resolveFrameworkTestPlan("pinocchio", join(root, "examples", "hello"), "linux");
 
     expect(plan.runtime).toBe("surfpool");
     expect(plan.setupCommand?.cmd).toBe("surfpool");
     expect(plan.setupCommand?.cwd).toBe(root);
     expect(plan.testCommand).toEqual({ cmd: "cargo", args: ["test"] });
+  });
+
+  it("lets Anchor start its own validator where Surfpool can't daemonize", () => {
+    const root = mkdtempSync(join(tmpdir(), "solstudio-anchor-mac-"));
+    const plan = resolveFrameworkTestPlan("anchor", root, "darwin");
+
+    expect(plan.runtime).toBe("native");
+    expect(plan.setupCommand).toBeNull();
+    expect(plan.testCommand).toEqual({ cmd: "anchor", args: ["test"] });
   });
 
   it("keeps unknown projects read-only for codegen and deploy", () => {

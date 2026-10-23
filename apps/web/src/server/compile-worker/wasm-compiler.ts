@@ -22,6 +22,10 @@ import { randomBytes } from "crypto";
 import { spawn } from "child_process";
 import type { ProgramIR } from "@solflow/ir";
 
+// The SBF linker reports large stack frames (often in dependencies) as "Error: ... Stack offset ... exceeded";
+// the build still succeeds, so show it as a warning.
+const STACK_WARNING = /Stack offset of \d+ exceeded max offset/;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface WasmBuildInput {
@@ -330,9 +334,9 @@ async function compileWithCloudBuild(
 
     // Stream all logs
     for (const line of logs) {
-      const level: "info" | "warn" | "error" = /^error/i.test(line)
+      const level: "info" | "warn" | "error" = /^error/i.test(line) && !STACK_WARNING.test(line)
         ? "error"
-        : /^warning/i.test(line)
+        : /^warning/i.test(line) || STACK_WARNING.test(line)
           ? "warn"
           : "info";
       onLog(line, level);
@@ -417,9 +421,9 @@ function runCommand(
     const append = (data: Buffer, level: "info" | "warn" | "error") => {
       for (const line of data.toString().split("\n").filter(Boolean)) {
         logs.push(line);
-        const lv = /^error/i.test(line)
+        const lv = /^error/i.test(line) && !STACK_WARNING.test(line)
           ? "error"
-          : /^warning/i.test(line)
+          : /^warning/i.test(line) || STACK_WARNING.test(line)
             ? "warn"
             : level;
         onLog(line, lv);

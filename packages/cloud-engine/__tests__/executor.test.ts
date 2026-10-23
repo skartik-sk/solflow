@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { WorkflowExecutor } from "../src/executor";
-import { CloudNodeRegistry } from "@solflow/cloud-nodes";
+import { CloudNodeRegistry, webhookTriggerDef } from "@solflow/cloud-nodes";
 import type { CloudNodeDefinition, NodeExecutionContext } from "@solflow/cloud-nodes";
 import type { WorkflowDefinition } from "../src/types";
 
@@ -381,5 +381,40 @@ describe("WorkflowExecutor", () => {
     expect(result.nodeResults.get("n1")?.status).toBe("error");
     expect(result.nodeResults.get("n1")?.attempts).toBe(1);
     expect(result.nodeResults.get("n2")?.status).toBe("skipped");
+  });
+
+  it("hands the stored webhook request to the webhook trigger", async () => {
+    const registry = new CloudNodeRegistry();
+    registry.register(webhookTriggerDef);
+    let seen: unknown;
+    registry.register(
+      createMockNode("action:capture", async (ctx) => {
+        seen = ctx.inputs[0][0].json;
+        return [{ json: {} }];
+      })
+    );
+
+    const def: WorkflowDefinition = {
+      id: "wf-webhook",
+      version: 1,
+      nodes: [
+        { id: "n1", type: "trigger:webhook", position: { x: 0, y: 0 }, data: {} },
+        { id: "n2", type: "action:capture", position: { x: 200, y: 0 }, data: {} },
+      ],
+      edges: [{ id: "e1", source: "n1", target: "n2" }],
+      settings: defaultSettings,
+    };
+
+    const executor = new WorkflowExecutor(registry, mockWallet as any);
+    const result = await executor.execute(def, "exec-webhook", {
+      triggerType: "webhook",
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: { event: "deposit", amount: 1.5 },
+      query: {},
+    });
+
+    expect(result.status).toBe("success");
+    expect(seen).toMatchObject({ triggerType: "webhook", method: "POST", body: { event: "deposit", amount: 1.5 } });
   });
 });

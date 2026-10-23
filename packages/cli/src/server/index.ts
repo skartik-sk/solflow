@@ -822,7 +822,8 @@ async function deployProgram(
 
 function runCommand(cmd: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const proc = execFile(cmd, args, { cwd, timeout: 120_000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+    // Cold anchor/cargo builds routinely take several minutes; 2 min killed first compiles.
+    const proc = execFile(cmd, args, { cwd, timeout: 600_000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
       resolve({
         stdout: stdout || "",
         stderr: stderr || "",

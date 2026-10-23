@@ -134,6 +134,8 @@ export interface NodeExecutionContext {
   wallet: WalletOperations;
   credentials?: CredentialOperations;
   safety?: CloudSafetyControls;
+  /** What started the run (e.g. the webhook request), as stored on the execution. */
+  trigger?: Record<string, unknown>;
   logger: NodeLogger;
   signal: AbortSignal;
 }

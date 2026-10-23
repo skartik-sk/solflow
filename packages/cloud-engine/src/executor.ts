@@ -52,6 +52,7 @@ export class WorkflowExecutor {
   private observer?: ExecutionObserver;
   private aborted = false;
   private abortController?: AbortController;
+  private triggerData?: Record<string, unknown>;
 
   constructor(
     registry: CloudNodeRegistry,
@@ -68,8 +69,10 @@ export class WorkflowExecutor {
   async execute(
     def: WorkflowDefinition,
     executionId: string,
+    triggerData?: Record<string, unknown>,
   ): Promise<ExecutionResult> {
     this.aborted = false;
+    this.triggerData = triggerData;
     this.abortController = new AbortController();
     const nodeResults: Map<string, NodeExecutionResult> = new Map();
     const outputData: Map<string, OutputBuckets> = new Map();
@@ -265,6 +268,7 @@ export class WorkflowExecutor {
       wallet: this.walletOps,
       credentials: this.credentialOps,
       safety: def.settings.safety,
+      trigger: this.triggerData,
       logger,
       signal,
     };

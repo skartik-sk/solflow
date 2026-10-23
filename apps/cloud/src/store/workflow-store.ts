@@ -181,6 +181,10 @@ export const useWorkflowStore = create<WorkflowState>()(
         const selectedNodeIds = newNodes
           .filter((n) => n.selected)
           .map((n) => n.id);
+        // A pane click deselects every node; the properties panel then falls back to workflow settings.
+        if (lastSelectedId && !selectedNodeIds.includes(lastSelectedId)) {
+          lastSelectedId = selectedNodeIds.at(-1) ?? null;
+        }
 
         set({ nodes: newNodes, selectedNodeId: lastSelectedId, selectedNodeIds });
         if (graphChanged) get().markDirty();

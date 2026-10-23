@@ -12,6 +12,10 @@ import { tmpdir } from "os";
 import { randomBytes } from "crypto";
 import type { ProgramIR } from "@solflow/ir";
 
+// The SBF linker reports large stack frames (often in dependencies) as "Error: ... Stack offset ... exceeded";
+// the build still succeeds, so show it as a warning.
+const STACK_WARNING = /Stack offset of \d+ exceeded max offset/;
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface LocalBuildInput {
@@ -74,9 +78,9 @@ function runCommand(
     const append = (data: Buffer, level: "info" | "warn" | "error") => {
       for (const line of data.toString().split("\n").filter(Boolean)) {
         logs.push(line);
-        const lv = /^error/i.test(line)
+        const lv = /^error/i.test(line) && !STACK_WARNING.test(line)
           ? "error"
-          : /^warning/i.test(line)
+          : /^warning/i.test(line) || STACK_WARNING.test(line)
             ? "warn"
             : level;
         onLog(line, lv);

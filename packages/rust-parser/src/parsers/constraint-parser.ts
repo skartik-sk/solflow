@@ -7,6 +7,37 @@ import { RE_CONSTRAINT_TOKENS } from "../utils/anchor-patterns";
  * Parse constraint tokens from an #[account(...)] attribute content.
  * Input: the content inside the parens, e.g. "init, payer = user, space = 100"
  */
+/**
+ * Fold constraints that Anchor writes as separate arguments back into one entry:
+ * `seeds = [...]` + `bump` → one seeds constraint carrying the bump, and
+ * `init` + `payer = x` + `space = n` → one init constraint.
+ */
+export function mergeConstraints(constraints: Constraint[]): Constraint[] {
+  const out: Constraint[] = [];
+  for (const c of constraints) {
+    if (c.type === "seeds") {
+      const prev = out.find((x) => x.type === "seeds") as { seeds?: unknown[]; bump?: string } | undefined;
+      const cur = c as { seeds?: unknown[]; bump?: string };
+      if (prev) {
+        if (cur.seeds && cur.seeds.length > 0 && (!prev.seeds || prev.seeds.length === 0)) prev.seeds = cur.seeds;
+        if (cur.bump !== undefined) prev.bump = cur.bump;
+        continue;
+      }
+    }
+    if (c.type === "init") {
+      const prev = out.find((x) => x.type === "init") as { payer?: string; space?: unknown } | undefined;
+      const cur = c as { payer?: string; space?: unknown };
+      if (prev) {
+        if (cur.payer) prev.payer = cur.payer;
+        if (cur.space !== undefined && cur.space !== "auto") prev.space = cur.space;
+        continue;
+      }
+    }
+    out.push(c);
+  }
+  return out;
+}
+
 export function parseConstraints(attrContent: string): Constraint[] {
   const constraints: Constraint[] = [];
   const tokens = tokenizeConstraints(attrContent);
@@ -276,8 +307,9 @@ function parseSeedsExpr(expr: string): Array<{ type: SeedType; value: string }> 
     const s = part.trim();
     if (!s) continue;
 
-    if (s.startsWith('"')) {
-      seeds.push({ type: "literal", value: s.replace(/"/g, "") });
+    if (s.startsWith('"') || s.startsWith('b"')) {
+      // "vault" and b"vault" are both byte-string literals; store the bare text like the editor does.
+      seeds.push({ type: "literal", value: s.replace(/^b/, "").replace(/"/g, "") });
     } else if (s.includes(".")) {
       seeds.push({ type: "account-field", value: s });
     } else if (s === "bump") {

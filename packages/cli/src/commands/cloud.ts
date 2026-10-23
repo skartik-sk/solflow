@@ -67,6 +67,40 @@ function printExecutionList(response: any): void {
   }
 }
 
+function printCredentialList(response: any): void {
+  const credentials = response.credentials ?? response.items ?? [];
+  if (!Array.isArray(credentials) || credentials.length === 0) {
+    console.log("No credentials found.");
+    return;
+  }
+  for (const credential of credentials) {
+    console.log(`${credential.id}\t${credential.type ?? ""}\t${credential.label ?? ""}`);
+  }
+}
+
+function printWalletList(response: any): void {
+  const wallets = response.wallets ?? response.items ?? [];
+  if (!Array.isArray(wallets) || wallets.length === 0) {
+    console.log("No wallets found.");
+    return;
+  }
+  for (const wallet of wallets) {
+    console.log(`${wallet.id}\t${wallet.network ?? ""}\t${wallet.publicKey ?? ""}\t${wallet.label ?? ""}`);
+  }
+}
+
+function printExecution(response: any): void {
+  const execution = response.execution ?? response;
+  const name = execution.workflow?.name ? ` · ${execution.workflow.name}` : "";
+  const total = typeof execution.duration === "number" ? `  ${execution.duration}ms` : "";
+  console.log(`${execution.id}  ${execution.status ?? "UNKNOWN"}  ${execution.triggerType ?? "manual"}${name}${total}`);
+  const nodes = execution.nodeResults ?? [];
+  for (const node of Array.isArray(nodes) ? nodes : []) {
+    const ms = typeof node.duration === "number" ? `${node.duration}ms` : "";
+    console.log(`  ${node.status ?? ""}\t${node.nodeType ?? node.type ?? node.nodeId ?? ""}\t${ms}`);
+  }
+}
+
 function readJsonFile(path: string): unknown {
   const resolved = resolve(path);
   if (!existsSync(resolved)) throw new Error(`File does not exist: ${resolved}`);
@@ -300,12 +334,17 @@ workflowCommand
   .argument("<id>", "Workflow ID")
   .option("--data <file>", "JSON test data file")
   .option("--profile <name>", "Cloud profile")
-  .action((id: string, options: { data?: string; profile?: string }) =>
+  .option("--json", "Print raw JSON")
+  .action((id: string, options: { data?: string; profile?: string; json?: boolean }) =>
     runCloudAction(async () => {
-      printJson(await createClient(options).runWorkflow(
+      const response: any = await createClient(options).runWorkflow(
         id,
         options.data ? readJsonFile(options.data) : undefined,
-      ));
+      );
+      if (options.json) return printJson(response);
+      const execution = response.execution ?? response;
+      console.log(`Queued execution ${execution.id} (${execution.status ?? "QUEUED"})`);
+      console.log(`Follow it with: solstudio cloud execution get ${execution.id}`);
     }),
   );
 
@@ -371,9 +410,11 @@ executionCommand
   .description("Get execution detail")
   .argument("<id>", "Execution ID")
   .option("--profile <name>", "Cloud profile")
-  .action((id: string, options: ProfileOption) =>
+  .option("--json", "Print raw JSON")
+  .action((id: string, options: ProfileOption & { json?: boolean }) =>
     runCloudAction(async () => {
-      printJson(await createClient(options).getExecution(id));
+      const response = await createClient(options).getExecution(id);
+      options.json ? printJson(response) : printExecution(response);
     }),
   );
 
@@ -385,9 +426,11 @@ credentialCommand
   .command("list")
   .description("List Cloud credentials without exposing secret values")
   .option("--profile <name>", "Cloud profile")
-  .action((options: ProfileOption) =>
+  .option("--json", "Print raw JSON")
+  .action((options: ProfileOption & { json?: boolean }) =>
     runCloudAction(async () => {
-      printJson(await createClient(options).listCredentials());
+      const response = await createClient(options).listCredentials();
+      options.json ? printJson(response) : printCredentialList(response);
     }),
   );
 
@@ -440,9 +483,11 @@ walletCommand
   .command("list")
   .description("List Cloud wallets without exposing private keys")
   .option("--profile <name>", "Cloud profile")
-  .action((options: ProfileOption) =>
+  .option("--json", "Print raw JSON")
+  .action((options: ProfileOption & { json?: boolean }) =>
     runCloudAction(async () => {
-      printJson(await createClient(options).listWallets());
+      const response = await createClient(options).listWallets();
+      options.json ? printJson(response) : printWalletList(response);
     }),
   );
 
@@ -689,9 +734,15 @@ cloudCommand
   .command("whoami")
   .description("Show authenticated Cloud user")
   .option("--profile <name>", "Cloud profile")
-  .action((options: ProfileOption) =>
+  .option("--json", "Print raw JSON")
+  .action((options: ProfileOption & { json?: boolean }) =>
     runCloudAction(async () => {
-      printJson(await createClient(options).whoami());
+      const response: any = await createClient(options).whoami();
+      if (options.json) return printJson(response);
+      const user = response.user ?? response;
+      console.log(`${user.name ?? user.email ?? user.walletAddress ?? user.id}`);
+      if (user.walletAddress) console.log(`wallet  ${user.walletAddress}`);
+      if (user.email) console.log(`email   ${user.email}`);
     }),
   );
 
@@ -699,9 +750,12 @@ cloudCommand
   .command("status")
   .description("Check Cloud service health")
   .option("--profile <name>", "Cloud profile")
-  .action((options: ProfileOption) =>
+  .option("--json", "Print raw JSON")
+  .action((options: ProfileOption & { json?: boolean }) =>
     runCloudAction(async () => {
-      printJson(await createClient(options).health());
+      const response: any = await createClient(options).health();
+      if (options.json) return printJson(response);
+      console.log(`${response.service ?? "solstudio-cloud"}  ${response.status ?? "unknown"}  ${response.timestamp ?? ""}`);
     }),
   );
 

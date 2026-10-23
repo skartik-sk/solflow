@@ -10,6 +10,9 @@ import {
 } from "@xyflow/react";
 import type { Node, Edge } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { NODE_COLOR_MAP } from "@solflow/flow-nodes";
+// Without the editor's node types React Flow falls back to blank default boxes.
+import { editorNodeTypes } from "@/lib/plugins/editor-nodes";
 
 interface FlowPreviewInnerProps {
   nodes: Node[];
@@ -22,6 +25,7 @@ export function FlowPreviewInner({ nodes, edges }: FlowPreviewInnerProps) {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        nodeTypes={editorNodeTypes}
         fitView
         nodesDraggable={false}
         nodesConnectable={false}
@@ -32,7 +36,7 @@ export function FlowPreviewInner({ nodes, edges }: FlowPreviewInnerProps) {
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
         <MiniMap
-          nodeColor="#4a47a3"
+          nodeColor={(n) => NODE_COLOR_MAP[n.type ?? ""] ?? "#4a47a3"}
           maskColor="rgba(0,0,0,0.4)"
           style={{ background: "hsl(var(--card))" }}
         />

@@ -709,6 +709,11 @@ export default function StandalonePage() {
 // ─── Console Panel ──────────────────────────────────────────────────────
 
 function ConsolePanel({ output }: { output: string }) {
+  // Keep the newest output (the build result) in view.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [output]);
   if (!output) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
@@ -717,7 +722,7 @@ function ConsolePanel({ output }: { output: string }) {
     );
   }
   return (
-    <div className="h-full overflow-auto bg-background p-3">
+    <div ref={scrollRef} className="h-full overflow-auto bg-background p-3">
       <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">{output}</pre>
     </div>
   );

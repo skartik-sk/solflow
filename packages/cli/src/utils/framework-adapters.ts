@@ -78,10 +78,23 @@ export function getFrameworkAdapter(type: ProjectType): FrameworkAdapter {
   }
 }
 
-export function resolveFrameworkTestPlan(type: ProjectType, projectPath: string): FrameworkTestPlan {
+export function resolveFrameworkTestPlan(
+  type: ProjectType,
+  projectPath: string,
+  platform: NodeJS.Platform = process.platform,
+): FrameworkTestPlan {
   const adapter = getFrameworkAdapter(type);
   if (!adapter.testCommand) {
     throw new Error(`${adapter.label} projects do not have a configured test command.`);
+  }
+
+  // `surfpool start --daemon` only works on Linux; elsewhere it never returns. Let Anchor run its own validator.
+  if (platform !== "linux") {
+    return {
+      setupCommand: null,
+      testCommand: type === "anchor" ? { cmd: "anchor", args: ["test"] } : adapter.testCommand,
+      runtime: "native",
+    };
   }
 
   const surfpoolRoot = findSurfpoolRoot(projectPath);

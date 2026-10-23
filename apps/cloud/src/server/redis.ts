@@ -1,15 +1,25 @@
 type RedisConnectionConfig = {
   host: string;
   port: number;
+  username?: string;
+  password?: string;
+  db?: number;
+  tls?: Record<string, never>;
 };
 
 export function getRedisConnectionConfig(): RedisConnectionConfig {
   const url = process.env.REDIS_URL ?? "redis://localhost:6379";
   try {
     const parsed = new URL(url);
+    const db = parseInt(parsed.pathname.slice(1), 10);
     return {
       host: parsed.hostname || "localhost",
       port: parseInt(parsed.port || "6379", 10),
+      // Credentials, database index and TLS are part of the URL too; dropping them breaks managed Redis.
+      ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
+      ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
+      ...(Number.isInteger(db) ? { db } : {}),
+      ...(parsed.protocol === "rediss:" ? { tls: {} } : {}),
     };
   } catch {
     return { host: "localhost", port: 6379 };

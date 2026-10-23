@@ -386,7 +386,8 @@ function buildConstraintsFromFlags(
     constraints.push({
       type: "seeds" as const,
       seeds: data.seeds as Seed[],
-      bump: (data.bump as string) || undefined,
+      // "" is a bare `bump` (canonical) and must survive; only a missing bump is undefined.
+      bump: data.bump !== undefined && data.bump !== null ? String(data.bump) : undefined,
       programId: (data.programId as string) || undefined,
     });
   }
