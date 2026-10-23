@@ -1260,9 +1260,9 @@ function accountToQuasarType(account: Account): string {
     case "signer":
       return needsMut ? `&'info mut Signer` : `&'info Signer`;
     case "system-account":
-      // Quasar's derive macro only supports specific types.
-      // For non-mut system accounts (often seed metadata), use Signer type.
-      return needsMut ? `&'info mut Signer` : `&'info Signer`;
+      // A plain system-owned account (e.g. a lamport vault). It must not be a Signer, or every caller
+      // would need its signature; use the same view type as unchecked accounts.
+      return needsMut ? `&'info mut AccountView` : `&'info AccountView`;
     case "system-program":
       return `&'info Program<System>`;
     case "token-program":
