@@ -177,3 +177,19 @@ pub struct VaultState { pub bump: u8 }
     }
   });
 });
+
+// ─── transfer amounts that are call expressions ─────────────────────────
+
+describe("transfer amount extraction", () => {
+  it("keeps call expressions whole", () => {
+    const ops = parseLogic("transfer(tra, self.vault.lamports())?;");
+    const t = ops.find((o) => o.type === "transfer-sol") as { amount?: string } | undefined;
+    expect(t?.amount).toBe("vault.lamports()");
+  });
+
+  it("still reads plain amounts", () => {
+    const ops = parseLogic("anchor_lang::system_program::transfer(cpi_ctx, amount)?;");
+    const t = ops.find((o) => o.type === "transfer-sol") as { amount?: string } | undefined;
+    expect(t?.amount).toBe("amount");
+  });
+});

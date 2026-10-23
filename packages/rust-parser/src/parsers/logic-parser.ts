@@ -1219,15 +1219,30 @@ function findMintBurnInfo(
   return null;
 }
 
-function extractAmount(line: string): string | null {
-  // For transfer_checked(ctx, amount, decimals), extract the amount (second arg), not decimals
-  if (line.includes("transfer_checked")) {
-    const m = line.match(/transfer_checked\s*\([^,]+,\s*([^,]+),/);
-    if (m) return cleanAccountName(m[1].trim());
+/** Top-level arguments of the first call to `fn` in `line`, split on commas outside nested brackets. */
+function callArgs(line: string, fn: RegExp): string[] | null {
+  const m = fn.exec(line);
+  if (!m) return null;
+  const args: string[] = [];
+  let depth = 0, cur = "";
+  for (let i = m.index + m[0].length; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    if (ch === ")" || ch === "]" || ch === "}") {
+      if (depth === 0) { args.push(cur.trim()); return args; }
+      depth--;
+    }
+    if (ch === "," && depth === 0) { args.push(cur.trim()); cur = ""; continue; }
+    cur += ch;
   }
-  // For transfer(ctx, amount), extract amount
-  const m = line.match(/(?:anchor_spl::[^(]+\s*\([^,]+|transfer\s*\([^,]+),\s*([^,)]+?)\s*[),]/);
-  if (m) return cleanAccountName(m[1].trim());
+  return null; // call continues on later lines
+}
+
+function extractAmount(line: string): string | null {
+  // transfer(ctx, amount) and transfer_checked(ctx, amount, decimals): the amount is the second argument.
+  // Split with bracket depth so call expressions like `vault.lamports()` stay whole.
+  const args = callArgs(line, /(?:anchor_spl::[\w:]+|\btransfer_checked|\btransfer)\s*\(/);
+  if (args && args.length >= 2 && args[1]) return cleanAccountName(args[1]);
   const m2 = line.match(/,\s*([^,)]+?)\s*\)/);
   if (m2) return cleanAccountName(m2[1].trim());
   return null;
