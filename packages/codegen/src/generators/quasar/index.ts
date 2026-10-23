@@ -1260,9 +1260,9 @@ function accountToQuasarType(account: Account): string {
     case "signer":
       return needsMut ? `&'info mut Signer` : `&'info Signer`;
     case "system-account":
-      // A plain system-owned account (e.g. a lamport vault). It must not be a Signer, or every caller
-      // would need its signature; use the same view type as unchecked accounts.
-      return needsMut ? `&'info mut AccountView` : `&'info AccountView`;
+      // quasar-lang's SystemAccount checks the owner is the System Program (like Anchor's SystemAccount),
+      // without requiring a signature.
+      return needsMut ? `&'info mut SystemAccount` : `&'info SystemAccount`;
     case "system-program":
       return `&'info Program<System>`;
     case "token-program":
