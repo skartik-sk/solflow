@@ -14,6 +14,7 @@
 //
 // This generator is browser-safe (no fs, no Node.js builtins).
 
+import { errorRef } from '../../utils/error-ref';
 import type { ProgramIR, Instruction, Account, Field, Integration, LogicOperation, Seed } from '@solflow/ir';
 import type { GeneratedFile, CodegenWarning, CodegenError } from '../../index';
 import {
@@ -1354,7 +1355,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
       const cond = translateStateFieldExpr(translatePinocchioValue(op.condition, undefined, undefined, accountToStateType), accountToStateType);
       return [
         `if !(${cond}) {`,
-        `    return Err(${errorEnum}::${op.errorCode}.into());`,
+        `    return Err(${errorRef(errorEnum, op.errorCode, "ProgramError::InvalidArgument")}.into());`,
         `}`,
       ];
     }
@@ -1385,7 +1386,7 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
     }
 
     case 'return-error':
-      return [`return Err(${errorEnum}::${op.errorCode}.into());`];
+      return [`return Err(${errorRef(errorEnum, op.errorCode, "ProgramError::InvalidArgument")}.into());`];
 
     case 'math': {
       const checked = op.checked;

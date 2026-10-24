@@ -392,3 +392,29 @@ describe("Quasar system accounts", () => {
     expect(code).not.toMatch(/pub recipient: &'info mut (Signer|AccountView)/);
   });
 });
+
+describe("Quasar PDA vaults", () => {
+  it("signs transfers out of a PDA and passes seed accounts directly", () => {
+    const ir: ProgramIR = structuredClone(COUNTER_IR);
+    const ix = ir.instructions[0];
+    ix.accounts.push({
+      id: "00000000-0000-0000-0000-000000000098",
+      name: "vault",
+      accountType: "system-account",
+      constraints: [
+        { type: "mut" },
+        { type: "seeds", seeds: [{ type: "literal", value: "vault" }, { type: "account-field", value: "authority.key().as_ref()" }] },
+      ],
+    } as ProgramIR["instructions"][number]["accounts"][number]);
+    ix.body = [
+      { type: "require", condition: "vault.lamports() > 0", errorCode: "" },
+      { type: "transfer-sol", from: "vault", to: "authority", amount: "vault.lamports()" },
+    ] as ProgramIR["instructions"][number]["body"];
+    const code = generateCode(ir, "quasar").files.map((f) => f.content).join("\n");
+    expect(code).toContain('seeds = [b"vault", authority]');
+    expect(code).toContain("ProgramError::InvalidArgument");
+    expect(code).toContain("let transfer_amount = ctx.accounts.vault.to_account_view().lamports();");
+    expect(code).toContain("let seeds = ctx.bumps.vault_seeds();");
+    expect(code).toContain(".invoke_signed(&seeds)?;");
+  });
+});

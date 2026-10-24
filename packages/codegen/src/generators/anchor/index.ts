@@ -2,6 +2,7 @@
 // Uses @solflow/anchor-templates for Handlebars rendering (server/Node.js context)
 // and falls back to inline string building when fs is unavailable (browser).
 
+import { errorRef } from "../../utils/error-ref";
 import type {
   ProgramIR,
   Instruction,
@@ -884,7 +885,7 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
     }
 
     case "require":
-      return [`require!(${op.condition}, ${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
+      return [`require!(${op.condition}, ${errorRef(errorEnum, op.errorCode, "anchor_lang::error::ErrorCode::RequireViolated")});`];
 
     case "if-else": {
       const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, boundAccounts, ix)).map((l) => `    ${l}`);
@@ -909,7 +910,7 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
     }
 
     case "return-error":
-      return [`return err!(${errorEnum ? `${errorEnum}::` : ""}${op.errorCode});`];
+      return [`return err!(${errorRef(errorEnum, op.errorCode, "anchor_lang::error::ErrorCode::RequireViolated")});`];
 
     case "math": {
       const checked = op.checked;

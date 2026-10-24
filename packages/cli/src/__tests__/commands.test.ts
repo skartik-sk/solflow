@@ -137,6 +137,11 @@ describe("patch command", () => {
     expect(diff).toContain("-pub fn old() {}");
     expect(diff).toContain("+pub fn new() {}");
   });
+
+  it("marks new files so git apply can create them", () => {
+    const diff = createUnifiedDiff("src/new.rs", null, "pub fn a() {}\n");
+    expect(diff).toContain("new file mode 100644\n--- /dev/null\n+++ b/src/new.rs");
+  });
 });
 
 // ─── parse command — error handling ──────────────────────────────────

@@ -107,7 +107,8 @@ export function createUnifiedDiff(
   const newLines = splitLines(newContent);
   const header = [
     `diff --git a/${path} b/${path}`,
-    oldContent == null ? "--- /dev/null" : `--- a/${path}`,
+    // git apply needs the mode line to treat --- /dev/null as a file creation
+    ...(oldContent == null ? ["new file mode 100644", "--- /dev/null"] : [`--- a/${path}`]),
     `+++ b/${path}`,
   ];
 

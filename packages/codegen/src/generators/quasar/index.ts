@@ -17,6 +17,7 @@
 //   - No PodU8 (u8 is already alignment 1)
 //   - PodBool, PodU16, PodU32, PodU64, PodU128, PodI16, PodI32, PodI64, PodI128
 
+import { errorRef } from "../../utils/error-ref";
 import type {
   ProgramIR,
   Instruction,
@@ -432,7 +433,7 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
     let result = s;
     for (const [old, new_] of renameMap) {
       // Only rename standalone references to the account, not ctx.accounts.old or ctx.bumps.old
-      result = result.replace(new RegExp(`(?<!ctx\\.accounts\\.)(?<!ctx\\.bumps\\.)\\b${old}\\b(?!_)`, "g"), new_);
+      result = result.replace(new RegExp(`(?<!ctx\\.accounts\\.)(?<!bumps\\.)\\b${old}\\b(?!_)`, "g"), new_);
     }
     return result;
   };
@@ -523,7 +524,8 @@ function translateQuasarValue(value: string): string {
   result = result.replace(/ctx\.accounts\.(\w+)\.key\b/g, 'ctx.accounts.$1.address()');
   // Clock::get()?.unix_timestamp → i64::from(Clock::get()?.unix_timestamp) (PodI64 → i64)
   result = result.replace(/Clock::get\(\)\?\.unix_timestamp/g, 'i64::from(Clock::get()?.unix_timestamp)');
-  // ctx.bumps.X → ctx.bumps.X (Quasar Ctx has .bumps just like Anchor)
+  // bumps.X (Anchor handler param) → ctx.bumps.X (Quasar Ctx has .bumps)
+  result = result.replace(/(?<![\w.])bumps\./g, 'ctx.bumps.');
   return result;
 }
 
@@ -620,10 +622,32 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
       return [`${account}.${op.field} = ${value};`];
     }
 
-    case "transfer-sol":
-      return [
-        `ctx.accounts.system_program.transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ${op.amount}).invoke()?;`,
-      ];
+    case "transfer-sol": {
+      // An amount like `vault.lamports()` reads an account: go through ctx.accounts and
+      // evaluate it first, so it doesn't overlap the &mut borrows passed to transfer().
+      const accountNames = new Set(ir?.instructions.flatMap((i) => i.accounts.map((a) => a.name)) ?? []);
+      const amount = op.amount
+        .replace(/(?<![\w.])([a-z_][a-z0-9_]*)\./g, (m, name: string) =>
+          accountNames.has(name) ? `ctx.accounts.${name}.` : m)
+        // Quasar account wrappers expose lamports through their AccountView
+        .replace(/(ctx\.accounts\.\w+)\.lamports\(\)/g, "$1.to_account_view().lamports()");
+      const lines: string[] = [];
+      let amountExpr = amount;
+      if (amount !== op.amount) {
+        lines.push(`let transfer_amount = ${amount};`);
+        amountExpr = "transfer_amount";
+      }
+      // A PDA source can only be debited with its seeds (generated as ctx.bumps.<field>_seeds()).
+      const fromIsPda = ir?.instructions.some((i) =>
+        i.accounts.some((a) => a.name === op.from && a.constraints.some((c) => c.type === "seeds")));
+      const transfer = `ctx.accounts.system_program.transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ${amountExpr})`;
+      if (fromIsPda) {
+        lines.push(`let seeds = ctx.bumps.${op.from}_seeds();`, `${transfer}.invoke_signed(&seeds)?;`);
+      } else {
+        lines.push(`${transfer}.invoke()?;`);
+      }
+      return lines;
+    }
 
     case "transfer-token": {
       const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
@@ -672,7 +696,7 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
 
     case "require": {
       const cond = renameAndPod ? renameAndPod(op.condition) : translateQuasarPodExpr(translateQuasarValue(rename?.(op.condition) ?? op.condition), accountToStateType, fieldTypeMap);
-      return [`require!(${cond}, ${errorEnum}::${op.errorCode});`];
+      return [`require!(${cond}, ${errorRef(errorEnum, op.errorCode, "ProgramError::InvalidArgument")});`];
     }
 
     case "if-else": {
@@ -704,7 +728,7 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
     }
 
     case "return-error":
-      return [`return Err(${errorEnum}::${op.errorCode}.into());`];
+      return [`return Err(${errorRef(errorEnum, op.errorCode, "ProgramError::InvalidArgument")}.into());`];
 
     case "math": {
       const checked = op.checked;
@@ -763,11 +787,16 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
   }
 }
 
+/** Quasar seeds take an account field directly: `signer.key().as_ref()` → `signer`. */
+function quasarSeedValue(value: string): string {
+  const m = value.trim().match(/^([a-z_][a-z0-9_]*)\.key\(\)(?:\.as_ref\(\))?$/);
+  return m ? m[1] : value;
+}
+
 function buildQuasarSeeds(seeds: Seed[]): string {
   const parts = seeds.map((s) => {
     if (s.type === "literal") return `b"${s.value}"`;
-    if (s.type === "pubkey") return s.value;
-    return s.value;
+    return quasarSeedValue(s.value);
   });
   return `&[${parts.join(", ")}]`;
 }
@@ -1190,9 +1219,7 @@ function buildQuasarAccountAttributes(
         const seedParts = c.seeds.map((s) => {
           if (s.type === "literal") return `b"${s.value}"`;
           // Quasar derive macro handles field-to-bytes conversion
-          if (s.type === "pubkey" || s.type === "account-field") return s.value;
-          if (s.type === "instruction-arg") return s.value;
-          return s.value;
+          return quasarSeedValue(s.value);
         });
         parts.push(`seeds = [${seedParts.join(", ")}]`);
         // With init, use plain bump (derive macro finds it). Without init, use bump from struct field.

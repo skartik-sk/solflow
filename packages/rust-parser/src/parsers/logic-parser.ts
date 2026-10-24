@@ -99,10 +99,16 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
   if (m) {
     const { text, endLine } = collectBalancedParens(lines, currentLine, line.indexOf("("));
     const inner = text.replace(/^\(/, "").trim();
-    const parts = splitCommas(inner);
-    if (parts.length >= 2) {
-      const errorCode = parts[parts.length - 1].trim();
-      const condition = parts.slice(0, -1).join(", ").trim();
+    const parts = splitCommas(inner).map((p) => p.trim());
+    // require_gt!(a, b[, err]) etc. → "a > b"; the error code is optional for these.
+    const cmp = m[1] ? REQUIRE_COMPARATORS[m[1]] : undefined;
+    if (cmp && parts.length >= 2) {
+      const errorCode = parts.length >= 3 ? parts[2] : "";
+      return { op: { type: "require", condition: `${parts[0]} ${cmp} ${parts[1]}`, errorCode }, nextLine: endLine };
+    }
+    if (!m[1] && parts.length >= 2) {
+      const errorCode = parts[parts.length - 1];
+      const condition = parts.slice(0, -1).join(", ");
       return { op: { type: "require", condition, errorCode }, nextLine: endLine };
     }
     return { op: { type: "custom-code", code: line, inputs: [], outputs: [] }, nextLine: currentLine + 1 };
@@ -863,6 +869,15 @@ function collectBlockLines(lines: string[], startLine: number): {
 
   return { body, endLine: i - 1 };
 }
+
+const REQUIRE_COMPARATORS: Record<string, string> = {
+  _eq: "==",
+  _neq: "!=",
+  _gt: ">",
+  _gte: ">=",
+  _keys_eq: "==",
+  _keys_neq: "!=",
+};
 
 function collectBalancedParens(lines: string[], startLine: number, parenStartCol: number): {
   text: string;

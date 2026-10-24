@@ -222,6 +222,13 @@ describe("parseLogic — require variants", () => {
     const ops = parseLogic("require_keys_eq!(a.key(), b.key(), MyError::Unauthorized);");
     expect(ops[0].type).toBe("require");
   });
+
+  it("turns require_gt! into a comparison, error code optional", () => {
+    const ops = parseLogic("require_gt!(amount, 0);");
+    expect(ops[0]).toMatchObject({ type: "require", condition: "amount > 0", errorCode: "" });
+    const withErr = parseLogic("require_gte!(balance, min, MyError::Low);");
+    expect(withErr[0]).toMatchObject({ condition: "balance >= min", errorCode: "MyError::Low" });
+  });
 });
 
 describe("parseLogic — emit event", () => {
