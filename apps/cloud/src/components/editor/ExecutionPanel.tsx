@@ -3,6 +3,7 @@
 // ExecutionPanel — bottom panel showing execution logs and node output.
 
 import React from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
@@ -14,6 +15,8 @@ import {
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { useExecutionStore } from "@/store/execution-store";
 import type { NodeExecutionResult } from "@/store/execution-store";
+import { useWorkflowStore } from "@/store/workflow-store";
+import { trpc } from "@/lib/trpc/client";
 
 const LOG_COLORS: Record<string, string> = {
   info: "text-blue-400",
@@ -340,6 +343,7 @@ export function ExecutionPanel() {
                 </div>
               ))
             )}
+            <RecentRuns />
           </div>
         )}
 
@@ -708,9 +712,49 @@ function SimulationNotice({
   );
 }
 
+/** Runs of this workflow from any trigger (cron, webhook, manual), refreshed while visible. */
+function RecentRuns() {
+  const workflowId = useWorkflowStore((s) => s.workflowId);
+  const { data } = trpc.execution.list.useQuery(
+    { workflowId: workflowId ?? undefined, limit: 10 },
+    { enabled: !!workflowId, refetchInterval: 5_000 },
+  );
+  const runs = data?.items ?? [];
+  if (!workflowId || runs.length === 0) return null;
+  return (
+    <div className="pt-2">
+      <p className="pb-1 text-[10px] uppercase tracking-wide text-muted-foreground/50">
+        Recent runs
+      </p>
+      {runs.map((run) => (
+        <Link
+          key={run.id}
+          href={`/executions/${run.id}`}
+          className="flex items-center justify-between gap-3 rounded-md px-2 py-1 hover:bg-muted/40"
+        >
+          <span className="truncate">
+            {run.triggerType.toLowerCase()} · {timeAgo(run.startedAt ?? run.createdAt)}
+          </span>
+          <span className={`text-[10px] font-medium ${statusColor(run.status.toLowerCase())}`}>
+            {run.status.toLowerCase()}
+          </span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function timeAgo(date: Date | string): string {
+  const diff = Date.now() - new Date(date).getTime();
+  if (diff < 60_000) return `${Math.max(0, Math.floor(diff / 1000))}s ago`;
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}h ago`;
+  return `${Math.floor(diff / 86400_000)}d ago`;
+}
+
 function statusColor(status: string): string {
-  if (status === "success") return "text-emerald-400";
-  if (status === "error") return "text-red-400";
+  if (status === "success" || status === "completed") return "text-emerald-400";
+  if (status === "error" || status === "failed" || status === "timed_out") return "text-red-400";
   if (status === "running") return "text-blue-400";
   if (status === "skipped") return "text-zinc-400";
   return "text-muted-foreground";
