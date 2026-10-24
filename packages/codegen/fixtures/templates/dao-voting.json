@@ -1,0 +1,670 @@
+{
+ "edges": [
+  {
+   "id": "e-p-cr",
+   "source": "prog",
+   "target": "ix-create"
+  },
+  {
+   "id": "e-p-v",
+   "source": "prog",
+   "target": "ix-vote"
+  },
+  {
+   "id": "e-p-ex",
+   "source": "prog",
+   "target": "ix-execute"
+  },
+  {
+   "id": "e-cr-p",
+   "source": "ix-create",
+   "target": "acc-cr-prop"
+  },
+  {
+   "id": "e-cr-pr",
+   "source": "ix-create",
+   "target": "acc-cr-proposer"
+  },
+  {
+   "id": "e-cr-s",
+   "source": "ix-create",
+   "target": "acc-cr-sys"
+  },
+  {
+   "id": "e-cr-l1",
+   "source": "ix-create",
+   "target": "log-cr-1"
+  },
+  {
+   "id": "e-cr-l2",
+   "source": "log-cr-1",
+   "target": "log-cr-2"
+  },
+  {
+   "id": "e-cr-l3",
+   "source": "log-cr-2",
+   "target": "log-cr-3"
+  },
+  {
+   "id": "e-cr-l4",
+   "source": "log-cr-3",
+   "target": "log-cr-4"
+  },
+  {
+   "id": "e-cr-l5",
+   "source": "log-cr-4",
+   "target": "log-cr-5"
+  },
+  {
+   "id": "e-cr-l6",
+   "source": "log-cr-5",
+   "target": "log-cr-6"
+  },
+  {
+   "id": "e-cr-l7",
+   "source": "log-cr-6",
+   "target": "log-cr-7"
+  },
+  {
+   "id": "e-v-p",
+   "source": "ix-vote",
+   "target": "acc-v-prop"
+  },
+  {
+   "id": "e-v-r",
+   "source": "ix-vote",
+   "target": "acc-v-rec"
+  },
+  {
+   "id": "e-v-v",
+   "source": "ix-vote",
+   "target": "acc-v-voter"
+  },
+  {
+   "id": "e-v-s",
+   "source": "ix-vote",
+   "target": "acc-v-sys"
+  },
+  {
+   "id": "e-v-e1",
+   "source": "ix-vote",
+   "target": "err-ended"
+  },
+  {
+   "id": "e-v-e2",
+   "source": "ix-vote",
+   "target": "err-exec"
+  },
+  {
+   "id": "e-v-l1",
+   "source": "ix-vote",
+   "target": "log-v-1"
+  },
+  {
+   "id": "e-v-l2",
+   "source": "log-v-1",
+   "target": "log-v-2"
+  },
+  {
+   "id": "e-v-l3",
+   "source": "log-v-2",
+   "target": "log-v-3"
+  },
+  {
+   "id": "e-v-l4",
+   "source": "log-v-3",
+   "target": "log-v-4"
+  },
+  {
+   "id": "e-ex-p",
+   "source": "ix-execute",
+   "target": "acc-ex-prop"
+  },
+  {
+   "id": "e-ex-e",
+   "source": "ix-execute",
+   "target": "acc-ex-exec"
+  },
+  {
+   "id": "e-ex-e1",
+   "source": "ix-execute",
+   "target": "err-exec"
+  },
+  {
+   "id": "e-ex-e2",
+   "source": "ix-execute",
+   "target": "err-reject"
+  },
+  {
+   "id": "e-ex-l1",
+   "source": "ix-execute",
+   "target": "log-ex-1"
+  },
+  {
+   "id": "e-ex-l2",
+   "source": "log-ex-1",
+   "target": "log-ex-2"
+  },
+  {
+   "id": "e-ex-l3",
+   "source": "log-ex-2",
+   "target": "log-ex-3"
+  },
+  {
+   "id": "e-st-p",
+   "source": "state-prop",
+   "target": "acc-cr-prop"
+  },
+  {
+   "id": "e-st-v",
+   "source": "state-vote",
+   "target": "acc-v-rec"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "prog",
+   "data": {
+    "name": "dao_voting",
+    "version": "0.1.0"
+   },
+   "type": "program",
+   "position": {
+    "x": 40,
+    "y": 180
+   }
+  },
+  {
+   "id": "ix-create",
+   "data": {
+    "name": "create_proposal",
+    "instructionData": [
+     {
+      "name": "description",
+      "type": "String"
+     },
+     {
+      "name": "deadline",
+      "type": "i64"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 40
+   }
+  },
+  {
+   "id": "ix-vote",
+   "data": {
+    "name": "cast_vote",
+    "instructionData": [
+     {
+      "name": "support",
+      "type": "bool"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 240
+   }
+  },
+  {
+   "id": "ix-execute",
+   "data": {
+    "name": "execute_proposal",
+    "instructionData": []
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 440
+   }
+  },
+  {
+   "id": "acc-cr-prop",
+   "data": {
+    "bump": "proposal.bump",
+    "name": "proposal",
+    "isMut": true,
+    "payer": "proposer",
+    "seeds": [
+     {
+      "type": "literal",
+      "value": "proposal"
+     },
+     {
+      "type": "account-field",
+      "value": "proposer"
+     }
+    ],
+    "space": "auto",
+    "isInit": true,
+    "stateType": "ProposalState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-cr-proposer",
+   "data": {
+    "name": "proposer",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-cr-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 120
+   }
+  },
+  {
+   "id": "acc-v-prop",
+   "data": {
+    "name": "proposal",
+    "isMut": true,
+    "stateType": "ProposalState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 240
+   }
+  },
+  {
+   "id": "acc-v-rec",
+   "data": {
+    "name": "vote_record",
+    "isMut": true,
+    "payer": "voter",
+    "space": "auto",
+    "isInit": true,
+    "stateType": "VoteRecord",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 240
+   }
+  },
+  {
+   "id": "acc-v-voter",
+   "data": {
+    "name": "voter",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 960,
+    "y": 240
+   }
+  },
+  {
+   "id": "acc-v-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 960,
+    "y": 320
+   }
+  },
+  {
+   "id": "acc-ex-prop",
+   "data": {
+    "name": "proposal",
+    "isMut": true,
+    "stateType": "ProposalState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 440
+   }
+  },
+  {
+   "id": "acc-ex-exec",
+   "data": {
+    "name": "executor",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 440
+   }
+  },
+  {
+   "id": "log-cr-1",
+   "data": {
+    "setField": "proposer",
+    "setValue": "*ctx.accounts.proposer.key",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 60
+   }
+  },
+  {
+   "id": "log-cr-2",
+   "data": {
+    "setField": "description",
+    "setValue": "description",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 80
+   }
+  },
+  {
+   "id": "log-cr-3",
+   "data": {
+    "setField": "votes_for",
+    "setValue": "0",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 100
+   }
+  },
+  {
+   "id": "log-cr-4",
+   "data": {
+    "setField": "votes_against",
+    "setValue": "0",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 120
+   }
+  },
+  {
+   "id": "log-cr-5",
+   "data": {
+    "setField": "deadline",
+    "setValue": "deadline",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 140
+   }
+  },
+  {
+   "id": "log-cr-6",
+   "data": {
+    "setField": "executed",
+    "setValue": "false",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 160
+   }
+  },
+  {
+   "id": "log-cr-7",
+   "data": {
+    "setField": "bump",
+    "setValue": "ctx.bumps.proposal",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 180
+   }
+  },
+  {
+   "id": "log-v-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "Clock::get()?.unix_timestamp < proposal.deadline",
+    "requireErrorCode": "VotingEnded"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 280
+   }
+  },
+  {
+   "id": "log-v-2",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "proposal.executed == false",
+    "requireErrorCode": "AlreadyExecuted"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 300
+   }
+  },
+  {
+   "id": "log-v-3",
+   "data": {
+    "setField": "voter",
+    "setValue": "*ctx.accounts.voter.key",
+    "logicType": "set-field",
+    "setAccount": "vote_record"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 320
+   }
+  },
+  {
+   "id": "log-v-4",
+   "data": {
+    "setField": "support",
+    "setValue": "support",
+    "logicType": "set-field",
+    "setAccount": "vote_record"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 340
+   }
+  },
+  {
+   "id": "log-ex-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "proposal.executed == false",
+    "requireErrorCode": "AlreadyExecuted"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 460
+   }
+  },
+  {
+   "id": "log-ex-2",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "proposal.votes_for > proposal.votes_against",
+    "requireErrorCode": "ProposalRejected"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 480
+   }
+  },
+  {
+   "id": "log-ex-3",
+   "data": {
+    "setField": "executed",
+    "setValue": "true",
+    "logicType": "set-field",
+    "setAccount": "proposal"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 500
+   }
+  },
+  {
+   "id": "state-prop",
+   "data": {
+    "name": "ProposalState",
+    "fields": [
+     {
+      "name": "proposer",
+      "type": "Pubkey"
+     },
+     {
+      "name": "description",
+      "type": "String"
+     },
+     {
+      "name": "votes_for",
+      "type": "u64"
+     },
+     {
+      "name": "votes_against",
+      "type": "u64"
+     },
+     {
+      "name": "deadline",
+      "type": "i64"
+     },
+     {
+      "name": "executed",
+      "type": "bool"
+     },
+     {
+      "name": "bump",
+      "type": "u8"
+     }
+    ]
+   },
+   "type": "state",
+   "position": {
+    "x": 40,
+    "y": 340
+   }
+  },
+  {
+   "id": "state-vote",
+   "data": {
+    "name": "VoteRecord",
+    "fields": [
+     {
+      "name": "voter",
+      "type": "Pubkey"
+     },
+     {
+      "name": "proposal",
+      "type": "Pubkey"
+     },
+     {
+      "name": "support",
+      "type": "bool"
+     },
+     {
+      "name": "weight",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "state",
+   "position": {
+    "x": 40,
+    "y": 440
+   }
+  },
+  {
+   "id": "err-ended",
+   "data": {
+    "code": 6000,
+    "name": "VotingEnded",
+    "message": "Voting period has ended"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 540
+   }
+  },
+  {
+   "id": "err-exec",
+   "data": {
+    "code": 6001,
+    "name": "AlreadyExecuted",
+    "message": "Proposal already executed"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 600
+   }
+  },
+  {
+   "id": "err-reject",
+   "data": {
+    "code": 6002,
+    "name": "ProposalRejected",
+    "message": "Proposal did not pass"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 660
+   }
+  }
+ ],
+ "viewport": {
+  "x": 0,
+  "y": 0,
+  "zoom": 0.7
+ }
+}

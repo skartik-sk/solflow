@@ -1,0 +1,493 @@
+{
+ "edges": [
+  {
+   "id": "e-p-cr",
+   "source": "prog",
+   "target": "ix-create"
+  },
+  {
+   "id": "e-p-m",
+   "source": "prog",
+   "target": "ix-mint"
+  },
+  {
+   "id": "e-p-v",
+   "source": "prog",
+   "target": "ix-verify"
+  },
+  {
+   "id": "e-cr-col",
+   "source": "ix-create",
+   "target": "acc-cr-col"
+  },
+  {
+   "id": "e-cr-auth",
+   "source": "ix-create",
+   "target": "acc-cr-auth"
+  },
+  {
+   "id": "e-cr-sys",
+   "source": "ix-create",
+   "target": "acc-cr-sys"
+  },
+  {
+   "id": "e-cr-l1",
+   "source": "ix-create",
+   "target": "log-cr-1"
+  },
+  {
+   "id": "e-cr-l2",
+   "source": "log-cr-1",
+   "target": "log-cr-2"
+  },
+  {
+   "id": "e-cr-l3",
+   "source": "log-cr-2",
+   "target": "log-cr-3"
+  },
+  {
+   "id": "e-cr-l4",
+   "source": "log-cr-3",
+   "target": "log-cr-4"
+  },
+  {
+   "id": "e-m-col",
+   "source": "ix-mint",
+   "target": "acc-m-col"
+  },
+  {
+   "id": "e-m-mint",
+   "source": "ix-mint",
+   "target": "acc-m-mint"
+  },
+  {
+   "id": "e-m-payer",
+   "source": "ix-mint",
+   "target": "acc-m-payer"
+  },
+  {
+   "id": "e-m-sys",
+   "source": "ix-mint",
+   "target": "acc-m-sys"
+  },
+  {
+   "id": "e-m-l1",
+   "source": "ix-mint",
+   "target": "log-m-1"
+  },
+  {
+   "id": "e-m-l2",
+   "source": "log-m-1",
+   "target": "log-m-2"
+  },
+  {
+   "id": "e-m-l3",
+   "source": "log-m-2",
+   "target": "log-m-3"
+  },
+  {
+   "id": "e-v-col",
+   "source": "ix-verify",
+   "target": "acc-v-col"
+  },
+  {
+   "id": "e-v-auth",
+   "source": "ix-verify",
+   "target": "acc-v-auth"
+  },
+  {
+   "id": "e-v-l1",
+   "source": "ix-verify",
+   "target": "log-v-1"
+  },
+  {
+   "id": "e-v-err",
+   "source": "ix-verify",
+   "target": "err-unauth"
+  },
+  {
+   "id": "e-m-evt",
+   "source": "ix-mint",
+   "target": "evt-minted"
+  },
+  {
+   "id": "e-state",
+   "source": "state-col",
+   "target": "acc-cr-col"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "prog",
+   "data": {
+    "name": "nft_collection",
+    "version": "0.1.0"
+   },
+   "type": "program",
+   "position": {
+    "x": 40,
+    "y": 180
+   }
+  },
+  {
+   "id": "ix-create",
+   "data": {
+    "name": "create_collection",
+    "instructionData": [
+     {
+      "name": "name",
+      "type": "String"
+     },
+     {
+      "name": "symbol",
+      "type": "String"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 40
+   }
+  },
+  {
+   "id": "ix-mint",
+   "data": {
+    "name": "mint_nft",
+    "instructionData": [
+     {
+      "name": "uri",
+      "type": "String"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 240
+   }
+  },
+  {
+   "id": "ix-verify",
+   "data": {
+    "name": "verify_collection",
+    "instructionData": []
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 440
+   }
+  },
+  {
+   "id": "acc-cr-col",
+   "data": {
+    "name": "collection",
+    "isMut": true,
+    "payer": "authority",
+    "space": "auto",
+    "isInit": true,
+    "stateType": "CollectionState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-cr-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-cr-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 120
+   }
+  },
+  {
+   "id": "acc-m-col",
+   "data": {
+    "name": "collection",
+    "isMut": true,
+    "stateType": "CollectionState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 240
+   }
+  },
+  {
+   "id": "acc-m-mint",
+   "data": {
+    "name": "mint",
+    "isMut": true,
+    "payer": "payer",
+    "space": 82,
+    "isInit": true,
+    "accountType": "mint"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 240
+   }
+  },
+  {
+   "id": "acc-m-payer",
+   "data": {
+    "name": "payer",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 960,
+    "y": 240
+   }
+  },
+  {
+   "id": "acc-m-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 960,
+    "y": 320
+   }
+  },
+  {
+   "id": "acc-v-col",
+   "data": {
+    "name": "collection",
+    "stateType": "CollectionState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 440
+   }
+  },
+  {
+   "id": "acc-v-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 440
+   }
+  },
+  {
+   "id": "log-cr-1",
+   "data": {
+    "setField": "authority",
+    "setValue": "*ctx.accounts.authority.key",
+    "logicType": "set-field",
+    "setAccount": "collection"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 60
+   }
+  },
+  {
+   "id": "log-cr-2",
+   "data": {
+    "setField": "mint_count",
+    "setValue": "0",
+    "logicType": "set-field",
+    "setAccount": "collection"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 90
+   }
+  },
+  {
+   "id": "log-cr-3",
+   "data": {
+    "setField": "name",
+    "setValue": "name",
+    "logicType": "set-field",
+    "setAccount": "collection"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 120
+   }
+  },
+  {
+   "id": "log-cr-4",
+   "data": {
+    "setField": "symbol",
+    "setValue": "symbol",
+    "logicType": "set-field",
+    "setAccount": "collection"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 150
+   }
+  },
+  {
+   "id": "log-m-1",
+   "data": {
+    "mathLeft": "collection.mint_count",
+    "logicType": "math",
+    "mathRight": "1",
+    "mathResult": "new_count",
+    "mathChecked": true,
+    "mathOperation": "add"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 380
+   }
+  },
+  {
+   "id": "log-m-2",
+   "data": {
+    "setField": "mint_count",
+    "setValue": "new_count",
+    "logicType": "set-field",
+    "setAccount": "collection"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 410
+   }
+  },
+  {
+   "id": "log-m-3",
+   "data": {
+    "emitEvent": "NFTMintedEvent",
+    "logicType": "emit-event",
+    "emitFields": {
+     "uri": "uri",
+     "mint": "*ctx.accounts.mint.key"
+    }
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 440
+   }
+  },
+  {
+   "id": "log-v-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "collection.authority == *ctx.accounts.authority.key",
+    "requireErrorCode": "Unauthorized"
+   },
+   "type": "logic",
+   "position": {
+    "x": 740,
+    "y": 500
+   }
+  },
+  {
+   "id": "state-col",
+   "data": {
+    "name": "CollectionState",
+    "fields": [
+     {
+      "name": "authority",
+      "type": "Pubkey",
+      "description": "Collection authority"
+     },
+     {
+      "name": "mint_count",
+      "type": "u64",
+      "description": "Total NFTs minted"
+     },
+     {
+      "name": "name",
+      "type": "String",
+      "description": "Collection name"
+     },
+     {
+      "name": "symbol",
+      "type": "String",
+      "description": "Collection symbol"
+     }
+    ]
+   },
+   "type": "state",
+   "position": {
+    "x": 40,
+    "y": 340
+   }
+  },
+  {
+   "id": "err-unauth",
+   "data": {
+    "code": 6000,
+    "name": "Unauthorized",
+    "message": "Not authorized"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 440
+   }
+  },
+  {
+   "id": "evt-minted",
+   "data": {
+    "name": "NFTMintedEvent",
+    "fields": [
+     {
+      "name": "mint",
+      "type": "Pubkey"
+     },
+     {
+      "name": "uri",
+      "type": "String"
+     }
+    ]
+   },
+   "type": "event",
+   "position": {
+    "x": 40,
+    "y": 520
+   }
+  }
+ ],
+ "viewport": {
+  "x": 0,
+  "y": 0,
+  "zoom": 0.7
+ }
+}

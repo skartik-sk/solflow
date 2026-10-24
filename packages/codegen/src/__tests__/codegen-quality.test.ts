@@ -249,7 +249,8 @@ describe("Anchor codegen quality", () => {
     expect(pdaFile).toBeDefined();
     expect(pdaFile!.content).toContain('b"my_seed"');
     expect(pdaFile!.content).toContain("authority.key().as_ref()");
-    expect(pdaFile!.content).toContain("seed_arg.as_ref()");
+    // seed_arg is a String: its UTF-8 bytes are the seed
+    expect(pdaFile!.content).toContain("seed_arg.as_bytes()");
     // With init, Anchor requires plain "bump" (no target)
     expect(pdaFile!.content).toContain(", bump)]");
   });
@@ -337,7 +338,8 @@ describe("Pinocchio codegen quality", () => {
     expect(pdaFile!.content).toContain("return Err(ProgramError::InvalidSeeds);");
     // Rent-exempt create, signed by the PDA's seeds + bump
     expect(pdaFile!.content).toContain("CreateAccount::with_minimum_balance(");
-    expect(pdaFile!.content).toContain("create.invoke_signed(&[pinocchio::cpi::Signer::from(&seeds[..])])?;");
+    expect(pdaFile!.content).toContain("create.invoke_signed(&[pinocchio::cpi::Signer::from(&[");
+    expect(pdaFile!.content).toContain("pinocchio::cpi::Seed::from(&bump[..])][..])])?;");
     expect(pdaFile!.content).not.toContain("lamports: 0,");
   });
 

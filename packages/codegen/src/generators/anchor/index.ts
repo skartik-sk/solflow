@@ -3,6 +3,10 @@
 // and falls back to inline string building when fs is unavailable (browser).
 
 import { errorRef } from "../../utils/error-ref";
+import { addMissingCrateImports } from "../../utils/crate-imports";
+import { isExternalType, METADATA_TYPES, usesMetadata } from "../../utils/external-accounts";
+import { solTransferKind, splitSignerSeeds } from "../../utils/signer-seeds";
+import { seedBytes } from "../../utils/seed-bytes";
 import type {
   ProgramIR,
   Instruction,
@@ -49,7 +53,7 @@ export function generateAnchor(ir: ProgramIR): {
     ),
   ) || ir.integrations.some((integration) =>
     integration.pluginId === "spl-token" || integration.pluginId === "metaplex"
-  );
+  ) || usesMetadata(ir);
 
   // Sort everything deterministically
   const instructions = [...ir.instructions].sort((a, b) =>
@@ -62,7 +66,7 @@ export function generateAnchor(ir: ProgramIR): {
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl, ir.integrations),
+    content: generateCargoToml(programName, version, usesSpl, ir.integrations, usesMetadata(ir)),
     language: "toml",
   });
 
@@ -84,7 +88,7 @@ export function generateAnchor(ir: ProgramIR): {
   // ── src/instructions/mod.rs ────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/src/instructions/mod.rs`,
-    content: generateModRs(instructions.map((ix) => ix.name)),
+    content: generateInstructionsModRs(instructions.map((ix) => ix.name)),
     language: "rust",
   });
 
@@ -144,7 +148,7 @@ export function generateAnchor(ir: ProgramIR): {
     });
   }
 
-  return { files, warnings, errors };
+  return { files: addMissingCrateImports(files, ir), warnings, errors };
 }
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
@@ -154,9 +158,14 @@ function generateCargoToml(
   version: string,
   usesSpl: boolean,
   integrations: Integration[],
+  metadata = false,
 ): string {
   const kebab = toKebabCase(name);
-  const spl = usesSpl ? '\nanchor-spl = "0.32.1"' : "";
+  const spl = usesSpl
+    ? metadata
+      ? '\nanchor-spl = { version = "0.32.1", features = ["metadata"] }'
+      : '\nanchor-spl = "0.32.1"'
+    : "";
   const hasPyth = integrations.some((integration) => integration.pluginId === "pyth");
   const pyth = hasPyth ? '\npyth-solana-receiver-sdk = "0.3"' : "";
   const hasMetaplex = integrations.some((integration) => integration.pluginId === "metaplex");
@@ -207,7 +216,9 @@ function generateLibRs(
   if (events.length > 0) modules.push("events");
   if (constants.length > 0) modules.push("constants");
 
-  const modLines = modules.map((m) => `pub mod ${m};`).join("\n");
+  // #[program] looks up each instruction's Accounts struct (and its generated client module)
+  // at the crate root.
+  const modLines = `${modules.map((m) => `pub mod ${m};`).join("\n")}\n\npub use instructions::*;`;
 
   const idLine = programId
     ? `declare_id!("${programId}");`
@@ -247,6 +258,12 @@ function generateModRs(names: string[]): string {
   return names.map((n) => `pub mod ${n};`).join("\n") + "\n";
 }
 
+/** Instruction modules, re-exported so their Accounts structs reach the crate root. */
+function generateInstructionsModRs(names: string[]): string {
+  // Every module has its own `handler`; lib.rs calls them by full path.
+  return `${generateModRs(names)}\n${names.map((n) => `#[allow(ambiguous_glob_reexports)]\npub use ${n}::*;`).join("\n")}\n`;
+}
+
 // ─── src/instructions/<name>.rs ──────────────────────────────────────────────
 
 function generateInstructionRs(
@@ -271,7 +288,7 @@ function generateInstructionRs(
   let hasErrors = false;
 
   for (const a of ix.accounts) {
-    if (a.stateType) usedStates.add(a.stateType);
+    if (a.stateType && !isExternalType(a.stateType, ir)) usedStates.add(a.stateType);
   }
   for (const op of ix.body) {
     if (op.type === "emit-event") usedEvents.add(op.event);
@@ -808,79 +825,52 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
       // Use the bound ref if already borrowed, otherwise use ctx.accounts directly
       const fromRef = boundAccounts?.has(op.from) ? op.from : `ctx.accounts.${op.from}`;
       const toRef = boundAccounts?.has(op.to) ? op.to : `ctx.accounts.${op.to}`;
+      const amount = qualifyAccountRefs(op.amount, ix, boundAccounts);
+      const kind = solTransferKind(op.from, ix);
+      if (kind === "program-owned") {
+        return [
+          `let amount: u64 = ${amount};`,
+          `**${fromRef}.to_account_info().try_borrow_mut_lamports()? -= amount;`,
+          `**${toRef}.to_account_info().try_borrow_mut_lamports()? += amount;`,
+        ];
+      }
+      const seeds = kind === "pda-signed" ? buildSignerSeeds([], op.from, ix, boundAccounts) : [];
       return [
+        `let amount: u64 = ${amount};`,
+        ...seeds,
         `let cpi_accounts = anchor_lang::system_program::Transfer {`,
         `    from: ${fromRef}.to_account_info(),`,
         `    to: ${toRef}.to_account_info(),`,
         `};`,
-        `let cpi_ctx = CpiContext::new(ctx.accounts.system_program.to_account_info(), cpi_accounts);`,
-        `anchor_lang::system_program::transfer(cpi_ctx, ${op.amount})?;`,
+        seeds.length
+          ? `let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.system_program.to_account_info(), cpi_accounts, signer_seeds);`
+          : `let cpi_ctx = CpiContext::new(ctx.accounts.system_program.to_account_info(), cpi_accounts);`,
+        `anchor_lang::system_program::transfer(cpi_ctx, amount)?;`,
       ];
     }
 
-    case "transfer-token": {
-      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
-      if (seeds) {
-        return [
-          `let seeds = ${seeds[0]};`,
-          `let signer_seeds = &[&seeds[..]];`,
-          `let cpi_accounts = anchor_spl::token::Transfer {`,
-          `    from: ctx.accounts.${op.from}.to_account_info(),`,
-          `    to: ctx.accounts.${op.to}.to_account_info(),`,
-          `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-          `};`,
-          `let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds);`,
-          `anchor_spl::token::transfer(cpi_ctx, ${op.amount})?;`,
-        ];
-      }
-      return [
-        `let cpi_accounts = anchor_spl::token::Transfer {`,
-        `    from: ctx.accounts.${op.from}.to_account_info(),`,
-        `    to: ctx.accounts.${op.to}.to_account_info(),`,
-        `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-        `};`,
-        `let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);`,
-        `anchor_spl::token::transfer(cpi_ctx, ${op.amount})?;`,
-      ];
-    }
-
-    case "mint-to": {
-      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
-      const extra = seeds
-        ? [`let seeds = ${seeds[0]};`, `let signer_seeds = &[&seeds[..]];`]
-        : [];
-      const cpiNew = seeds
-        ? `CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds)`
-        : `CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts)`;
-      return [
-        ...extra,
-        `let cpi_accounts = anchor_spl::token::MintTo {`,
-        `    mint: ctx.accounts.${op.mint}.to_account_info(),`,
-        `    to: ctx.accounts.${op.to}.to_account_info(),`,
-        `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
-        `};`,
-        `let cpi_ctx = ${cpiNew};`,
-        `anchor_spl::token::mint_to(cpi_ctx, ${op.amount})?;`,
-      ];
-    }
-
+    case "transfer-token":
+    case "mint-to":
     case "burn": {
-      const seeds = op.signerSeeds ? buildSignerSeeds(op.signerSeeds) : null;
-      const extra = seeds
-        ? [`let seeds = ${seeds[0]};`, `let signer_seeds = &[&seeds[..]];`]
-        : [];
-      const cpiNew = seeds
-        ? `CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds)`
-        : `CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts)`;
+      const acc = (name: string) => (boundAccounts?.has(name) ? name : `ctx.accounts.${name}`);
+      const amount = qualifyAccountRefs(op.amount, ix, boundAccounts);
+      const seeds = op.signerSeeds?.length ? buildSignerSeeds(op.signerSeeds, op.authority, ix, boundAccounts) : [];
+      const [cpi, fn, fields] =
+        op.type === "transfer-token"
+          ? ["Transfer", "transfer", [["from", op.from], ["to", op.to]]]
+          : op.type === "mint-to"
+            ? ["MintTo", "mint_to", [["mint", op.mint], ["to", op.to]]]
+            : ["Burn", "burn", [["mint", op.mint], ["from", op.from]]];
       return [
-        ...extra,
-        `let cpi_accounts = anchor_spl::token::Burn {`,
-        `    mint: ctx.accounts.${op.mint}.to_account_info(),`,
-        `    from: ctx.accounts.${op.from}.to_account_info(),`,
-        `    authority: ctx.accounts.${op.authority}.to_account_info(),`,
+        ...seeds,
+        `let cpi_accounts = anchor_spl::token::${cpi} {`,
+        ...(fields as string[][]).map(([k, v]) => `    ${k}: ${acc(v)}.to_account_info(),`),
+        `    authority: ${acc(op.authority)}.to_account_info(),`,
         `};`,
-        `let cpi_ctx = ${cpiNew};`,
-        `anchor_spl::token::burn(cpi_ctx, ${op.amount})?;`,
+        seeds.length
+          ? `let cpi_ctx = CpiContext::new_with_signer(ctx.accounts.token_program.to_account_info(), cpi_accounts, signer_seeds);`
+          : `let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);`,
+        `anchor_spl::token::${fn}(cpi_ctx, ${amount})?;`,
       ];
     }
 
@@ -901,7 +891,7 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
       const fields = Object.entries(op.fields)
         .map(([k, v]) => {
           // *ctx.accounts.X.key → ctx.accounts.X.key() (method call, returns Pubkey directly)
-          let val = v as string;
+          let val = qualifyAccountRefs(v as string, ix, boundAccounts);
           val = val.replace(/\*ctx\.accounts\.(\w+)\.key\b(?!\()/g, 'ctx.accounts.$1.key()');
           return `    ${k}: ${val},`;
         })
@@ -933,47 +923,27 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
 
     case "cpi": {
       const prog = op.targetProgram;
-      const ix = op.instruction;
+      const ixName = op.instruction;
       const accountMappings = op.accounts
         .map((a) => `${a.to}: ctx.accounts.${a.from}.to_account_info(),`)
         .join("\n            ");
       const dataArgs = op.data.map((d) => d.value).join(", ");
-      const hasSignerSeeds = op.signerSeeds && op.signerSeeds.length > 0;
-      const seedParts = hasSignerSeeds
-        ? op.signerSeeds!.map((s) => {
-            if (s.type === "literal") return `b"${s.value}"`;
-            if (s.type === "pubkey" || s.type === "account-field") return `ctx.accounts.${s.value}.key().as_ref()`;
-            if (s.type === "instruction-arg") return `${s.value}.as_ref()`;
-            return `ctx.accounts.${s.value}.key().as_ref()`;
-          }).join(", ")
-        : null;
+      const seeds = op.signerSeeds?.length ? buildSignerSeeds(op.signerSeeds, "", ix, boundAccounts) : [];
 
       const lines: string[] = [
-        `// CPI: ${prog}::${ix}`,
+        `// CPI: ${prog}::${ixName}`,
         `{`,
         `    let cpi_program = ctx.accounts.${prog}.to_account_info();`,
-        `    let cpi_accounts = ${toPascalCase(ix)}Cpi {`,
+        `    let cpi_accounts = ${toPascalCase(ixName)}Cpi {`,
         `            ${accountMappings}`,
         `    };`,
+        ...seeds.map((l) => `    ${l}`),
+        seeds.length
+          ? `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts).with_signer(signer_seeds);`
+          : `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);`,
+        dataArgs ? `    ${ixName}(cpi_ctx, ${dataArgs})?;` : `    ${ixName}(cpi_ctx)?;`,
+        `}`,
       ];
-
-      if (hasSignerSeeds) {
-        lines.push(
-          `    let seeds = &[&[${seedParts}][..]];`,
-          `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts).with_signer(seeds);`,
-        );
-      } else {
-        lines.push(
-          `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);`,
-        );
-      }
-
-      if (dataArgs) {
-        lines.push(`    ${ix}(cpi_ctx, ${dataArgs})?;`);
-      } else {
-        lines.push(`    ${ix}(cpi_ctx)?;`);
-      }
-      lines.push(`}`);
       return lines;
     }
 
@@ -1004,14 +974,39 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
   }
 }
 
-function buildSignerSeeds(seeds: Seed[]): string[] {
-  const parts = seeds.map((s) => {
-    if (s.type === "literal") return `b"${s.value}"`;
-    if (s.type === "pubkey" || s.type === "account-field") return `ctx.accounts.${s.value}.key().as_ref()`;
-    if (s.type === "instruction-arg") return `${s.value}.as_ref()`;
-    return s.value;
-  });
-  return [`&[${parts.join(", ")}]`];
+/** `let signer_seeds = …;` for a PDA signing a CPI, with its bump appended. */
+function buildSignerSeeds(signerSeeds: Seed[], authority: string, ix?: Instruction, bound?: Set<string>): string[] {
+  const { seeds, pda } = splitSignerSeeds(signerSeeds, authority, ix);
+  const lines: string[] = [];
+  const parts = seeds.map((s) =>
+    seedBytes(s, {
+      literal: (v) => `b"${v}"`,
+      key: (account) => {
+        // Keys are bound first: `.key()` returns a temporary that the seeds would outlive.
+        lines.push(`let ${account}_key = ctx.accounts.${account}.key();`);
+        return `${account}_key.as_ref()`;
+      },
+    }, ix),
+  );
+  if (pda) {
+    // `bump = vault.bump` constraints use the stored bump; ctx.bumps only has bumps Anchor derived.
+    const account = ix?.accounts.find((a) => a.name === pda);
+    const seedsC = account?.constraints.find((c) => c.type === "seeds");
+    const derived = account?.constraints.some((c) => c.type === "init" || c.type === "init-if-needed");
+    const stored = seedsC?.type === "seeds" && seedsC.bump && !derived ? seedsC.bump : undefined;
+    lines.push(`let ${pda}_bump = [${stored ? qualifyAccountRefs(stored, ix, bound) : `ctx.bumps.${pda}`}];`);
+    parts.push(`&${pda}_bump`);
+  }
+  lines.push(`let signer_seeds: &[&[&[u8]]] = &[&[${parts.join(", ")}]];`);
+  return lines;
+}
+
+/** `escrow.amount` → `ctx.accounts.escrow.amount` for accounts the handler hasn't bound to a local. */
+function qualifyAccountRefs(value: string, ix?: Instruction, bound?: Set<string>): string {
+  if (!ix) return value;
+  return value.replace(/(?<![.\w])([a-z_][a-z0-9_]*)\.(?=[a-z_])/g, (m, name: string) =>
+    ix.accounts.some((a) => a.name === name) && !bound?.has(name) ? `ctx.accounts.${name}.` : m,
+  );
 }
 
 // ─── Account struct field builder ─────────────────────────────────────────────
@@ -1043,9 +1038,11 @@ function buildAccountField(
 function buildAccountAttributes(
   account: Account,
   ix: Instruction,
-  _ir: ProgramIR,
+  ir: ProgramIR,
 ): string[] {
   const constraints = account.constraints;
+  // Constraint errors need a full path: the instruction file may not import the error enum.
+  const errorEnum = `crate::errors::${toPascalCase(ir.program.name)}Error`;
 
   const initPayers = new Set<string>();
   for (const a of ix.accounts) {
@@ -1084,13 +1081,18 @@ function buildAccountAttributes(
       case "signer":
         // signer is expressed in the type (Signer<'info>), not a constraint
         break;
-      case "init": {
-        // For SPL mint accounts with mint::authority/mint::decimals constraints,
-        // Anchor handles space automatically. Otherwise keep explicit space.
-        const hasMintConstraints = account.accountType === "mint" &&
-          account.constraints.some((ac) => ac.type === "mint-authority" || ac.type === "mint-decimals");
-        if (hasMintConstraints) {
-          parts.push(`init, payer = ${c.payer}`);
+      case "init":
+      case "init-if-needed": {
+        const kw = c.type === "init" ? "init" : "init_if_needed";
+        // Anchor sizes SPL mints and token accounts itself and rejects an explicit space.
+        // It only creates a mint given its decimals and authority: default to the payer, 0 decimals.
+        const mintDefaults =
+          account.accountType === "mint" &&
+          !account.constraints.some((ac) => ac.type === "mint-authority" || ac.type === "mint-decimals")
+            ? `, mint::decimals = 0, mint::authority = ${c.payer}`
+            : "";
+        if (isSplAccount(account)) {
+          parts.push(`${kw}, payer = ${c.payer}${mintDefaults}`);
         } else {
           const spaceStr =
             c.space === "auto"
@@ -1098,35 +1100,22 @@ function buildAccountAttributes(
                 ? `8 + ${account.stateType}::INIT_SPACE`
                 : "8"
               : String(c.space);
-          parts.push(`init, payer = ${c.payer}, space = ${spaceStr}`);
+          parts.push(`${kw}, payer = ${c.payer}, space = ${spaceStr}`);
         }
-        break;
-      }
-      case "init-if-needed": {
-        const spaceStr =
-          c.space === "auto"
-            ? account.stateType
-              ? `8 + ${account.stateType}::INIT_SPACE`
-              : "8"
-            : String(c.space);
-        parts.push(`init_if_needed, payer = ${c.payer}, space = ${spaceStr}`);
         break;
       }
       case "close":
         parts.push(`close = ${c.target}`);
         break;
       case "has-one": {
-        const err = c.errorCode ? ` @ ${c.errorCode}` : "";
+        const err = c.errorCode ? ` @ ${errorRef(errorEnum, c.errorCode, "")}` : "";
         parts.push(`has_one = ${c.field}${err}`);
         break;
       }
       case "seeds": {
-        const seedParts = c.seeds.map((s) => {
-          if (s.type === "literal") return `b"${s.value}"`;
-          if (s.type === "pubkey" || s.type === "account-field") return `${s.value}.key().as_ref()`;
-          if (s.type === "instruction-arg") return `${s.value}.as_ref()`;
-          return s.value;
-        });
+        const seedParts = c.seeds.map((s) =>
+          seedBytes(s, { literal: (v) => `b"${v}"`, key: (a) => `${a}.key().as_ref()` }, ix),
+        );
         parts.push(`seeds = [${seedParts.join(", ")}]`);
         // When init/init-if-needed is present, Anchor requires plain "bump" (no target).
         // Otherwise use the explicit bump target if provided.
@@ -1159,7 +1148,7 @@ function buildAccountAttributes(
         break;
       }
       case "custom": {
-        const err = c.errorCode ? ` @ ${c.errorCode}` : "";
+        const err = c.errorCode ? ` @ ${errorRef(errorEnum, c.errorCode, "")}` : "";
         parts.push(`constraint = ${c.expression}${err}`);
         break;
       }
@@ -1185,6 +1174,10 @@ function buildAccountAttributes(
   return [`#[account(${parts.join(", ")})]`];
 }
 
+function isSplAccount(account: Account): boolean {
+  return account.accountType === "mint" || account.accountType === "token-account" || account.accountType === "associated-token";
+}
+
 function accountToRustType(account: Account): string {
   switch (account.accountType) {
     case "signer":
@@ -1206,16 +1199,16 @@ function accountToRustType(account: Account): string {
     case "token-account":
       return `Account<'info, anchor_spl::token::TokenAccount>`;
     case "associated-token":
-      return `InterfaceAccount<'info, anchor_spl::token::TokenAccount>`;
+      return `Account<'info, anchor_spl::token::TokenAccount>`;
     case "unchecked-account":
       return `UncheckedAccount<'info>`;
     case "program":
       return account.stateType
-        ? `Program<'info, ${account.stateType}>`
+        ? `Program<'info, ${METADATA_TYPES.has(account.stateType) ? `anchor_spl::metadata::${account.stateType}` : account.stateType}>`
         : `AccountInfo<'info>`;
     case "account":
       return account.stateType
-        ? `Account<'info, ${account.stateType}>`
+        ? `Account<'info, ${METADATA_TYPES.has(account.stateType) ? `anchor_spl::metadata::${account.stateType}` : account.stateType}>`
         : `AccountInfo<'info>`;
     case "custom":
       return account.stateType ?? `AccountInfo<'info>`;

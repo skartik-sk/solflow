@@ -18,6 +18,10 @@
 //   - PodBool, PodU16, PodU32, PodU64, PodU128, PodI16, PodI32, PodI64, PodI128
 
 import { errorRef } from "../../utils/error-ref";
+import { addMissingCrateImports } from "../../utils/crate-imports";
+import { isExternalType, usesMetadata } from "../../utils/external-accounts";
+import { splitSignerSeeds } from "../../utils/signer-seeds";
+import { seedBytes } from "../../utils/seed-bytes";
 import type {
   ProgramIR,
   Instruction,
@@ -172,7 +176,7 @@ export function generateQuasar(ir: ProgramIR): {
   // ── Cargo.toml
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl, ir.integrations),
+    content: generateCargoToml(programName, version, usesSpl || usesMetadata(ir), ir.integrations, usesMetadata(ir)),
     language: "toml",
   });
 
@@ -256,7 +260,7 @@ export function generateQuasar(ir: ProgramIR): {
     });
   }
 
-  return { files, warnings, errors };
+  return { files: addMissingCrateImports(files, ir), warnings, errors };
 }
 
 // ─── Cargo.toml ───────────────────────────────────────────────────────────────
@@ -266,9 +270,14 @@ function generateCargoToml(
   version: string,
   usesSpl: boolean,
   integrations: Integration[],
+  metadata = false,
 ): string {
   const kebab = toKebabCase(name);
-  const splDep = usesSpl ? '\nquasar-spl = "0.0"' : "";
+  const splDep = usesSpl
+    ? metadata
+      ? '\nquasar-spl = { version = "0.0", features = ["metadata"] }'
+      : '\nquasar-spl = "0.0"'
+    : "";
   const metaplexDep = integrations.some((integration) => integration.pluginId === "metaplex")
     ? '\nmpl-token-metadata = "4.1"'
     : "";
@@ -453,18 +462,30 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
   collectMutNeeded(ix.body);
 
   // Build the account-to-state-type map using RENAMED names so PodExpr lookup works
-  const renamedAccountToState = new Map<string, string>();
+  const renamedAccountToState = new Map<string, string>(accountToStateType);
   for (const [orig, state] of accountToStateType) {
     renamedAccountToState.set(renameMap.get(orig) ?? orig, state);
   }
 
-  // Create a wrapped rename function that also handles PodExpr translation
-  const renameAndPod = (s: string): string => {
-    return translateQuasarPodExpr(translateQuasarValue(rename(s)), renamedAccountToState, fieldTypeMap);
-  };
-
   const mutBorrowed = new Set<string>();
   const readOnlyBound = new Set<string>();
+
+  // `escrow.amount` → `ctx.accounts.escrow.amount` when the handler hasn't bound `escrow` to a local.
+  const qualify = (s: string): string =>
+    s.replace(/(?<![.\w])([a-z_][a-z0-9_]*)\.(?=[a-z_])/g, (m, name: string) =>
+      accounts.some((a) => a.name === name) && !mutBorrowed.has(name) && !readOnlyBound.has(name)
+        ? `ctx.accounts.${name}.`
+        : m,
+    );
+
+  // An account as a CPI argument: through its local if the handler bound one (it holds the borrow).
+  const accRef = (name: string): string =>
+    mutBorrowed.has(name) || readOnlyBound.has(name) ? `*${renameMap.get(name) ?? name}` : `ctx.accounts.${name}`;
+
+  // Create a wrapped rename function that also handles PodExpr translation
+  const renameAndPod = (s: string): string => {
+    return translateQuasarPodExpr(translateQuasarValue(rename(qualify(s))), renamedAccountToState, fieldTypeMap);
+  };
 
   // Collect accounts that need early read-only binding (referenced in require before any set-field)
   // These must be bound to avoid "cannot find value" errors
@@ -498,7 +519,7 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
         mutBorrowed.add(origName);
       }
     }
-    lines.push(...emitLogicOp(op, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir));
+    lines.push(...emitLogicOp(op, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir, ix, accRef));
   }
 
   return [
@@ -524,6 +545,7 @@ function translateQuasarValue(value: string): string {
   result = result.replace(/ctx\.accounts\.(\w+)\.key\b/g, 'ctx.accounts.$1.address()');
   // Clock::get()?.unix_timestamp → i64::from(Clock::get()?.unix_timestamp) (PodI64 → i64)
   result = result.replace(/Clock::get\(\)\?\.unix_timestamp/g, 'i64::from(Clock::get()?.unix_timestamp)');
+  result = result.replace(/\bPubkey::default\(\)/g, "Address::default()");
   // bumps.X (Anchor handler param) → ctx.bumps.X (Quasar Ctx has .bumps)
   result = result.replace(/(?<![\w.])bumps\./g, 'ctx.bumps.');
   return result;
@@ -534,7 +556,7 @@ function translateQuasarValue(value: string): string {
 function translateQuasarPodExpr(expr: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>): string {
   if (!accountToStateType || !fieldTypeMap) return expr;
   // Match account.field patterns and wrap Pod fields with native type conversion
-  return expr.replace(/\b(\w+)\.(\w+)\b/g, (_match: string, account: string, field: string) => {
+  return expr.replace(/\b((?:ctx\.accounts\.)?)(\w+)\.(\w+)\b/g, (_match: string, prefix: string, account: string, field: string) => {
     const stateType = accountToStateType.get(account);
     if (stateType) {
       const fieldKey = `${stateType}.${field}`;
@@ -543,10 +565,10 @@ function translateQuasarPodExpr(expr: string, accountToStateType?: Map<string, s
         // Determine the native Rust type from the Pod type name
         const nativeType = fieldType.replace("Pod", "").toLowerCase();
         // PodBool → bool, PodU64 → u64, PodI64 → i64, etc.
-        return `${nativeType}::from(${account}.${field})`;
+        return `${nativeType}::from(${prefix}${account}.${field})`;
       }
     }
-    return `${account}.${field}`;
+    return `${prefix}${account}.${field}`;
   });
 }
 
@@ -594,7 +616,7 @@ function getAccessedAccountsQuasar(op: LogicOperation): string[] {
   return [...refs];
 }
 
-function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>, rename?: (s: string) => string, renameAndPod?: (s: string) => string, ir?: ProgramIR): string[] {
+function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?: Map<string, string>, fieldTypeMap?: Map<string, string>, rename?: (s: string) => string, renameAndPod?: (s: string) => string, ir?: ProgramIR, ix?: Instruction, accRef?: (name: string) => string): string[] {
   switch (op.type) {
     case "set-field": {
       // Skip set-field for SPL account types — these have private fields / use CPI
@@ -642,55 +664,32 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
         i.accounts.some((a) => a.name === op.from && a.constraints.some((c) => c.type === "seeds")));
       const transfer = `ctx.accounts.system_program.transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ${amountExpr})`;
       if (fromIsPda) {
-        lines.push(`let seeds = ctx.bumps.${op.from}_seeds();`, `${transfer}.invoke_signed(&seeds)?;`);
+        const signer = buildQuasarSignerSeeds([], op.from, ix, ir);
+        lines.push(...signer.setup, `let seeds = ${signer.seeds};`, `${transfer}.invoke_signed(&seeds)?;`);
       } else {
         lines.push(`${transfer}.invoke()?;`);
       }
       return lines;
     }
 
-    case "transfer-token": {
-      const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
-      if (seeds) {
-        return [
-          `let seeds = ${seeds};`,
-          `ctx.accounts.token_program`,
-          `    .transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ctx.accounts.${op.authority}, ${op.amount})`,
-          `    .invoke_signed(&seeds)?;`,
-        ];
-      }
-      return [
-        `ctx.accounts.token_program`,
-        `    .transfer(ctx.accounts.${op.from}, ctx.accounts.${op.to}, ctx.accounts.${op.authority}, ${op.amount})`,
-        `    .invoke()?;`,
-      ];
-    }
-
-    case "mint-to": {
-      const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
-      const invokeCall = seeds ? ".invoke_signed(&seeds)" : ".invoke()";
-      return [
-        ...(seeds ? [`let seeds = ${seeds};`] : []),
-        `ctx.accounts.token_program`,
-        `    .mint_to(ctx.accounts.${op.mint}, ctx.accounts.${op.to}, ctx.accounts.${op.authority}, ${op.amount})`,
-        `    ${invokeCall}?;`,
-      ];
-    }
-
+    case "transfer-token":
+    case "mint-to":
     case "burn": {
-      const seeds = op.signerSeeds ? buildQuasarSeeds(op.signerSeeds) : null;
-      if (seeds) {
-        return [
-          `let seeds = ${seeds};`,
-          `ctx.accounts.token_program`,
-          `    .burn(ctx.accounts.${op.mint}, ctx.accounts.${op.from}, ctx.accounts.${op.authority}, ${op.amount})`,
-          `    .invoke_signed(&seeds)?;`,
-        ];
-      }
+      const amount = renameAndPod ? renameAndPod(op.amount) : op.amount;
+      const acc = accRef ?? ((name: string) => `ctx.accounts.${name}`);
+      const call =
+        op.type === "transfer-token"
+          ? `.transfer(${acc(op.from)}, ${acc(op.to)}, ${acc(op.authority)}, ${amount})`
+          : op.type === "mint-to"
+            ? `.mint_to(${acc(op.mint)}, ${acc(op.to)}, ${acc(op.authority)}, ${amount})`
+            : `.burn(${acc(op.mint)}, ${acc(op.from)}, ${acc(op.authority)}, ${amount})`;
+      const signer = op.signerSeeds?.length ? buildQuasarSignerSeeds(op.signerSeeds, op.authority, ix, ir) : null;
+      const seeds = signer?.seeds;
       return [
+        ...(signer ? [...signer.setup, `let seeds = ${signer.seeds};`] : []),
         `ctx.accounts.token_program`,
-        `    .burn(ctx.accounts.${op.mint}, ctx.accounts.${op.from}, ctx.accounts.${op.authority}, ${op.amount})`,
-        `    .invoke()?;`,
+        `    ${call}`,
+        seeds ? `    .invoke_signed(&seeds)?;` : `    .invoke()?;`,
       ];
     }
 
@@ -701,9 +700,9 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
 
     case "if-else": {
       const cond = renameAndPod ? renameAndPod(op.condition) : translateQuasarPodExpr(translateQuasarValue(rename?.(op.condition) ?? op.condition), accountToStateType, fieldTypeMap);
-      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir)).map((l) => `        ${l}`);
+      const then_ = op.thenBody.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir, ix, accRef)).map((l) => `        ${l}`);
       const else_ =
-        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir)).map((l) => `        ${l}`) ?? [];
+        op.elseBody?.flatMap((o) => emitLogicOp(o, errorEnum, accountToStateType, fieldTypeMap, rename, renameAndPod, ir, ix, accRef)).map((l) => `        ${l}`) ?? [];
       const result = [`if ${cond} {`, ...then_];
       if (else_.length) result.push("} else {", ...else_);
       result.push("}");
@@ -787,17 +786,69 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
   }
 }
 
-/** Quasar seeds take an account field directly: `signer.key().as_ref()` → `signer`. */
-function quasarSeedValue(value: string): string {
-  const m = value.trim().match(/^([a-z_][a-z0-9_]*)\.key\(\)(?:\.as_ref\(\))?$/);
-  return m ? m[1] : value;
+
+/**
+ * PDA seeds that read the PDA's own data (`seeds = [b"escrow", escrow.maker.as_ref()]`).
+ * Quasar's derive evaluates seeds before the account exists, so these are verified by hand.
+ */
+function selfReferentialSeeds(account: Account | undefined): { seeds: Seed[]; bump?: string } | undefined {
+  const c = account?.constraints.find((x) => x.type === "seeds");
+  if (!account || c?.type !== "seeds") return undefined;
+  const self = c.seeds.some((sd) => sd.type !== "literal" && sd.value.trim().startsWith(`${account.name}.`));
+  return self ? { seeds: c.seeds, bump: c.bump } : undefined;
 }
 
-function buildQuasarSeeds(seeds: Seed[]): string {
-  const parts = seeds.map((s) => {
-    if (s.type === "literal") return `b"${s.value}"`;
-    return quasarSeedValue(s.value);
-  });
+/** State field types (`State.field` → Quasar type), for Pod conversions. */
+function quasarFieldTypes(ir: ProgramIR): Map<string, string> {
+  return new Map(ir.states.flatMap((st) => st.fields.map((f) => [`${st.name}.${f.name}`, solanaTypeToQuasarAccount(f.type, f.maxLen)] as [string, string])));
+}
+
+/**
+ * One self-referential seed as bytes. `at` prefixes account names (`""` inside the accounts
+ * struct, `ctx.accounts.` in a handler). Returns an owned value to bind, if one is needed.
+ */
+function quasarSelfSeed(seed: Seed, ix: Instruction, ir: ProgramIR, at: string): { owned?: string; bytes: (v: string) => string; expr: string } {
+  if (seed.type === "literal") return { bytes: () => "", expr: `b"${seed.value}" as &[u8]` };
+  const value = seed.value.trim().replace(/\.key\(\)(?:\.to_bytes\(\))?(?:\.as_ref\(\))?$/, "").replace(/\.as_ref\(\)$/, "");
+  if (/^[A-Z][A-Z0-9_]*$/.test(value)) return { bytes: () => "", expr: value };
+  const account = ix.accounts.find((a) => a.name === value);
+  if (account) return { owned: `${at}${value}.to_account_view().address().clone()`, bytes: (v) => `${v}.as_ref()`, expr: `${at}${value}.to_account_view().address().as_ref()` };
+  const states = new Map(ix.accounts.filter((a) => a.stateType).map((a) => [a.name, a.stateType!]));
+  const field = value.match(/^(\w+)\.(\w+)$/);
+  if (field && quasarFieldTypes(ir).get(`${states.get(field[1])}.${field[2]}`) === "Address") {
+    return { owned: `${at}${value}.clone()`, bytes: (v) => `${v}.as_ref()`, expr: `${at}${value}.as_ref()` };
+  }
+  // Numbers: Pod fields convert to native first (`u64::from(escrow.ids).to_le_bytes()`).
+  const native = translateQuasarPodExpr(value.replace(/(?<![.\w])(\w+)\./g, (m, n: string) => (states.has(n) ? `${at}${n}.` : m)), new Map([...states].map(([k, v]) => [`${at}${k}`.replace(/\.$/, ""), v])), quasarFieldTypes(ir));
+  return { owned: native, bytes: (v) => `&${v}[..]`, expr: `&${native}[..]` };
+}
+
+/** Seeds for a PDA signing a CPI: Quasar's generated `<pda>_seeds()` carries the bump. */
+function buildQuasarSignerSeeds(signerSeeds: Seed[], authority: string, ix?: Instruction, ir?: ProgramIR): { setup: string[]; seeds: string } {
+  const { seeds, pda } = splitSignerSeeds(signerSeeds, authority, ix);
+  const account = ix?.accounts.find((a) => a.name === pda);
+  const self = selfReferentialSeeds(account);
+  if (pda && ix && ir && self) {
+    // Bind each seed to a local first: the seeds borrow them.
+    const setup: string[] = [];
+    const parts = self.seeds.map((sd, i) => {
+      const seed = quasarSelfSeed(sd, ix, ir, "ctx.accounts.");
+      if (!seed.owned) return `Seed::from(${seed.expr})`;
+      setup.push(`let ${pda}_seed_${i} = ${seed.owned};`);
+      return `Seed::from(${seed.bytes(`${pda}_seed_${i}`)})`;
+    });
+    setup.push(`let ${pda}_bump = [${self.bump ? `ctx.accounts.${self.bump.replace(/^\w+\./, `${pda}.`)}` : `ctx.bumps.${pda}`}];`);
+    parts.push(`Seed::from(&${pda}_bump[..])`);
+    return { setup, seeds: `[${parts.join(", ")}]` };
+  }
+  const isPda = account?.constraints.some((c) => c.type === "seeds");
+  return { setup: [], seeds: pda && isPda ? `ctx.bumps.${pda}_seeds()` : buildQuasarSeeds(seeds, ix) };
+}
+
+function buildQuasarSeeds(seeds: Seed[], ix?: Instruction): string {
+  const parts = seeds.map((s) =>
+    seedBytes(s, { literal: (v) => `b"${v}" as &[u8]`, key: (a) => `ctx.accounts.${a}.address().as_ref()` }, ix),
+  );
   return `&[${parts.join(", ")}]`;
 }
 
@@ -1080,19 +1131,34 @@ function generateInstructionRs(
     });
   }
 
+  // Quasar's Accounts derive evaluates seeds without the instruction's arguments.
+  for (const a of accounts) {
+    const seeds = a.constraints.find((c) => c.type === "seeds");
+    if (seeds?.type !== "seeds") continue;
+    const arg = ix.args.find((x) => seeds.seeds.some((sd) => sd.type !== "literal" && new RegExp(`(?<![.\\w])${x.name}\\b`).test(sd.value)));
+    if (arg) {
+      errs.push({
+        message: `${ix.name}: the PDA "${a.name}" is derived from the instruction argument "${arg.name}", which Quasar can't do. Seed it from accounts or constants, or use Anchor or Pinocchio.`,
+        nodeId: ix.id,
+      });
+    }
+  }
+
   // Collect state types referenced by accounts (for imports)
   const usedStates = new Set<string>();
   for (const a of accounts) {
-    if (a.stateType) usedStates.add(a.stateType);
+    if (a.stateType && !isExternalType(a.stateType, ir)) usedStates.add(a.stateType);
   }
 
   // Build imports
   const importLines: string[] = ["use quasar_lang::prelude::*;"];
   // Add quasar-spl import if mint/token accounts are present
   const needsSpl = accounts.some((a) =>
-    a.accountType === "mint" || a.accountType === "token-account" || a.accountType === "associated-token"
+    a.accountType === "mint" || a.accountType === "token-account" || a.accountType === "associated-token" ||
+    a.accountType === "token-program" || a.accountType === "associated-token-program" || isExternalType(a.stateType, ir)
   ) || pluginBlocks.some((block) => block.imports.includes("use quasar_spl::*;"));
   if (needsSpl) importLines.push("use quasar_spl::*;");
+  if (accounts.some((a) => isExternalType(a.stateType, ir))) importLines.push("use quasar_spl::metadata::*;");
   for (const s of [...usedStates].sort()) {
     importLines.push(`use crate::state::${toSnakeFilename(s)}::${s};`);
   }
@@ -1170,6 +1236,9 @@ function buildQuasarAccountAttributes(
   if (!constraints.length) return [];
 
   const parts: string[] = [];
+  const isInit = constraints.some((x) => x.type === "init" || x.type === "init-if-needed");
+  // Constraint errors need a full path: the instruction file doesn't import the error enum.
+  const errorEnum = `crate::errors::${toPascalCase(ir.program.name)}Error`;
 
   for (const c of constraints) {
     switch (c.type) {
@@ -1188,6 +1257,9 @@ function buildQuasarAccountAttributes(
           } else {
             parts.push(`init, payer = ${c.payer}, mint::decimals = 0, mint::authority = ${c.payer}`);
           }
+        } else if (account.accountType === "token-account" || account.accountType === "associated-token") {
+          // Quasar sizes token accounts itself.
+          parts.push(`init, payer = ${c.payer}`);
         } else {
           const autoSpace = computeAccountSpace(account, ir);
           const spaceStr =
@@ -1211,16 +1283,22 @@ function buildQuasarAccountAttributes(
         parts.push(`close = ${c.target}`);
         break;
       case "has-one": {
-        const err = c.errorCode ? ` @ ${c.errorCode}` : "";
+        const err = c.errorCode ? ` @ ${errorRef(errorEnum, c.errorCode, "")}` : "";
         parts.push(`has_one = ${c.field}${err}`);
         break;
       }
       case "seeds": {
-        const seedParts = c.seeds.map((s) => {
-          if (s.type === "literal") return `b"${s.value}"`;
-          // Quasar derive macro handles field-to-bytes conversion
-          return quasarSeedValue(s.value);
-        });
+        const self = selfReferentialSeeds(account);
+        if (self) {
+          // Check the address against the seeds once the account is loaded (needs the stored bump).
+          if (self.bump && /^\w+\.\w+$/.test(self.bump)) {
+            const seedExprs = [...self.seeds.map((sd) => quasarSelfSeed(sd, ix, ir, "").expr), `&[${self.bump}]`];
+            parts.push(`constraint = quasar_lang::pda::verify_program_address(&[${seedExprs.join(", ")}], &crate::ID, ${account.name}.to_account_view().address()).is_ok()`);
+          }
+          break;
+        }
+        // Quasar's derive turns a bare account field into its address bytes itself.
+        const seedParts = c.seeds.map((s) => seedBytes(s, { literal: (v) => `b"${v}"`, key: (a) => a }, ix));
         parts.push(`seeds = [${seedParts.join(", ")}]`);
         // With init, use plain bump (derive macro finds it). Without init, use bump from struct field.
         const hasInit = constraints.some((x) => x.type === "init" || x.type === "init-if-needed");
@@ -1238,11 +1316,16 @@ function buildQuasarAccountAttributes(
       case "address":
         parts.push(`address = ${c.address}`);
         break;
+      // Quasar only takes token::* when creating the account; existing ones are checked by constraint.
       case "token-authority":
-        parts.push(`token::authority = ${c.authority}`);
+        parts.push(isInit
+          ? `token::authority = ${c.authority}`
+          : `constraint = ${account.name}.owner() == ${c.authority}.to_account_view().address()`);
         break;
       case "token-mint":
-        parts.push(`token::mint = ${c.mint}`);
+        parts.push(isInit
+          ? `token::mint = ${c.mint}`
+          : `constraint = ${account.name}.mint() == ${c.mint}.to_account_view().address()`);
         break;
       case "realloc": {
         const z = c.zeroInit ? "true" : "false";
@@ -1252,7 +1335,7 @@ function buildQuasarAccountAttributes(
         break;
       }
       case "custom": {
-        const err = c.errorCode ? ` @ ${c.errorCode}` : "";
+        const err = c.errorCode ? ` @ ${errorRef(errorEnum, c.errorCode, "")}` : "";
         parts.push(`constraint = ${c.expression}${err}`);
         break;
       }
@@ -1295,13 +1378,11 @@ function accountToQuasarType(account: Account): string {
     case "token-program":
       return `&'info Program<Token>`;
     case "associated-token-program":
-      return `&'info Program<AssociatedToken>`;
+      return `&'info Program<AssociatedTokenProgram>`;
     case "rent":
-      // Quasar derive macro doesn't support Sysvar or AccountView directly
-      // UseUncheckedAccount with safety comment for rent
-      return `&'info quasar_lang::accounts::UncheckedAccount`;
+      return `&'info Sysvar<Rent>`;
     case "clock":
-      return `Sysvar<'info, Clock>`;
+      return `&'info Sysvar<Clock>`;
     case "mint":
       // Quasar's Mint type doesn't work with Account<>. Use InterfaceAccount for compatibility.
       return needsMut ? `&'info mut InterfaceAccount<Mint>` : `&'info InterfaceAccount<Mint>`;
@@ -1310,23 +1391,22 @@ function accountToQuasarType(account: Account): string {
       // Use InterfaceAccount<Token> which derefs to TokenAccountState.
       return needsMut ? `&'info mut InterfaceAccount<Token>` : `&'info InterfaceAccount<Token>`;
     case "associated-token":
-      return needsMut ? `&'info mut InterfaceAccount<TokenAccount>` : `&'info InterfaceAccount<TokenAccount>`;
-    case "unchecked-account": {
-      // Quasar uses AccountView for unchecked accounts (not AccountInfo)
+      return needsMut ? `&'info mut InterfaceAccount<Token>` : `&'info InterfaceAccount<Token>`;
+    case "unchecked-account":
       return needsMut ? `&'info mut AccountView` : `&'info AccountView`;
-    }
     case "program":
+      // Token Metadata's program type is MetadataProgram in quasar-spl.
       return account.stateType
-        ? `&'info Program<${account.stateType}>`
-        : `&'info AccountInfo<'info>`;
+        ? `&'info Program<${account.stateType === "Metadata" ? "MetadataProgram" : account.stateType}>`
+        : `&'info UncheckedAccount`;
     case "account":
       return account.stateType
         ? needsMut
           ? `&'info mut Account<${account.stateType}>`
           : `&'info Account<${account.stateType}>`
         : needsMut
-          ? `&'info mut AccountInfo<'info>`
-          : `&'info AccountInfo<'info>`;
+          ? `&'info mut UncheckedAccount`
+          : `&'info UncheckedAccount`;
     case "custom":
       if (account.stateType) {
         return needsMut

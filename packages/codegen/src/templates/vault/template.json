@@ -4,7 +4,7 @@
     "name": "token_vault",
     "description": "A token vault program that lets users deposit, withdraw, and close SPL token vaults backed by PDA accounts",
     "version": "0.1.0",
-    "programId": "TokenVault11111111111111111111111111111111111"
+    "programId": "Cz5yqWPtArfXoh8EoTVaieEqv4hbmf8392QvdUivREhz"
   },
   "instructions": [
     {
@@ -204,6 +204,12 @@
           ]
         },
         {
+          "id": "a1000000-0000-0000-0000-000000000035",
+          "name": "mint",
+          "accountType": "mint",
+          "constraints": []
+        },
+        {
           "id": "a1000000-0000-0000-0000-000000000034",
           "name": "token_program",
           "accountType": "token-program",
@@ -263,6 +269,12 @@
           "name": "authority",
           "accountType": "signer",
           "constraints": [{ "type": "signer" }]
+        },
+        {
+          "id": "a1000000-0000-0000-0000-000000000043",
+          "name": "mint",
+          "accountType": "mint",
+          "constraints": []
         },
         {
           "id": "a1000000-0000-0000-0000-000000000042",

@@ -1,0 +1,790 @@
+{
+ "edges": [
+  {
+   "id": "e-prog-init",
+   "source": "prog",
+   "target": "ix-init"
+  },
+  {
+   "id": "e-prog-dep",
+   "source": "prog",
+   "target": "ix-deposit"
+  },
+  {
+   "id": "e-prog-wd",
+   "source": "prog",
+   "target": "ix-withdraw"
+  },
+  {
+   "id": "e-prog-cl",
+   "source": "prog",
+   "target": "ix-close"
+  },
+  {
+   "id": "e-init-v",
+   "source": "ix-init",
+   "target": "acc-init-vault"
+  },
+  {
+   "id": "e-init-a",
+   "source": "ix-init",
+   "target": "acc-init-auth"
+  },
+  {
+   "id": "e-init-s",
+   "source": "ix-init",
+   "target": "acc-init-sys"
+  },
+  {
+   "id": "e-init-l1",
+   "source": "ix-init",
+   "target": "log-init-1"
+  },
+  {
+   "id": "e-init-l2",
+   "source": "log-init-1",
+   "target": "log-init-2"
+  },
+  {
+   "id": "e-init-l3",
+   "source": "log-init-2",
+   "target": "log-init-3"
+  },
+  {
+   "id": "e-dep-v",
+   "source": "ix-deposit",
+   "target": "acc-dep-vault"
+  },
+  {
+   "id": "e-dep-a",
+   "source": "ix-deposit",
+   "target": "acc-dep-auth"
+  },
+  {
+   "id": "e-dep-s",
+   "source": "ix-deposit",
+   "target": "acc-dep-sys"
+  },
+  {
+   "id": "e-dep-l1",
+   "source": "ix-deposit",
+   "target": "log-dep-1"
+  },
+  {
+   "id": "e-dep-l2",
+   "source": "log-dep-1",
+   "target": "log-dep-2"
+  },
+  {
+   "id": "e-dep-l3",
+   "source": "log-dep-2",
+   "target": "log-dep-3"
+  },
+  {
+   "id": "e-dep-l4",
+   "source": "log-dep-3",
+   "target": "log-dep-4"
+  },
+  {
+   "id": "e-dep-l5",
+   "source": "log-dep-4",
+   "target": "log-dep-5"
+  },
+  {
+   "id": "e-wd-v",
+   "source": "ix-withdraw",
+   "target": "acc-wd-vault"
+  },
+  {
+   "id": "e-wd-a",
+   "source": "ix-withdraw",
+   "target": "acc-wd-auth"
+  },
+  {
+   "id": "e-wd-s",
+   "source": "ix-withdraw",
+   "target": "acc-wd-sys"
+  },
+  {
+   "id": "e-wd-l1",
+   "source": "ix-withdraw",
+   "target": "log-wd-1"
+  },
+  {
+   "id": "e-wd-l2",
+   "source": "log-wd-1",
+   "target": "log-wd-2"
+  },
+  {
+   "id": "e-wd-l3",
+   "source": "log-wd-2",
+   "target": "log-wd-3"
+  },
+  {
+   "id": "e-wd-l3a",
+   "source": "log-wd-3",
+   "target": "log-wd-3a"
+  },
+  {
+   "id": "e-wd-l3b",
+   "source": "log-wd-3",
+   "target": "log-wd-3b"
+  },
+  {
+   "id": "e-wd-l3c",
+   "source": "log-wd-3b",
+   "target": "log-wd-3c"
+  },
+  {
+   "id": "e-wd-l5a",
+   "source": "log-wd-3a",
+   "target": "log-wd-5"
+  },
+  {
+   "id": "e-wd-l5b",
+   "source": "log-wd-3c",
+   "target": "log-wd-5"
+  },
+  {
+   "id": "e-cl-v",
+   "source": "ix-close",
+   "target": "acc-cl-vault"
+  },
+  {
+   "id": "e-cl-a",
+   "source": "ix-close",
+   "target": "acc-cl-auth"
+  },
+  {
+   "id": "e-cl-s",
+   "source": "ix-close",
+   "target": "acc-cl-sys"
+  },
+  {
+   "id": "e-dep-err",
+   "source": "ix-deposit",
+   "target": "err-inv"
+  },
+  {
+   "id": "e-wd-err1",
+   "source": "ix-withdraw",
+   "target": "err-inv"
+  },
+  {
+   "id": "e-wd-err2",
+   "source": "ix-withdraw",
+   "target": "err-insuf"
+  },
+  {
+   "id": "e-dep-evt",
+   "source": "ix-deposit",
+   "target": "evt-deposit"
+  },
+  {
+   "id": "e-wd-evt",
+   "source": "ix-withdraw",
+   "target": "evt-withdraw"
+  },
+  {
+   "id": "e-state-bind",
+   "source": "state-vault",
+   "target": "acc-init-vault"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "prog",
+   "data": {
+    "name": "vault",
+    "version": "0.1.0"
+   },
+   "type": "program",
+   "position": {
+    "x": 40,
+    "y": 280
+   }
+  },
+  {
+   "id": "ix-init",
+   "data": {
+    "name": "initialize",
+    "instructionData": []
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 40
+   }
+  },
+  {
+   "id": "ix-deposit",
+   "data": {
+    "name": "deposit",
+    "instructionData": [
+     {
+      "name": "amount",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 200
+   }
+  },
+  {
+   "id": "ix-withdraw",
+   "data": {
+    "name": "withdraw",
+    "instructionData": [
+     {
+      "name": "amount",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 400
+   }
+  },
+  {
+   "id": "ix-close",
+   "data": {
+    "name": "close_vault",
+    "instructionData": []
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 600
+   }
+  },
+  {
+   "id": "acc-init-vault",
+   "data": {
+    "bump": "vault.bump",
+    "name": "vault",
+    "isMut": true,
+    "payer": "authority",
+    "seeds": [
+     {
+      "type": "literal",
+      "value": "vault"
+     },
+     {
+      "type": "account-field",
+      "value": "authority"
+     }
+    ],
+    "space": "auto",
+    "isInit": true,
+    "stateType": "VaultState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-init-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-init-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 120
+   }
+  },
+  {
+   "id": "acc-dep-vault",
+   "data": {
+    "bump": "vault.bump",
+    "name": "vault",
+    "isMut": true,
+    "seeds": [
+     {
+      "type": "literal",
+      "value": "vault"
+     },
+     {
+      "type": "account-field",
+      "value": "authority"
+     }
+    ],
+    "stateType": "VaultState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 200
+   }
+  },
+  {
+   "id": "acc-dep-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 200
+   }
+  },
+  {
+   "id": "acc-dep-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 280
+   }
+  },
+  {
+   "id": "acc-wd-vault",
+   "data": {
+    "bump": "vault.bump",
+    "name": "vault",
+    "isMut": true,
+    "seeds": [
+     {
+      "type": "literal",
+      "value": "vault"
+     },
+     {
+      "type": "account-field",
+      "value": "authority"
+     }
+    ],
+    "stateType": "VaultState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 400
+   }
+  },
+  {
+   "id": "acc-wd-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 400
+   }
+  },
+  {
+   "id": "acc-wd-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 480
+   }
+  },
+  {
+   "id": "acc-cl-vault",
+   "data": {
+    "bump": "vault.bump",
+    "name": "vault",
+    "isMut": true,
+    "seeds": [
+     {
+      "type": "literal",
+      "value": "vault"
+     },
+     {
+      "type": "account-field",
+      "value": "authority"
+     }
+    ],
+    "isClose": true,
+    "stateType": "VaultState",
+    "accountType": "account",
+    "closeTarget": "authority"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 600
+   }
+  },
+  {
+   "id": "acc-cl-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 600
+   }
+  },
+  {
+   "id": "acc-cl-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 680
+   }
+  },
+  {
+   "id": "log-init-1",
+   "data": {
+    "setField": "authority",
+    "setValue": "*ctx.accounts.authority.key",
+    "logicType": "set-field",
+    "setAccount": "vault"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 80
+   }
+  },
+  {
+   "id": "log-init-2",
+   "data": {
+    "setField": "balance",
+    "setValue": "0",
+    "logicType": "set-field",
+    "setAccount": "vault"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 110
+   }
+  },
+  {
+   "id": "log-init-3",
+   "data": {
+    "setField": "bump",
+    "setValue": "ctx.bumps.vault",
+    "logicType": "set-field",
+    "setAccount": "vault"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 140
+   }
+  },
+  {
+   "id": "log-dep-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "amount > 0",
+    "requireErrorCode": "InvalidAmount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 240
+   }
+  },
+  {
+   "id": "log-dep-2",
+   "data": {
+    "logicType": "transfer-sol",
+    "transferTo": "vault",
+    "transferFrom": "authority",
+    "transferAmount": "amount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 270
+   }
+  },
+  {
+   "id": "log-dep-3",
+   "data": {
+    "mathLeft": "vault.balance",
+    "logicType": "math",
+    "mathRight": "amount",
+    "mathResult": "new_balance",
+    "mathChecked": true,
+    "mathOperation": "add"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 300
+   }
+  },
+  {
+   "id": "log-dep-4",
+   "data": {
+    "setField": "balance",
+    "setValue": "new_balance",
+    "logicType": "set-field",
+    "setAccount": "vault"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 330
+   }
+  },
+  {
+   "id": "log-dep-5",
+   "data": {
+    "emitEvent": "DepositEvent",
+    "logicType": "emit-event",
+    "emitFields": {
+     "amount": "amount",
+     "authority": "*ctx.accounts.authority.key",
+     "new_balance": "new_balance"
+    }
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 360
+   }
+  },
+  {
+   "id": "log-wd-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "amount > 0",
+    "requireErrorCode": "InvalidAmount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 440
+   }
+  },
+  {
+   "id": "log-wd-2",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "vault.balance >= amount",
+    "requireErrorCode": "InsufficientFunds"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 470
+   }
+  },
+  {
+   "id": "log-wd-3",
+   "data": {
+    "logicType": "if-else",
+    "ifCondition": "amount == vault.balance"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 500
+   }
+  },
+  {
+   "id": "log-wd-3a",
+   "data": {
+    "setField": "balance",
+    "setValue": "0",
+    "logicType": "set-field",
+    "setAccount": "vault"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 530
+   }
+  },
+  {
+   "id": "log-wd-3b",
+   "data": {
+    "mathLeft": "vault.balance",
+    "logicType": "math",
+    "mathRight": "amount",
+    "mathResult": "remaining",
+    "mathChecked": true,
+    "mathOperation": "sub"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 560
+   }
+  },
+  {
+   "id": "log-wd-3c",
+   "data": {
+    "setField": "balance",
+    "setValue": "remaining",
+    "logicType": "set-field",
+    "setAccount": "vault"
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 590
+   }
+  },
+  {
+   "id": "log-wd-5",
+   "data": {
+    "emitEvent": "WithdrawEvent",
+    "logicType": "emit-event",
+    "emitFields": {
+     "amount": "amount",
+     "authority": "*ctx.accounts.authority.key"
+    }
+   },
+   "type": "logic",
+   "position": {
+    "x": 520,
+    "y": 620
+   }
+  },
+  {
+   "id": "state-vault",
+   "data": {
+    "name": "VaultState",
+    "fields": [
+     {
+      "name": "authority",
+      "type": "Pubkey",
+      "description": "Vault owner"
+     },
+     {
+      "name": "balance",
+      "type": "u64",
+      "description": "Current balance"
+     },
+     {
+      "name": "bump",
+      "type": "u8",
+      "description": "PDA bump"
+     }
+    ]
+   },
+   "type": "state",
+   "position": {
+    "x": 960,
+    "y": 340
+   }
+  },
+  {
+   "id": "err-inv",
+   "data": {
+    "code": 6000,
+    "name": "InvalidAmount",
+    "message": "Amount must be greater than 0"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 440
+   }
+  },
+  {
+   "id": "err-insuf",
+   "data": {
+    "code": 6001,
+    "name": "InsufficientFunds",
+    "message": "Insufficient funds in vault"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 500
+   }
+  },
+  {
+   "id": "evt-deposit",
+   "data": {
+    "name": "DepositEvent",
+    "fields": [
+     {
+      "name": "authority",
+      "type": "Pubkey"
+     },
+     {
+      "name": "amount",
+      "type": "u64"
+     },
+     {
+      "name": "new_balance",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "event",
+   "position": {
+    "x": 40,
+    "y": 580
+   }
+  },
+  {
+   "id": "evt-withdraw",
+   "data": {
+    "name": "WithdrawEvent",
+    "fields": [
+     {
+      "name": "authority",
+      "type": "Pubkey"
+     },
+     {
+      "name": "amount",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "event",
+   "position": {
+    "x": 40,
+    "y": 660
+   }
+  }
+ ],
+ "viewport": {
+  "x": 0,
+  "y": 0,
+  "zoom": 0.7
+ }
+}

@@ -25,6 +25,7 @@
     "@solflow/eslint-config": "workspace:*",
     "@types/handlebars": "*",
     "typescript": "^5.8.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "@solflow/rust-parser": "workspace:*"
   }
 }

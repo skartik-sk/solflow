@@ -1,0 +1,683 @@
+{
+ "edges": [
+  {
+   "id": "e-p-i",
+   "source": "prog",
+   "target": "ix-init"
+  },
+  {
+   "id": "e-p-a",
+   "source": "prog",
+   "target": "ix-add"
+  },
+  {
+   "id": "e-p-r",
+   "source": "prog",
+   "target": "ix-remove"
+  },
+  {
+   "id": "e-p-s",
+   "source": "prog",
+   "target": "ix-swap"
+  },
+  {
+   "id": "e-i-p",
+   "source": "ix-init",
+   "target": "acc-i-pool"
+  },
+  {
+   "id": "e-i-a",
+   "source": "ix-init",
+   "target": "acc-i-auth"
+  },
+  {
+   "id": "e-i-s",
+   "source": "ix-init",
+   "target": "acc-i-sys"
+  },
+  {
+   "id": "e-i-l1",
+   "source": "ix-init",
+   "target": "log-i-1"
+  },
+  {
+   "id": "e-i-l2",
+   "source": "log-i-1",
+   "target": "log-i-2"
+  },
+  {
+   "id": "e-i-l3",
+   "source": "log-i-2",
+   "target": "log-i-3"
+  },
+  {
+   "id": "e-i-l4",
+   "source": "log-i-3",
+   "target": "log-i-4"
+  },
+  {
+   "id": "e-i-l5",
+   "source": "log-i-4",
+   "target": "log-i-5"
+  },
+  {
+   "id": "e-i-l6",
+   "source": "log-i-5",
+   "target": "log-i-6"
+  },
+  {
+   "id": "e-a-p",
+   "source": "ix-add",
+   "target": "acc-a-pool"
+  },
+  {
+   "id": "e-a-pr",
+   "source": "ix-add",
+   "target": "acc-a-prov"
+  },
+  {
+   "id": "e-a-err",
+   "source": "ix-add",
+   "target": "err-inv"
+  },
+  {
+   "id": "e-a-l1",
+   "source": "ix-add",
+   "target": "log-a-1"
+  },
+  {
+   "id": "e-a-l2",
+   "source": "log-a-1",
+   "target": "log-a-2"
+  },
+  {
+   "id": "e-a-l3",
+   "source": "log-a-2",
+   "target": "log-a-3"
+  },
+  {
+   "id": "e-a-l4",
+   "source": "log-a-3",
+   "target": "log-a-4"
+  },
+  {
+   "id": "e-r-p",
+   "source": "ix-remove",
+   "target": "acc-r-pool"
+  },
+  {
+   "id": "e-r-pr",
+   "source": "ix-remove",
+   "target": "acc-r-prov"
+  },
+  {
+   "id": "e-r-err",
+   "source": "ix-remove",
+   "target": "err-inv"
+  },
+  {
+   "id": "e-r-l1",
+   "source": "ix-remove",
+   "target": "log-r-1"
+  },
+  {
+   "id": "e-r-l2",
+   "source": "log-r-1",
+   "target": "log-r-2"
+  },
+  {
+   "id": "e-r-l3",
+   "source": "log-r-2",
+   "target": "log-r-3"
+  },
+  {
+   "id": "e-r-l4",
+   "source": "log-r-3",
+   "target": "log-r-4"
+  },
+  {
+   "id": "e-s-p",
+   "source": "ix-swap",
+   "target": "acc-s-pool"
+  },
+  {
+   "id": "e-s-t",
+   "source": "ix-swap",
+   "target": "acc-s-trader"
+  },
+  {
+   "id": "e-s-err1",
+   "source": "ix-swap",
+   "target": "err-inv"
+  },
+  {
+   "id": "e-s-err2",
+   "source": "ix-swap",
+   "target": "err-slippage"
+  },
+  {
+   "id": "e-s-l1",
+   "source": "ix-swap",
+   "target": "log-s-1"
+  },
+  {
+   "id": "e-s-l2",
+   "source": "log-s-1",
+   "target": "log-s-2"
+  },
+  {
+   "id": "e-st",
+   "source": "state-pool",
+   "target": "acc-i-pool"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "prog",
+   "data": {
+    "name": "amm",
+    "version": "0.1.0"
+   },
+   "type": "program",
+   "position": {
+    "x": 40,
+    "y": 200
+   }
+  },
+  {
+   "id": "ix-init",
+   "data": {
+    "name": "initialize_pool",
+    "instructionData": []
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 40
+   }
+  },
+  {
+   "id": "ix-add",
+   "data": {
+    "name": "add_liquidity",
+    "instructionData": [
+     {
+      "name": "token_a_amount",
+      "type": "u64"
+     },
+     {
+      "name": "token_b_amount",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 200
+   }
+  },
+  {
+   "id": "ix-remove",
+   "data": {
+    "name": "remove_liquidity",
+    "instructionData": [
+     {
+      "name": "lp_amount",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 360
+   }
+  },
+  {
+   "id": "ix-swap",
+   "data": {
+    "name": "swap",
+    "instructionData": [
+     {
+      "name": "amount_in",
+      "type": "u64"
+     },
+     {
+      "name": "min_amount_out",
+      "type": "u64"
+     }
+    ]
+   },
+   "type": "instruction",
+   "position": {
+    "x": 260,
+    "y": 520
+   }
+  },
+  {
+   "id": "acc-i-pool",
+   "data": {
+    "bump": "pool.bump",
+    "name": "pool",
+    "isMut": true,
+    "payer": "authority",
+    "seeds": [
+     {
+      "type": "literal",
+      "value": "pool"
+     },
+     {
+      "type": "account-field",
+      "value": "authority"
+     }
+    ],
+    "space": "auto",
+    "isInit": true,
+    "stateType": "PoolState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-i-auth",
+   "data": {
+    "name": "authority",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 40
+   }
+  },
+  {
+   "id": "acc-i-sys",
+   "data": {
+    "name": "system_program",
+    "accountType": "system-program"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 120
+   }
+  },
+  {
+   "id": "acc-a-pool",
+   "data": {
+    "name": "pool",
+    "isMut": true,
+    "stateType": "PoolState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 200
+   }
+  },
+  {
+   "id": "acc-a-prov",
+   "data": {
+    "name": "provider",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 200
+   }
+  },
+  {
+   "id": "acc-r-pool",
+   "data": {
+    "name": "pool",
+    "isMut": true,
+    "stateType": "PoolState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 360
+   }
+  },
+  {
+   "id": "acc-r-prov",
+   "data": {
+    "name": "provider",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 360
+   }
+  },
+  {
+   "id": "acc-s-pool",
+   "data": {
+    "name": "pool",
+    "isMut": true,
+    "stateType": "PoolState",
+    "accountType": "account"
+   },
+   "type": "account",
+   "position": {
+    "x": 520,
+    "y": 520
+   }
+  },
+  {
+   "id": "acc-s-trader",
+   "data": {
+    "name": "trader",
+    "isSigner": true,
+    "accountType": "signer"
+   },
+   "type": "account",
+   "position": {
+    "x": 740,
+    "y": 520
+   }
+  },
+  {
+   "id": "log-i-1",
+   "data": {
+    "setField": "authority",
+    "setValue": "*ctx.accounts.authority.key",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 60
+   }
+  },
+  {
+   "id": "log-i-2",
+   "data": {
+    "setField": "token_a_vault",
+    "setValue": "*ctx.accounts.authority.key",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 80
+   }
+  },
+  {
+   "id": "log-i-3",
+   "data": {
+    "setField": "token_b_vault",
+    "setValue": "*ctx.accounts.authority.key",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 100
+   }
+  },
+  {
+   "id": "log-i-4",
+   "data": {
+    "setField": "lp_mint",
+    "setValue": "*ctx.accounts.authority.key",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 120
+   }
+  },
+  {
+   "id": "log-i-5",
+   "data": {
+    "setField": "total_lp",
+    "setValue": "0",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 140
+   }
+  },
+  {
+   "id": "log-i-6",
+   "data": {
+    "setField": "bump",
+    "setValue": "ctx.bumps.pool",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 160
+   }
+  },
+  {
+   "id": "log-a-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "token_a_amount > 0",
+    "requireErrorCode": "InvalidAmount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 240
+   }
+  },
+  {
+   "id": "log-a-2",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "token_b_amount > 0",
+    "requireErrorCode": "InvalidAmount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 260
+   }
+  },
+  {
+   "id": "log-a-3",
+   "data": {
+    "mathLeft": "pool.total_lp",
+    "logicType": "math",
+    "mathRight": "token_a_amount",
+    "mathResult": "new_lp",
+    "mathChecked": true,
+    "mathOperation": "add"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 280
+   }
+  },
+  {
+   "id": "log-a-4",
+   "data": {
+    "setField": "total_lp",
+    "setValue": "new_lp",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 300
+   }
+  },
+  {
+   "id": "log-r-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "lp_amount > 0",
+    "requireErrorCode": "InvalidAmount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 400
+   }
+  },
+  {
+   "id": "log-r-2",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "pool.total_lp >= lp_amount",
+    "requireErrorCode": "SlippageExceeded"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 420
+   }
+  },
+  {
+   "id": "log-r-3",
+   "data": {
+    "mathLeft": "pool.total_lp",
+    "logicType": "math",
+    "mathRight": "lp_amount",
+    "mathResult": "new_total",
+    "mathChecked": true,
+    "mathOperation": "sub"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 440
+   }
+  },
+  {
+   "id": "log-r-4",
+   "data": {
+    "setField": "total_lp",
+    "setValue": "new_total",
+    "logicType": "set-field",
+    "setAccount": "pool"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 460
+   }
+  },
+  {
+   "id": "log-s-1",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "amount_in > 0",
+    "requireErrorCode": "InvalidAmount"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 560
+   }
+  },
+  {
+   "id": "log-s-2",
+   "data": {
+    "logicType": "require",
+    "requireCondition": "amount_in >= min_amount_out",
+    "requireErrorCode": "SlippageExceeded"
+   },
+   "type": "logic",
+   "position": {
+    "x": 960,
+    "y": 580
+   }
+  },
+  {
+   "id": "state-pool",
+   "data": {
+    "name": "PoolState",
+    "fields": [
+     {
+      "name": "authority",
+      "type": "Pubkey"
+     },
+     {
+      "name": "token_a_vault",
+      "type": "Pubkey"
+     },
+     {
+      "name": "token_b_vault",
+      "type": "Pubkey"
+     },
+     {
+      "name": "lp_mint",
+      "type": "Pubkey"
+     },
+     {
+      "name": "total_lp",
+      "type": "u64"
+     },
+     {
+      "name": "bump",
+      "type": "u8"
+     }
+    ]
+   },
+   "type": "state",
+   "position": {
+    "x": 40,
+    "y": 380
+   }
+  },
+  {
+   "id": "err-inv",
+   "data": {
+    "code": 6000,
+    "name": "InvalidAmount",
+    "message": "Amount must be greater than 0"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 480
+   }
+  },
+  {
+   "id": "err-slippage",
+   "data": {
+    "code": 6001,
+    "name": "SlippageExceeded",
+    "message": "Slippage tolerance exceeded"
+   },
+   "type": "error",
+   "position": {
+    "x": 40,
+    "y": 540
+   }
+  }
+ ],
+ "viewport": {
+  "x": 0,
+  "y": 0,
+  "zoom": 0.7
+ }
+}

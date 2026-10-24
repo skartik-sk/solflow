@@ -4,7 +4,7 @@
     "name": "escrow",
     "description": "A token escrow program where a maker deposits token A and a taker fulfills by sending token B, with refund support",
     "version": "0.1.0",
-    "programId": "Escrow111111111111111111111111111111111111111"
+    "programId": "H8GgRNYBpD92GT5HLuJC2cNRXPNvbZNwgxFh1QAZk2SQ"
   },
   "instructions": [
     {
@@ -279,6 +279,12 @@
             { "type": "mut" },
             { "type": "token-authority", "authority": "escrow" }
           ]
+        },
+        {
+          "id": "e1000000-0000-0000-0000-000000000036",
+          "name": "mint_a",
+          "accountType": "mint",
+          "constraints": []
         },
         {
           "id": "e1000000-0000-0000-0000-000000000034",
