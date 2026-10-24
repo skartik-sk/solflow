@@ -858,22 +858,28 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         const stateType = accountToStateType?.get(a.name) ?? a.stateType;
         const spaceStr = c.space === 'auto' ? (stateType ? `${stateType}::LEN` : '0') : String(c.space);
         const seedsC = a.constraints.find((x) => x.type === 'seeds');
-        // init-if-needed: only create when the account doesn't exist yet
-        const pad = c.type === 'init-if-needed' ? '    ' : '';
-        if (pad) lines.push(`    if ${a.name}.lamports() == 0 {`);
+        const seedParts = seedsC && seedsC.type === 'seeds' ? pinocchioSeedParts(seedsC.seeds) : null;
+        const ifNeeded = c.type === 'init-if-needed';
+
+        // A PDA is derived and checked whether or not it already exists.
+        if (seedParts) {
+          lines.push(`    // ${a.name} must be this program's PDA for its seeds`);
+          lines.push(`    let (${a.name}_pda, ${a.name}_bump) = Address::find_program_address(&[${seedParts.join(', ')}], program_id);`);
+          lines.push(`    if ${a.name}.address() != &${a.name}_pda {`);
+          lines.push(`        return Err(ProgramError::InvalidSeeds);`);
+          lines.push(`    }`);
+        }
+
+        const pad = ifNeeded ? '    ' : '';
+        if (ifNeeded) lines.push(`    if ${a.name}.lamports() == 0 {`);
         lines.push(`${pad}    // Create account ${a.name} via system program (rent-exempt)`);
         lines.push(`${pad}    {`);
         lines.push(`${pad}        use pinocchio_system::instructions::CreateAccount;`);
         lines.push(`${pad}        let create = CreateAccount::with_minimum_balance(${c.payer}, ${a.name}, ${spaceStr} as u64, program_id, None)?;`);
-        if (seedsC && seedsC.type === 'seeds') {
-          // A PDA can only be created with its own signature: derive it, check it, sign with seeds + bump
-          const parts = pinocchioSeedParts(seedsC.seeds);
-          lines.push(`${pad}        let (expected, bump) = Address::find_program_address(&[${parts.join(', ')}], program_id);`);
-          lines.push(`${pad}        if ${a.name}.address() != &expected {`);
-          lines.push(`${pad}            return Err(ProgramError::InvalidSeeds);`);
-          lines.push(`${pad}        }`);
-          lines.push(`${pad}        let bump = [bump];`);
-          lines.push(`${pad}        let seeds = [${[...parts, '&bump[..]'].map((p) => `pinocchio::cpi::Seed::from(${p})`).join(', ')}];`);
+        if (seedParts) {
+          // A PDA can only be created with its own signature: sign with seeds + bump
+          lines.push(`${pad}        let bump = [${a.name}_bump];`);
+          lines.push(`${pad}        let seeds = [${[...seedParts, '&bump[..]'].map((p) => `pinocchio::cpi::Seed::from(${p})`).join(', ')}];`);
           lines.push(`${pad}        create.invoke_signed(&[pinocchio::cpi::Signer::from(&seeds[..])])?;`);
         } else {
           lines.push(`${pad}        create.invoke()?;`);
@@ -882,7 +888,19 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         if (stateType) {
           lines.push(`${pad}    ${a.name}.try_borrow_mut()?[..8].copy_from_slice(&${stateType}::DISCRIMINATOR);`);
         }
-        if (pad) lines.push(`    }`);
+        if (ifNeeded) {
+          // Existing account: it must already be ours and hold this state type.
+          lines.push(`    } else {`);
+          lines.push(`        if !${a.name}.owned_by(program_id) {`);
+          lines.push(`            return Err(ProgramError::IncorrectProgramId);`);
+          lines.push(`        }`);
+          if (stateType) {
+            lines.push(`        if !${stateType}::validate_discriminator(&${a.name}.try_borrow()?) {`);
+            lines.push(`            return Err(ProgramError::InvalidAccountData);`);
+            lines.push(`        }`);
+          }
+          lines.push(`    }`);
+        }
       }
       if (c.type === 'realloc') {
         lines.push(`    // Realloc ${a.name} to ${c.space} bytes`);

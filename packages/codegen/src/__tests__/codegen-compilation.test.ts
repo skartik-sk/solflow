@@ -262,6 +262,18 @@ describe("Simple Vault codegen patterns", () => {
       expect(init.indexOf("DISCRIMINATOR")).toBeLessThan(init.indexOf("set_authority"));
     });
 
+    it("checks an init-if-needed PDA even when it already exists", () => {
+      const ir = structuredClone(VAULT_IR);
+      const vault = ir.instructions[0].accounts[0];
+      vault.constraints = vault.constraints.map((c) => (c.type === "init" ? { ...c, type: "init-if-needed" } : c)) as typeof vault.constraints;
+      const init = generateCode(ir, "pinocchio").files.find((f) => f.path.includes("initialize"))!.content;
+      // PDA check comes before the "does it exist" branch
+      expect(init.indexOf("vault.address() != &vault_pda")).toBeLessThan(init.indexOf("if vault.lamports() == 0"));
+      // The existing-account path verifies ownership and state type
+      expect(init).toContain("if !vault.owned_by(program_id) {");
+      expect(init).toContain("if !VaultState::validate_discriminator(&vault.try_borrow()?) {");
+    });
+
     it("uses set_lamports for close constraint", () => {
       const result = generateCode(VAULT_IR, "pinocchio");
       const closeFile = result.files.find((f) => f.path.includes("close_vault"));
