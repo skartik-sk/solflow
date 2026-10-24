@@ -1,8 +1,7 @@
 import { auth } from "@solflow/auth";
 import {
-  DEFAULT_DEEPSEEK_BASE_URL,
-  DEFAULT_DEEPSEEK_EDITOR_MODEL,
   createDeepSeekEditorAssistantReply,
+  resolveEditorAssistantProvider,
   type CreateEditorAssistantReplyInput,
   type EditorAiPromptOptionId,
   type EditorAssistantSurface,
@@ -55,15 +54,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Missing assistant prompt" }, { status: 400 });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  const model = process.env.GEMINI_MODEL?.trim() || DEFAULT_DEEPSEEK_EDITOR_MODEL;
+  const provider = resolveEditorAssistantProvider(process.env);
+  const model = provider.model;
 
   try {
-    const result = await createDeepSeekEditorAssistantReply(input, {
-      apiKey,
-      model,
-      baseUrl: DEFAULT_DEEPSEEK_BASE_URL,
-    });
+    const result = await createDeepSeekEditorAssistantReply(input, provider);
 
     return NextResponse.json(result);
   } catch (error) {

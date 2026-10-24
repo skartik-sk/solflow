@@ -4,6 +4,7 @@ import {
   EDITOR_AI_PROMPT_OPTIONS,
   createDeepSeekEditorAssistantReply,
   createEditorAssistantReply,
+  resolveEditorAssistantProvider,
 } from "@solflow/ui";
 
 describe("editor AI assistant helpers", () => {
@@ -104,4 +105,13 @@ describe("editor AI assistant helpers", () => {
     expect(body.model).toBe(DEFAULT_DEEPSEEK_EDITOR_MODEL);
     expect(body.messages[0].role).toBe("system");
   });
+
+  it("prefers Groq when its key is set, then Gemini", () => {
+    const groq = resolveEditorAssistantProvider({ GROQ_API_KEY: "g", GEMINI_API_KEY: "m" });
+    expect(groq).toMatchObject({ apiKey: "g", baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-20b" });
+    const gemini = resolveEditorAssistantProvider({ GEMINI_API_KEY: "m" });
+    expect(gemini.apiKey).toBe("m");
+    expect(gemini.baseUrl).toContain("generativelanguage.googleapis.com");
+  });
 });
+

@@ -60,11 +60,38 @@ export type EditorAiAssistantPromptInput = CreateEditorAssistantReplyInput;
 
 export const DEFAULT_DEEPSEEK_EDITOR_MODEL = "gemini-2.5-flash";
 export const DEFAULT_DEEPSEEK_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+export const DEFAULT_GROQ_MODEL = "openai/gpt-oss-20b";
+
+/**
+ * Pick the assistant's OpenAI-compatible provider from env: Groq first (free tier,
+ * no card), then Gemini. With neither key set, replies fall back to local hints.
+ */
+export function resolveEditorAssistantProvider(
+  env: Record<string, string | undefined>,
+): DeepSeekEditorAssistantOptions & { model: string } {
+  const groqKey = env.GROQ_API_KEY?.trim();
+  if (groqKey) {
+    return {
+      apiKey: groqKey,
+      model: env.GROQ_MODEL?.trim() || DEFAULT_GROQ_MODEL,
+      baseUrl: GROQ_BASE_URL,
+      // gpt-oss reasons before answering; keep that short so the reply fits max_tokens
+      reasoningEffort: "low",
+    };
+  }
+  return {
+    apiKey: env.GEMINI_API_KEY?.trim(),
+    model: env.GEMINI_MODEL?.trim() || DEFAULT_DEEPSEEK_EDITOR_MODEL,
+    baseUrl: DEFAULT_DEEPSEEK_BASE_URL,
+  };
+}
 
 export interface DeepSeekEditorAssistantOptions {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  reasoningEffort?: "low" | "medium" | "high";
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 }
@@ -190,6 +217,7 @@ export async function createDeepSeekEditorAssistantReply(
       messages: createAiMessages(input),
       temperature: 0.3,
       max_tokens: 2048,
+      ...(options.reasoningEffort ? { reasoning_effort: options.reasoningEffort } : {}),
     }),
   });
 

@@ -47,6 +47,7 @@ export {
   EDITOR_AI_PROMPT_OPTIONS,
   createDeepSeekEditorAssistantReply,
   createEditorAssistantReply,
+  resolveEditorAssistantProvider,
 } from "./lib/editor-ai-assistant";
 export type {
   CreateEditorAssistantReplyInput,
