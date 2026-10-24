@@ -2,7 +2,7 @@
 // They live in a GitHub release (too big for git) and are pinned by SHA-256 in
 // browser-compiler.lock.json, so a tampered or corrupted download fails the build.
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const REPO = "skartik-sk/solflow";
@@ -23,7 +23,13 @@ for (const [name, { sha256: expected, size }] of Object.entries(lock.files)) {
 
   const url = `https://github.com/${REPO}/releases/download/${lock.release}/${name}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Couldn't download ${url}: ${res.status}`);
+  if (!res.ok) {
+    // Unavailable assets shouldn't block a deploy: without a manifest the editor compiles on the
+    // server instead. (A corrupted download, below, is still fatal.)
+    console.warn(`browser compiler: couldn't download ${url} (${res.status}); compiling on the server only`);
+    rmSync(join(outDir, "manifest.json"), { force: true });
+    break;
+  }
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (bytes.length !== size || sha256(bytes) !== expected) {
     throw new Error(`${name} doesn't match browser-compiler.lock.json — refusing to ship it`);
