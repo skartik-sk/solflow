@@ -25,7 +25,7 @@ export type Progress = (step: string, loaded?: number, total?: number) => void;
 
 const BASE_URL = "/browser-compiler/v1";
 /** Frameworks the browser compiler can build, mapped to their dependency pack. */
-const PACKS: Record<string, string> = { PINOCCHIO: "pinocchio" };
+const PACKS: Record<string, string> = { PINOCCHIO: "pinocchio", QUASAR: "quasar" };
 
 let worker: Worker | null = null;
 let nextId = 1;

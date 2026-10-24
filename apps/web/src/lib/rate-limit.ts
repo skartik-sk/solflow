@@ -123,6 +123,12 @@ export function compileRateLimit(userId: string): NamedLimiterResult {
   return withLimit(rateLimit(`compile:${userId}`, { limit, windowMs: 5 * 60_000 }), limit);
 }
 
+/** 30 in-browser builds per user per 5 minutes (the server only generates source and stores the result) */
+export function browserCompileRateLimit(userId: string): NamedLimiterResult {
+  const limit = 30;
+  return withLimit(rateLimit(`browser-compile:${userId}`, { limit, windowMs: 5 * 60_000 }), limit);
+}
+
 /** 3 deploy jobs per user per 10 minutes */
 export function deployRateLimit(userId: string): NamedLimiterResult {
   const limit = 3;

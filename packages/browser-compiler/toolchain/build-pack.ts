@@ -1,7 +1,8 @@
 // Build the in-browser compiler's assets: dependency packs (prebuilt rlibs for the custom BPF
 // target), plus the compressed rustc.wasm and sbpf-link wasm, and a manifest.
 //
-// Usage: bun toolchain/build-pack.ts --rustc <rustc.wasm> --linker <sbpf_link_bg.wasm> [--out <dir>]
+// Usage: bun toolchain/build-pack.ts --rustc <rustc.wasm> --linker <sbpf_link_bg.wasm>
+//          --expander <quasar_expand_bg.wasm> [--out <dir>]
 // Requires `cargo +nightly` at RUSTC_COMMIT (the same commit rustc.wasm was built from, so its
 // crate metadata is loadable) and `brotli` on PATH.
 import { execFileSync } from "child_process";
@@ -39,20 +40,38 @@ const CFGS = ["--cfg", 'target_os="solana"', "--cfg", 'target_feature="static-sy
 const ALLOW = ["-A", "explicit_builtin_cfgs_in_flags", "-A", "unexpected_cfgs", "-A", "unused", "-Z", "unstable-options"];
 
 /** Dependency packs: everything the matching code generator can put in Cargo.toml. */
-const PACKS: Record<string, Record<string, string>> = {
+const PACKS: Record<string, { deps: Record<string, string>; expand?: string }> = {
   pinocchio: {
-    pinocchio: '{ version = "0.11", features = ["cpi"] }',
-    "solana-address": '{ version = "2.0", features = ["decode"] }',
-    "pinocchio-system": '"0.6"',
-    "pinocchio-token": '"0.6"',
-    "solana-compiler-builtins": '"0.1.0"',
+    deps: {
+      pinocchio: '{ version = "0.11", features = ["cpi"] }',
+      "solana-address": '{ version = "2.0", features = ["decode"] }',
+      "pinocchio-system": '"0.6"',
+      "pinocchio-token": '"0.6"',
+      "solana-compiler-builtins": '"0.1.0"',
+    },
+  },
+  // Quasar programs are macro-heavy: the browser expands them with quasar-expand first.
+  quasar: {
+    deps: {
+      "quasar-lang": '"0.0"',
+      "quasar-spl": '"0.0"',
+      "solana-compiler-builtins": '"0.1.0"',
+    },
+    expand: "quasar",
   },
 };
 
 const { values } = parseArgs({
-  options: { rustc: { type: "string" }, linker: { type: "string" }, out: { type: "string" } },
+  options: {
+    rustc: { type: "string" },
+    linker: { type: "string" },
+    expander: { type: "string" },
+    out: { type: "string" },
+  },
 });
-if (!values.rustc || !values.linker) throw new Error("--rustc and --linker are required");
+if (!values.rustc || !values.linker || !values.expander) {
+  throw new Error("--rustc, --linker and --expander (quasar_expand_bg.wasm) are required");
+}
 const out = values.out ?? join(import.meta.dir, "..", "dist-assets", VERSION);
 mkdirSync(out, { recursive: true });
 
@@ -67,8 +86,8 @@ const rustcVersion = version.split("\n")[0];
 const sysrootSrc = join(sh("rustc", ["+nightly", "--print", "sysroot"]).trim(), "lib/rustlib/src/rust");
 const registry = join(homedir(), ".cargo/registry/src");
 
-const packs: Record<string, { file: string; externs: Record<string, string> }> = {};
-for (const [name, deps] of Object.entries(PACKS)) {
+const packs: Record<string, { file: string; externs: Record<string, string>; expand?: string }> = {};
+for (const [name, { deps, expand }] of Object.entries(PACKS)) {
   const work = mkdtempSync(join(tmpdir(), `pack-${name}-`));
   mkdirSync(join(work, "src"));
   mkdirSync(join(work, ".cargo"));
@@ -119,10 +138,21 @@ for (const [name, deps] of Object.entries(PACKS)) {
   const missing = Object.keys(deps).filter((d) => !externs[d]);
   if (missing.length) throw new Error(`Pack ${name}: no rlib for ${missing.join(", ")}`);
 
+  // Proc-macro crates the libraries depend on: rustc.wasm only reads their metadata (programs
+  // arrive macro-expanded), under the name a wasm host looks for: `<crate>-<hash>.wasm`.
+  const macros = sh("find", [join(work, "target", "release"), "-name", "lib*-*.dylib", "-o", "-name", "lib*-*.so"])
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+  for (const path of macros) {
+    const file = basename(path).replace(/^lib/, "").replace(/\.(dylib|so)$/, ".wasm");
+    cpSync(path, join(root, "deps", file));
+  }
+
   const tar = join(work, `${name}.tar`);
   sh("tar", ["--format=ustar", "-cf", tar, "-C", root, "."]);
   sh("brotli", ["-f", "-q", "11", "-o", join(out, `${name}.tar.br`), tar]);
-  packs[name] = { file: `${name}.tar.br`, externs };
+  packs[name] = { file: `${name}.tar.br`, externs, ...(expand ? { expand } : {}) };
   rmSync(work, { recursive: true, force: true });
   console.log(`pack ${name}: ${Object.keys(externs).join(", ")}`);
 }
@@ -133,12 +163,14 @@ sh("wasm-tools", ["strip", "-a", values.rustc, "-o", stripped]);
 sh("brotli", ["-f", "-q", "11", "-o", `${stripped}.br`, stripped]);
 rmSync(stripped);
 cpSync(values.linker, join(out, "sbpf_link_bg.wasm"));
+cpSync(values.expander, join(out, "quasar_expand_bg.wasm"));
 
 const manifest = {
   version: VERSION,
   rustcVersion,
   rustc: "rustc.wasm.br",
   linker: "sbpf_link_bg.wasm",
+  expanders: { quasar: "quasar_expand_bg.wasm" },
   target: TARGET,
   flags: [...FLAGS, ...LLVM_ARGS, ...CFGS, ...ALLOW],
   packs,

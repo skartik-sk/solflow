@@ -1,0 +1,3 @@
+quasar-derive 0.0.0 from crates.io (https://github.com/blueshift-gg/quasar), MIT licensed.
+Vendored by ../../vendor.ts as a plain library for the in-browser macro expander; the only
+changes are the proc_macro -> proc_macro2 alias and a crate-local parse_macro_input! (see vendor.ts).

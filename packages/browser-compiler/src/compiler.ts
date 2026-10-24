@@ -4,6 +4,7 @@
 import { firstObject, untar } from "./archive";
 import { prepareCrate, type CompilerManifest, type SourceFile } from "./crate";
 import { runRustc, type FileMap } from "./run-rustc";
+import initExpander, { expandQuasar } from "./quasar-expand/quasar_expand.js";
 import initLinker, { decompressBrotli, linkProgram } from "./sbpf-link/sbpf_link.js";
 
 export type LoadAsset = (name: string, onProgress?: (loaded: number, total: number) => void) => Promise<Uint8Array>;
@@ -27,6 +28,7 @@ export class CompileError extends Error {
 export class BrowserCompiler {
   private rustc: WebAssembly.Module | null = null;
   private packs = new Map<string, FileMap>();
+  private expanders = new Set<string>();
 
   private constructor(readonly manifest: CompilerManifest, private readonly load: LoadAsset) {}
 
@@ -48,11 +50,19 @@ export class BrowserCompiler {
       const bytes = await this.load(pack.file, (l, t) => onProgress?.("Downloading libraries", l, t));
       this.packs.set(packName, untar(this.unpack(pack.file, bytes)));
     }
+    const expander = this.manifest.packs[packName]?.expand;
+    if (expander && !this.expanders.has(expander)) {
+      const asset = this.manifest.expanders?.[expander];
+      if (!asset) throw new CompileError(`No macro expander for ${expander}`, "");
+      await initExpander({ module_or_path: await this.load(asset) });
+      this.expanders.add(expander);
+    }
   }
 
   async compile(sources: SourceFile[], packName: string): Promise<CompileOutput> {
     await this.prepare(packName);
     const crate = prepareCrate(sources, this.manifest, packName);
+    if (this.manifest.packs[packName].expand) crate.files = expandMacros(crate.files);
     const files: FileMap = new Map([...this.packs.get(packName)!, ...crate.files]);
 
     const t0 = performance.now();
@@ -74,4 +84,18 @@ export class BrowserCompiler {
   private unpack(name: string, bytes: Uint8Array): Uint8Array {
     return name.endsWith(".br") ? decompressBrotli(bytes) : bytes;
   }
+}
+
+/** Expand Quasar's proc macros (rustc.wasm can't run them) so rustc sees plain Rust. */
+function expandMacros(files: Map<string, Uint8Array>): Map<string, Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const sources = Object.fromEntries([...files].map(([path, bytes]) => [path, decoder.decode(bytes)]));
+  let expanded: Record<string, string>;
+  try {
+    expanded = JSON.parse(expandQuasar(JSON.stringify(sources)));
+  } catch (err) {
+    throw new CompileError("Macro expansion failed", String(err));
+  }
+  return new Map(Object.entries(expanded).map(([path, src]) => [path, encoder.encode(src)]));
 }

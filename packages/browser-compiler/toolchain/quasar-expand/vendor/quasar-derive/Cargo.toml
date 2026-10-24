@@ -1,0 +1,17 @@
+[package]
+name = "quasar-derive"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+description = "quasar-derive 0.0.0, vendored as a plain library for the in-browser expander"
+
+[lib]
+name = "quasar_derive"
+path = "src/lib.rs"
+
+[dependencies]
+proc-macro2 = "1"
+quote = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+syn = { version = "2", features = ["full", "extra-traits", "visit-mut"] }

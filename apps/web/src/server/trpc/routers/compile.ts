@@ -8,7 +8,7 @@ import { createHash } from "crypto";
 import { rm, mkdir, copyFile, readFile } from "fs/promises";
 import { join, resolve } from "path";
 import { router, protectedProcedure } from "../trpc";
-import { compileRateLimit } from "@/lib/rate-limit";
+import { browserCompileRateLimit, compileRateLimit } from "@/lib/rate-limit";
 import { flowToIR } from "@solflow/ir";
 import { generateCode } from "@solflow/codegen";
 import type { Node, Edge } from "@xyflow/react";
@@ -26,7 +26,7 @@ function hashIR(irJson: unknown): string {
 }
 
 /** Load a project's IR (regenerating it from the flow if needed) and open a BUILDING record. */
-async function startBuild(ctx: any, projectId: string) {
+async function startBuild(ctx: any, projectId: string, where: "server" | "browser" = "server") {
   const project = await ctx.prisma.project.findFirst({
     where: { id: projectId, userId: ctx.session.user.id },
     select: { id: true, irData: true, framework: true, flowData: true },
@@ -61,8 +61,9 @@ async function startBuild(ctx: any, projectId: string) {
     });
   }
 
-  // Rate limit: 5 compile jobs per user per 5 minutes
-  const rl = compileRateLimit(ctx.session.user.id ?? "anonymous");
+  // Rate limit: server builds are expensive; browser builds only cost codegen and a DB row.
+  const userKey = ctx.session.user.id ?? "anonymous";
+  const rl = where === "browser" ? browserCompileRateLimit(userKey) : compileRateLimit(userKey);
   if (!rl.allowed) {
     throw new TRPCError({
       code: "TOO_MANY_REQUESTS",
@@ -301,7 +302,7 @@ export const compileRouter = router({
   prepareBrowserBuild: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const { project, irData, framework, compilation } = await startBuild(ctx, input.projectId);
+      const { project, irData, framework, compilation } = await startBuild(ctx, input.projectId, "browser");
       const result = generateCode(irData as any, framework);
       if (result.errors.length > 0) {
         const message = result.errors.map((e) => e.message).join("; ");

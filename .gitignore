@@ -78,3 +78,5 @@ hyperframes/
 # In-browser compiler assets (fetched at build time, see packages/browser-compiler)
 apps/web/public/browser-compiler/
 packages/browser-compiler/dist-assets/
+packages/browser-compiler/toolchain/*/target/
+packages/browser-compiler/toolchain/*/pkg-*/

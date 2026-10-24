@@ -88,3 +88,14 @@ describe("archives", () => {
     expect([...files.get("/deps/a.rlib")!]).toEqual([1, 2, 3]);
   });
 });
+
+describe("prepareCrate dependency features", () => {
+  it("leaves crates needing features the pack lacks to the server", () => {
+    const manifest = {
+      version: "v1", rustcVersion: "", rustc: "", linker: "", target: "bpfel-solana", flags: [],
+      packs: { quasar: { file: "", externs: { "quasar-lang": "/deps/a.rlib", "quasar-spl": "/deps/b.rlib", "solana-compiler-builtins": "/deps/c.rlib" } } },
+    };
+    const toml = `[package]\nname = "m"\nedition = "2021"\n\n[dependencies]\nquasar-lang = "0.0"\nquasar-spl = { version = "0.0", features = ["metadata"] }\n`;
+    expect(() => prepareCrate([{ path: "Cargo.toml", content: toml }, { path: "src/lib.rs", content: "" }], manifest, "quasar")).toThrow(UnsupportedCrateError);
+  });
+});

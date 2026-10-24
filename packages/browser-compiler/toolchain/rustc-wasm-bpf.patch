@@ -441,6 +441,25 @@ index 000000000..808f43ea9
 +int posix_madvise(void *, size_t, int) { return 0; }
 +}
 +#endif
+diff --git a/compiler/rustc_metadata/src/creader.rs b/compiler/rustc_metadata/src/creader.rs
+index df15f7d15..8df7f0c82 100644
+--- a/compiler/rustc_metadata/src/creader.rs
++++ b/compiler/rustc_metadata/src/creader.rs
+@@ -968,7 +968,13 @@ fn dlsym_proc_macros(
+         path: &Path,
+         stable_crate_id: StableCrateId,
+     ) -> Result<&'static [ProcMacroClient], CrateError> {
+-        Ok(crate::host_dylib::dlsym_proc_macros(path, stable_crate_id)?)
++        match crate::host_dylib::dlsym_proc_macros(path, stable_crate_id) {
++            Ok(macros) => Ok(macros),
++            // A wasm host can't load native macros; its embedder expands them beforehand, so the
++            // crate is usable for its metadata with no callable macros.
++            Err(_) if cfg!(target_os = "wasi") => Ok(&[]),
++            Err(err) => Err(err.into()),
++        }
+     }
+ 
+     fn inject_panic_runtime(&mut self, tcx: TyCtxt<'_>, krate: &ast::Crate) {
 diff --git a/compiler/rustc_metadata/src/host_dylib.rs b/compiler/rustc_metadata/src/host_dylib.rs
 index ad76eb4eb..185990bdc 100644
 --- a/compiler/rustc_metadata/src/host_dylib.rs
@@ -529,6 +548,22 @@ index 1706fece2..bb4c86b73 100644
 +#[cfg(target_os = "wasi")]
 +pub use host_dylib::register_static_symbol;
  pub use rmeta::{EncodedMetadata, METADATA_HEADER, ProcMacroKind, encode_metadata, rendered_const};
+diff --git a/compiler/rustc_metadata/src/locator.rs b/compiler/rustc_metadata/src/locator.rs
+index 38da6561e..1868d48fa 100644
+--- a/compiler/rustc_metadata/src/locator.rs
++++ b/compiler/rustc_metadata/src/locator.rs
+@@ -715,7 +715,10 @@ fn crate_matches(
+             return None;
+         }
+ 
+-        if header.triple != self.tuple {
++        // A wasm-hosted rustc reads proc-macro crates built natively (their macros are expanded
++        // before compiling, so only their metadata is needed).
++        let foreign_proc_macro = cfg!(target_os = "wasi") && header.is_proc_macro_crate;
++        if header.triple != self.tuple && !foreign_proc_macro {
+             info!("Rejecting via crate triple: expected {} got {}", self.tuple, header.triple);
+             crate_rejections.via_triple.push(CrateMismatch {
+                 path: libpath.to_path_buf(),
 diff --git a/compiler/rustc_session/src/filesearch.rs b/compiler/rustc_session/src/filesearch.rs
 index 10c62d932..511c3bc04 100644
 --- a/compiler/rustc_session/src/filesearch.rs
