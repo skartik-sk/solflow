@@ -328,11 +328,17 @@ describe("Pinocchio codegen quality", () => {
     expect(stateFile!.content).toContain("COUNT_OFFSET");
   });
 
-  it("generates PDA verification for seeds", () => {
+  it("derives, checks and signs for a PDA it creates", () => {
     const result = generateCode(PDA_IR, "pinocchio");
     const pdaFile = result.files.find((f) => f.path.includes("create_pda"));
     expect(pdaFile).toBeDefined();
-    expect(pdaFile!.content).toContain("verify_pda");
+    // The bump isn't stored yet at init, so the address is found (not re-created without a bump)
+    expect(pdaFile!.content).toContain("Address::find_program_address(");
+    expect(pdaFile!.content).toContain("return Err(ProgramError::InvalidSeeds);");
+    // Rent-exempt create, signed by the PDA's seeds + bump
+    expect(pdaFile!.content).toContain("CreateAccount::with_minimum_balance(");
+    expect(pdaFile!.content).toContain("create.invoke_signed(&[pinocchio::cpi::Signer::from(&seeds[..])])?;");
+    expect(pdaFile!.content).not.toContain("lamports: 0,");
   });
 
   it("generates utils.rs only when PDAs are used", () => {

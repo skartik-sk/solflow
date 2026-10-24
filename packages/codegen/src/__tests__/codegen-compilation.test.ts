@@ -253,6 +253,15 @@ describe("Simple Vault codegen patterns", () => {
       expect(libRs!.content).toContain("process_instruction");
     });
 
+    it("creates state accounts rent-exempt at their real size, then writes the discriminator", () => {
+      const result = generateCode(VAULT_IR, "pinocchio");
+      const init = result.files.find((f) => f.path.includes("initialize"))!.content;
+      expect(init).toContain("CreateAccount::with_minimum_balance(authority, vault, VaultState::LEN as u64, program_id, None)?");
+      expect(init).toContain("vault.try_borrow_mut()?[..8].copy_from_slice(&VaultState::DISCRIMINATOR);");
+      // The discriminator goes in after the account exists, before any field writes
+      expect(init.indexOf("DISCRIMINATOR")).toBeLessThan(init.indexOf("set_authority"));
+    });
+
     it("uses set_lamports for close constraint", () => {
       const result = generateCode(VAULT_IR, "pinocchio");
       const closeFile = result.files.find((f) => f.path.includes("close_vault"));

@@ -734,6 +734,15 @@ function renderPinocchioMetaplexIntegration(
 
 // ─── Account validation ───────────────────────────────────────────────────────
 
+/** PDA seeds as Rust byte-slice expressions (without the bump). */
+function pinocchioSeedParts(seeds: Seed[]): string[] {
+  return seeds.map((s) => {
+    if (s.type === 'literal') return `b"${s.value}" as &[u8]`;
+    if (s.type === 'pubkey' || s.type === 'account-field') return `${s.value}.address().as_ref()`;
+    return `${s.value}.as_ref()`;
+  });
+}
+
 function buildValidationChecks(accounts: Account[], errorEnum: string, accountToStateType?: Map<string, string>): string {
   const lines: string[] = [];
 
@@ -752,15 +761,12 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         lines.push(`    }`);
       }
       if (c.type === 'seeds') {
-        const seedParts = c.seeds.map((s) => {
-          if (s.type === 'literal') return `b"${s.value}" as &[u8]`;
-          if (s.type === 'pubkey' || s.type === 'account-field') return `${s.value}.address().as_ref()`;
-          return `${s.value}.as_ref()`;
-        });
-        // Check if this account also has an init constraint
+        const seedParts = pinocchioSeedParts(c.seeds);
+        // An init account's PDA is derived and checked where it is created
         const hasInit = a.constraints.some((x) => x.type === 'init' || x.type === 'init-if-needed');
-        // Include bump seed if specified (skip for init — bump not stored yet)
-        if (c.bump && !hasInit) {
+        if (hasInit) continue;
+        // Include bump seed if specified
+        if (c.bump) {
           if (/^\d+$/.test(c.bump)) {
             seedParts.push(`&[${c.bump}][..]`);
           } else {
@@ -849,19 +855,34 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         lines.push(`    }`);
       }
       if (c.type === 'init' || c.type === 'init-if-needed') {
-        lines.push(`    // Create account ${a.name} via system program`);
-        lines.push(`    {`);
-        lines.push(`        use pinocchio_system::instructions::CreateAccount;`);
-        const spaceStr = c.space === 'auto' ? '0' : String(c.space);
-        lines.push(`        CreateAccount {`);
-        lines.push(`            from: ${c.payer},`);
-        lines.push(`            to: ${a.name},`);
-        lines.push(`            lamports: 0,`);
-        lines.push(`            space: ${spaceStr} as u64,`);
-        lines.push(`            owner: program_id,`);
-        lines.push(`        }`);
-        lines.push(`        .invoke()?;`);
-        lines.push(`    }`);
+        const stateType = accountToStateType?.get(a.name) ?? a.stateType;
+        const spaceStr = c.space === 'auto' ? (stateType ? `${stateType}::LEN` : '0') : String(c.space);
+        const seedsC = a.constraints.find((x) => x.type === 'seeds');
+        // init-if-needed: only create when the account doesn't exist yet
+        const pad = c.type === 'init-if-needed' ? '    ' : '';
+        if (pad) lines.push(`    if ${a.name}.lamports() == 0 {`);
+        lines.push(`${pad}    // Create account ${a.name} via system program (rent-exempt)`);
+        lines.push(`${pad}    {`);
+        lines.push(`${pad}        use pinocchio_system::instructions::CreateAccount;`);
+        lines.push(`${pad}        let create = CreateAccount::with_minimum_balance(${c.payer}, ${a.name}, ${spaceStr} as u64, program_id, None)?;`);
+        if (seedsC && seedsC.type === 'seeds') {
+          // A PDA can only be created with its own signature: derive it, check it, sign with seeds + bump
+          const parts = pinocchioSeedParts(seedsC.seeds);
+          lines.push(`${pad}        let (expected, bump) = Address::find_program_address(&[${parts.join(', ')}], program_id);`);
+          lines.push(`${pad}        if ${a.name}.address() != &expected {`);
+          lines.push(`${pad}            return Err(ProgramError::InvalidSeeds);`);
+          lines.push(`${pad}        }`);
+          lines.push(`${pad}        let bump = [bump];`);
+          lines.push(`${pad}        let seeds = [${[...parts, '&bump[..]'].map((p) => `pinocchio::cpi::Seed::from(${p})`).join(', ')}];`);
+          lines.push(`${pad}        create.invoke_signed(&[pinocchio::cpi::Signer::from(&seeds[..])])?;`);
+        } else {
+          lines.push(`${pad}        create.invoke()?;`);
+        }
+        lines.push(`${pad}    }`);
+        if (stateType) {
+          lines.push(`${pad}    ${a.name}.try_borrow_mut()?[..8].copy_from_slice(&${stateType}::DISCRIMINATOR);`);
+        }
+        if (pad) lines.push(`    }`);
       }
       if (c.type === 'realloc') {
         lines.push(`    // Realloc ${a.name} to ${c.space} bytes`);
