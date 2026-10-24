@@ -1,0 +1,41 @@
+# rustc.wasm for SolStudio's in-browser compiler: rustc hosted on wasm32-wasip1 (single-threaded),
+# with an LLVM that only has the BPF backend. Same commit as the nightly used to prebuild crates.
+change-id = "ignore"
+
+[llvm]
+# The native stage1 compiler uses CI's LLVM; the wasm host links the LLVM built in ../llvm-wasm.
+download-ci-llvm = true
+
+[build]
+host = ["wasm32-wasip1"]
+target = ["wasm32-wasip1"]
+docs = false
+compiler-docs = false
+extended = false
+tools = []
+submodules = false
+optimized-compiler-builtins = false
+jobs = 5
+
+[rust]
+channel = "nightly"
+codegen-backends = ["llvm"]
+optimize = true
+debug = false
+debuginfo-level = 0
+lld = false
+llvm-tools = false
+llvm-bitcode-linker = false
+deny-warnings = false
+omit-git-hash = false
+download-rustc = false
+
+[target.wasm32-wasip1]
+llvm-config = "$TOOLCHAIN/llvm-wasm-install/bin/llvm-config"
+wasi-root = "$TOOLCHAIN/wasi-sdk/share/wasi-sysroot"
+cc = "$TOOLCHAIN/wasi-sdk/bin/clang"
+cxx = "$TOOLCHAIN/wasi-sdk/bin/clang++"
+ar = "$TOOLCHAIN/wasi-sdk/bin/llvm-ar"
+ranlib = "$TOOLCHAIN/wasi-sdk/bin/llvm-ranlib"
+linker = "$TOOLCHAIN/wasi-sdk/bin/clang"
+codegen-backends = ["llvm"]

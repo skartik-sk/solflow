@@ -1,0 +1,607 @@
+diff --git a/compiler/rustc_codegen_llvm/src/llvm/dl.rs b/compiler/rustc_codegen_llvm/src/llvm/dl.rs
+new file mode 100644
+index 000000000..fed282edf
+--- /dev/null
++++ b/compiler/rustc_codegen_llvm/src/llvm/dl.rs
+@@ -0,0 +1,45 @@
++//! `libloading` has no WASI backend. A wasm-hosted rustc can't dlopen, so on WASI these stubs
++//! fail the same way a missing library does, and Enzyme/offload report as unavailable.
++
++#[cfg(not(target_os = "wasi"))]
++pub(crate) use libloading::{Error, Library, Symbol};
++#[cfg(target_os = "wasi")]
++pub(crate) use self::wasi::{Error, Library, Symbol};
++
++#[cfg(target_os = "wasi")]
++mod wasi {
++    use std::ffi::c_void;
++    use std::marker::PhantomData;
++
++    pub(crate) use libloading::Error;
++
++    pub(crate) struct Library;
++
++    pub(crate) struct Symbol<'lib, T> {
++        value: T,
++        _lib: PhantomData<&'lib Library>,
++    }
++
++    impl Library {
++        pub(crate) unsafe fn new<P>(_path: P) -> Result<Library, Error> {
++            Err(Error::DlOpenUnknown)
++        }
++
++        pub(crate) unsafe fn get<T>(&self, _symbol: &[u8]) -> Result<Symbol<'_, T>, Error> {
++            Err(Error::DlSymUnknown)
++        }
++    }
++
++    impl<T> std::ops::Deref for Symbol<'_, T> {
++        type Target = T;
++        fn deref(&self) -> &T {
++            &self.value
++        }
++    }
++
++    impl<T> Symbol<'_, T> {
++        pub(crate) fn try_as_raw_ptr(self) -> Option<*mut c_void> {
++            None
++        }
++    }
++}
+diff --git a/compiler/rustc_codegen_llvm/src/llvm/enzyme_ffi.rs b/compiler/rustc_codegen_llvm/src/llvm/enzyme_ffi.rs
+index 8f6cc30e1..4031c45cc 100644
+--- a/compiler/rustc_codegen_llvm/src/llvm/enzyme_ffi.rs
++++ b/compiler/rustc_codegen_llvm/src/llvm/enzyme_ffi.rs
+@@ -149,18 +149,18 @@ pub(crate) struct EnzymeWrapper {
+         EnzymeSetCLBool: EnzymeSetCLBoolFn,
+         EnzymeSetCLString: EnzymeSetCLStringFn,
+         pub registerEnzymeAndPassPipeline: *const c_void,
+-        lib: libloading::Library,
++        lib: crate::llvm::dl::Library,
+     }
+ 
+     unsafe impl Sync for EnzymeWrapper {}
+     unsafe impl Send for EnzymeWrapper {}
+ 
+     fn load_ptr_by_symbol_mut_void(
+-        lib: &libloading::Library,
++        lib: &crate::llvm::dl::Library,
+         bytes: &[u8],
+-    ) -> Result<*mut c_void, libloading::Error> {
++    ) -> Result<*mut c_void, crate::llvm::dl::Error> {
+         unsafe {
+-            let s: libloading::Symbol<'_, *mut c_void> = lib.get(bytes)?;
++            let s: crate::llvm::dl::Symbol<'_, *mut c_void> = lib.get(bytes)?;
+             // libloading = 0.9.0: try_as_raw_ptr always succeeds and returns Some
+             let s = s.try_as_raw_ptr().unwrap();
+             Ok(s)
+@@ -184,8 +184,8 @@ macro_rules! load_ptrs_by_symbols_mut_void {
+     // e.g.
+     // load_ptrs_by_symbols_fn(ABC: ABCFn, XYZ: XYZFn);
+     // =>
+-    // let ABC: libloading::Symbol<'_, ABCFn> = unsafe { lib.get(b"ABC")? };
+-    // let XYZ: libloading::Symbol<'_, XYZFn> = unsafe { lib.get(b"XYZ")? };
++    // let ABC: crate::llvm::dl::Symbol<'_, ABCFn> = unsafe { lib.get(b"ABC")? };
++    // let XYZ: crate::llvm::dl::Symbol<'_, XYZFn> = unsafe { lib.get(b"XYZ")? };
+     macro_rules! load_ptrs_by_symbols_fn {
+         ($lib:expr, $($name:ident : $ty:ty),* $(,)?) => {
+             $(
+@@ -203,8 +203,8 @@ pub(crate) enum EnzymeLibraryError {
+         LoadFailed { err: String },
+     }
+ 
+-    impl From<libloading::Error> for EnzymeLibraryError {
+-        fn from(err: libloading::Error) -> Self {
++    impl From<crate::llvm::dl::Error> for EnzymeLibraryError {
++        fn from(err: crate::llvm::dl::Error) -> Self {
+             Self::LoadFailed { err: format!("{err:?}") }
+         }
+     }
+@@ -372,7 +372,7 @@ fn call_dynamic(
+             sysroot: &rustc_session::config::Sysroot,
+         ) -> Result<Self, EnzymeLibraryError> {
+             let enzyme_path = Self::get_enzyme_path(sysroot)?;
+-            let lib = unsafe { libloading::Library::new(enzyme_path)? };
++            let lib = unsafe { crate::llvm::dl::Library::new(enzyme_path)? };
+ 
+             load_ptrs_by_symbols_fn!(
+                 lib,
+diff --git a/compiler/rustc_codegen_llvm/src/llvm/mod.rs b/compiler/rustc_codegen_llvm/src/llvm/mod.rs
+index e189dc758..d545d2e5f 100644
+--- a/compiler/rustc_codegen_llvm/src/llvm/mod.rs
++++ b/compiler/rustc_codegen_llvm/src/llvm/mod.rs
+@@ -17,6 +17,7 @@
+ 
+ mod conversions;
+ pub(crate) mod diagnostic;
++mod dl;
+ pub(crate) mod enzyme_ffi;
+ mod ffi;
+ mod metadata_kind;
+diff --git a/compiler/rustc_codegen_llvm/src/llvm/offload_ffi.rs b/compiler/rustc_codegen_llvm/src/llvm/offload_ffi.rs
+index 840d07a1e..c098c7e02 100644
+--- a/compiler/rustc_codegen_llvm/src/llvm/offload_ffi.rs
++++ b/compiler/rustc_codegen_llvm/src/llvm/offload_ffi.rs
+@@ -19,7 +19,7 @@ pub(crate) struct RustOffloadWrapper {
+     LLVMRustOffloadWrapImages: LLVMRustOffloadWrapImagesFn,
+     lld_path: Option<PathBuf>,
+     // Keep the dynamic library loaded while the function pointers are used.
+-    _lib: libloading::Library,
++    _lib: crate::llvm::dl::Library,
+ }
+ 
+ #[derive(Debug)]
+@@ -28,8 +28,8 @@ pub(crate) enum RustOffloadLibraryError {
+     LoadFailed { err: String },
+ }
+ 
+-impl From<libloading::Error> for RustOffloadLibraryError {
+-    fn from(err: libloading::Error) -> Self {
++impl From<crate::llvm::dl::Error> for RustOffloadLibraryError {
++    fn from(err: crate::llvm::dl::Error) -> Self {
+         Self::LoadFailed { err: format!("{err:?}") }
+     }
+ }
+@@ -71,7 +71,7 @@ fn call_dynamic(
+         sysroot: &rustc_session::config::Sysroot,
+     ) -> Result<Self, RustOffloadLibraryError> {
+         let (rust_offload_path, lld_path) = Self::get_offload_and_lld_paths(sysroot)?;
+-        let lib = unsafe { libloading::Library::new(rust_offload_path)? };
++        let lib = unsafe { crate::llvm::dl::Library::new(rust_offload_path)? };
+ 
+         let llvm_rust_offload_wrapper =
+             *unsafe { lib.get::<LLVMRustOffloadMapperFn>(b"LLVMRustOffloadMapper\0")? };
+diff --git a/compiler/rustc_codegen_llvm/src/llvm_util.rs b/compiler/rustc_codegen_llvm/src/llvm_util.rs
+index ea91756b9..088d8f536 100644
+--- a/compiler/rustc_codegen_llvm/src/llvm_util.rs
++++ b/compiler/rustc_codegen_llvm/src/llvm_util.rs
+@@ -31,7 +31,8 @@
+ pub(crate) fn init(sess: &EarlySession) {
+     unsafe {
+         // Before we touch LLVM, make sure that multithreading is enabled.
+-        if !llvm::LLVMIsMultithreaded().is_true() {
++        // (A single-threaded wasm host links an LLVM built without threads.)
++        if !cfg!(target_os = "wasi") && !llvm::LLVMIsMultithreaded().is_true() {
+             bug!("LLVM compiled without support for threads");
+         }
+         INIT.call_once(|| {
+diff --git a/compiler/rustc_codegen_ssa/src/back/write.rs b/compiler/rustc_codegen_ssa/src/back/write.rs
+index 0d7d85320..a6cfb3cb8 100644
+--- a/compiler/rustc_codegen_ssa/src/back/write.rs
++++ b/compiler/rustc_codegen_ssa/src/back/write.rs
+@@ -1215,7 +1215,7 @@ fn start_executing_work<B: WriteBackendMethods>(
+     allocator_config: Arc<ModuleConfig>,
+     mut allocator_module: Option<ModuleCodegen<B::Module>>,
+     coordinator_send: Sender<Message<B>>,
+-) -> thread::JoinHandle<Result<MaybeLtoModules<B>, ()>> {
++) -> CoordinatorFuture<B> {
+     let sess = tcx.sess;
+     let prof = sess.prof.clone();
+     let incr_comp_session =
+@@ -1780,14 +1780,23 @@ enum CodegenState {
+             }),
+         }))
+     };
+-    return std::thread::Builder::new()
+-        .name("coordinator".to_owned())
+-        .spawn(f)
+-        .expect("failed to spawn coordinator thread");
++    // A single-threaded wasm host can't spawn the coordinator; it runs when joined instead.
++    if cfg!(target_os = "wasi") {
++        return CoordinatorFuture::Deferred(Box::new(f));
++    }
++    return CoordinatorFuture::Thread(
++        std::thread::Builder::new()
++            .name("coordinator".to_owned())
++            .spawn(f)
++            .expect("failed to spawn coordinator thread"),
++    );
+ 
+     // A heuristic that determines if we have enough LLVM WorkItems in the
+     // queue so that the main thread can do LLVM work instead of codegen
+     fn queue_full_enough(items_in_queue: usize, workers_running: usize) -> bool {
++        if cfg!(target_os = "wasi") {
++            return false;
++        }
+         // This heuristic scales ahead-of-time codegen according to available
+         // concurrency, as measured by `workers_running`. The idea is that the
+         // more concurrency we have available, the more demand there will be for
+@@ -1906,6 +1915,10 @@ fn spawn_work<'a, B: WriteBackendMethods>(
+         };
+         drop(coordinator_send.send(msg));
+     };
++    if cfg!(target_os = "wasi") {
++        let _ = (name, stack_size);
++        return f();
++    }
+     std::thread::Builder::new()
+         .name(name)
+         .stack_size(stack_size)
+@@ -1958,6 +1971,10 @@ fn spawn_thin_lto_work<B: WriteBackendMethods>(
+         };
+         drop(coordinator_send.send(msg));
+     };
++    if cfg!(target_os = "wasi") {
++        let _ = (name, stack_size);
++        return f();
++    }
+     std::thread::Builder::new()
+         .name(name)
+         .stack_size(stack_size)
+@@ -2077,9 +2094,25 @@ fn check(&self, sess: &Session, blocking: bool) {
+     }
+ }
+ 
++/// The coordinator normally runs on its own thread. On a single-threaded wasm host it is
++/// deferred and runs on the main thread when joined, after every codegen message is queued.
++pub(crate) enum CoordinatorFuture<B: WriteBackendMethods> {
++    Thread(thread::JoinHandle<Result<MaybeLtoModules<B>, ()>>),
++    Deferred(Box<dyn FnOnce() -> Result<MaybeLtoModules<B>, ()> + Send>),
++}
++
++impl<B: WriteBackendMethods> CoordinatorFuture<B> {
++    fn join(self) -> std::thread::Result<Result<MaybeLtoModules<B>, ()>> {
++        match self {
++            CoordinatorFuture::Thread(handle) => handle.join(),
++            CoordinatorFuture::Deferred(f) => std::panic::catch_unwind(AssertUnwindSafe(f)),
++        }
++    }
++}
++
+ pub struct Coordinator<B: WriteBackendMethods> {
+     sender: Sender<Message<B>>,
+-    future: Option<thread::JoinHandle<Result<MaybeLtoModules<B>, ()>>>,
++    future: Option<CoordinatorFuture<B>>,
+     // Only used for the Message type.
+     phantom: PhantomData<B>,
+ }
+@@ -2119,7 +2152,11 @@ pub fn join(
+         incr_comp_session: Option<&IncrCompSession>,
+         crate_info: &CrateInfo,
+     ) -> (CompiledModules, WorkProductMap) {
+-        self.shared_emitter_main.check(sess, true);
++        // A deferred coordinator (wasm host) still holds an emitter until it runs, so a blocking
++        // drain here would never finish; drain after joining instead.
++        if !cfg!(target_os = "wasi") {
++            self.shared_emitter_main.check(sess, true);
++        }
+ 
+         let maybe_lto_modules = sess.time("join_worker_thread", || match self.coordinator.join() {
+             Ok(Ok(maybe_lto_modules)) => maybe_lto_modules,
+@@ -2131,6 +2168,9 @@ pub fn join(
+                 bug!("panic during codegen/LLVM phase");
+             }
+         });
++        if cfg!(target_os = "wasi") {
++            self.shared_emitter_main.check(sess, true);
++        }
+ 
+         sess.dcx().abort_if_errors();
+ 
+@@ -2228,6 +2268,10 @@ pub(crate) fn check_for_errors(&self, sess: &Session) {
+     }
+ 
+     pub(crate) fn wait_for_signal_to_codegen_item(&self) {
++        // The deferred coordinator (wasm host) hasn't started yet; codegen proceeds freely.
++        if cfg!(target_os = "wasi") {
++            return;
++        }
+         match self.codegen_worker_receive.recv() {
+             Ok(CguMessage) => {
+                 // Ok to proceed.
+diff --git a/compiler/rustc_data_structures/src/jobserver.rs b/compiler/rustc_data_structures/src/jobserver.rs
+index 478fc0632..d9f6c6a37 100644
+--- a/compiler/rustc_data_structures/src/jobserver.rs
++++ b/compiler/rustc_data_structures/src/jobserver.rs
+@@ -109,6 +109,10 @@ pub fn new() -> Arc<Self> {
+             wake_pending: Condvar::new(),
+             helper: OnceLock::new(),
+         });
++        // wasm32-wasip1 has no threads, so no helper; the main thread's token is enough.
++        if cfg!(target_os = "wasi") {
++            return proxy;
++        }
+         let proxy_ = Arc::clone(&proxy);
+         let helper = proxy
+             .client
+@@ -141,10 +145,11 @@ pub fn new() -> Arc<Self> {
+     pub fn acquire_thread(&self) {
+         let mut data = self.data.lock();
+ 
+-        if data.used == 0 {
++        if data.used == 0 || cfg!(target_os = "wasi") {
+             // No threads are doing any active work, but we are still holding the last token.
++            // (Always the case on a single-threaded wasm host.)
+             // Give that token to the current thread.
+-            assert_eq!(data.pending, 0);
++            debug_assert_eq!(data.pending, 0);
+             data.used += 1;
+         } else {
+             // Request a token from the helper thread, this is a non-blocking operation.
+diff --git a/compiler/rustc_driver/Cargo.toml b/compiler/rustc_driver/Cargo.toml
+index 519097198..bd6f96fd1 100644
+--- a/compiler/rustc_driver/Cargo.toml
++++ b/compiler/rustc_driver/Cargo.toml
+@@ -4,7 +4,7 @@ version = "0.0.0"
+ edition = "2024"
+ 
+ [lib]
+-crate-type = ["dylib"]
++crate-type = ["lib", "dylib"]
+ 
+ [dependencies]
+ # tidy-alphabetical-start
+diff --git a/compiler/rustc_driver_impl/src/lib.rs b/compiler/rustc_driver_impl/src/lib.rs
+index b878affae..9b2c22040 100644
+--- a/compiler/rustc_driver_impl/src/lib.rs
++++ b/compiler/rustc_driver_impl/src/lib.rs
+@@ -1439,7 +1439,7 @@ fn ice_path_with_config(config: Option<&UnstableOptions>) -> &'static Option<Pat
+         };
+         // Don't use a standard datetime format because Windows doesn't support `:` in paths
+         let file_now = jiff::Zoned::now().strftime("%Y-%m-%dT%H_%M_%S");
+-        let pid = std::process::id();
++        let pid = if cfg!(target_family = "wasm") { 1 } else { std::process::id() };
+         path.push(format!("rustc-ice-{file_now}-{pid}.txt"));
+         Some(path)
+     })
+diff --git a/compiler/rustc_interface/src/util.rs b/compiler/rustc_interface/src/util.rs
+index 06f354fef..d623e8d69 100644
+--- a/compiler/rustc_interface/src/util.rs
++++ b/compiler/rustc_interface/src/util.rs
+@@ -185,6 +185,18 @@ fn run_in_thread_with_globals<F: FnOnce(CurrentGcx) -> R + Send, R: Send>(
+     // the parallel compiler, in particular to ensure there is no accidental
+     // sharing of data between the main thread and the compilation thread
+     // (which might cause problems for the parallel compiler).
++    // wasm32-wasip1 has no threads: run on the current thread.
++    #[cfg(target_os = "wasi")]
++    {
++        let _ = thread_stack_size;
++        return rustc_span::create_session_globals_then(
++            edition,
++            extra_symbols,
++            Some(sm_inputs),
++            || f(CurrentGcx::new()),
++        );
++    }
++    #[allow(unreachable_code)]
+     let builder = thread::Builder::new().name("rustc".to_string()).stack_size(thread_stack_size);
+ 
+     // We build the session globals and run `f` on the spawned thread, because
+diff --git a/compiler/rustc_llvm/build.rs b/compiler/rustc_llvm/build.rs
+index 450b98f20..198d60ca4 100644
+--- a/compiler/rustc_llvm/build.rs
++++ b/compiler/rustc_llvm/build.rs
+@@ -312,12 +312,20 @@ fn main() {
+         cfg.define("NDEBUG", None);
+     }
+ 
++    // LLVM built for WASI uses wasi-libc's emulated POSIX bits (see llvm.rs).
++    if target.contains("wasi") {
++        for emulated in ["MMAN", "SIGNAL", "PROCESS_CLOCKS", "GETPID"] {
++            cfg.define(&format!("_WASI_EMULATED_{emulated}"), None);
++        }
++    }
++
+     rerun_if_changed_anything_in_dir(Path::new("llvm-wrapper"));
+     cfg.file("llvm-wrapper/PassWrapper.cpp")
+         .file("llvm-wrapper/RustWrapper.cpp")
+         .file("llvm-wrapper/CoverageMappingWrapper.cpp")
+         .file("llvm-wrapper/SymbolWrapper.cpp")
+         .file("llvm-wrapper/Linker.cpp")
++        .file("llvm-wrapper/WasiStubs.cpp")
+         .cpp(true)
+         .cpp_link_stdlib(None) // we handle this below
+         .compile("llvm-wrapper");
+@@ -490,6 +498,7 @@ fn main() {
+         || target.contains("windows-gnullvm")
+         || target.contains("aix")
+         || target.contains("ohos")
++        || target.contains("wasi")
+     {
+         "c++"
+     } else if target.contains("netbsd") && llvm_static_stdcpp.is_some() {
+@@ -527,6 +536,20 @@ fn main() {
+         }
+     }
+ 
++    // A WASI-hosted LLVM links libc++abi and wasi-libc's POSIX emulation explicitly.
++    if target.contains("wasi") {
++        if let Some(sysroot) = tracked_env_var_os("WASI_SYSROOT") {
++            // wasi-sdk keeps libc++ under noeh/ (LLVM is built without exceptions)
++            let libdir = PathBuf::from(sysroot).join("lib").join(&target);
++            println!("cargo:rustc-link-search=native={}", libdir.join("noeh").display());
++            println!("cargo:rustc-link-search=native={}", libdir.display());
++        }
++        println!("cargo:rustc-link-lib=c++abi");
++        for emulated in ["mman", "signal", "process-clocks", "getpid"] {
++            println!("cargo:rustc-link-lib=wasi-emulated-{emulated}");
++        }
++    }
++
+     // libc++abi and libunwind have to be specified explicitly on AIX.
+     if target.contains("aix") {
+         println!("cargo:rustc-link-lib=c++abi");
+diff --git a/compiler/rustc_llvm/llvm-wrapper/WasiStubs.cpp b/compiler/rustc_llvm/llvm-wrapper/WasiStubs.cpp
+new file mode 100644
+index 000000000..808f43ea9
+--- /dev/null
++++ b/compiler/rustc_llvm/llvm-wrapper/WasiStubs.cpp
+@@ -0,0 +1,13 @@
++// WASI has no dynamic loading. LLVM's plugin loader still references these, so a wasm-hosted
++// rustc gets stubs that fail cleanly; the code paths are never used for normal compilation.
++#if defined(__wasi__)
++#include <stddef.h>
++
++extern "C" {
++void *dlopen(const char *, int) { return NULL; }
++void *dlsym(void *, const char *) { return NULL; }
++int dlclose(void *) { return 0; }
++char *dlerror(void) { return const_cast<char *>("dynamic loading is not supported on WASI"); }
++int posix_madvise(void *, size_t, int) { return 0; }
++}
++#endif
+diff --git a/compiler/rustc_metadata/src/host_dylib.rs b/compiler/rustc_metadata/src/host_dylib.rs
+index ad76eb4eb..185990bdc 100644
+--- a/compiler/rustc_metadata/src/host_dylib.rs
++++ b/compiler/rustc_metadata/src/host_dylib.rs
+@@ -1,7 +1,10 @@
++#[cfg(not(target_os = "wasi"))]
+ use std::error::Error;
+ use std::path::Path;
++#[cfg(not(target_os = "wasi"))]
+ use std::time::Duration;
+ 
++#[cfg(not(target_os = "wasi"))]
+ use rustc_fs_util::try_canonicalize;
+ use rustc_proc_macro::bridge::client::Client as ProcMacroClient;
+ use rustc_session::StableCrateId;
+@@ -9,10 +12,12 @@
+ 
+ use crate::locator::CrateError;
+ 
++#[cfg(not(target_os = "wasi"))]
+ fn format_dlopen_err(e: &(dyn std::error::Error + 'static)) -> String {
+     e.sources().map(|e| format!(": {e}")).collect()
+ }
+ 
++#[cfg(not(target_os = "wasi"))]
+ fn attempt_load_dylib(path: &Path) -> Result<libloading::Library, libloading::Error> {
+     #[cfg(target_os = "aix")]
+     if let Some(ext) = path.extension()
+@@ -40,6 +45,7 @@ fn attempt_load_dylib(path: &Path) -> Result<libloading::Library, libloading::Er
+ // proc-macro DLL with `Error::LoadLibraryExW`. It is suspected that something in the
+ // system still holds a lock on the file, so we retry a few times before calling it
+ // an error.
++#[cfg(not(target_os = "wasi"))]
+ fn load_dylib(path: &Path, max_attempts: usize) -> Result<libloading::Library, String> {
+     assert!(max_attempts > 0);
+ 
+@@ -103,6 +109,7 @@ fn from(err: DylibError) -> CrateError {
+     }
+ }
+ 
++#[cfg(not(target_os = "wasi"))]
+ pub unsafe fn load_symbol_from_dylib<T: Copy>(
+     path: &Path,
+     sym_name: &str,
+@@ -123,6 +130,32 @@ pub unsafe fn load_symbol_from_dylib<T: Copy>(
+     Ok(*sym)
+ }
+ 
++/// A wasm-hosted rustc can't dlopen. Proc-macro crates linked into the compiler binary
++/// register their `__rustc_proc_macro_decls_*` symbol here instead.
++#[cfg(target_os = "wasi")]
++static STATIC_SYMBOLS: std::sync::Mutex<Vec<(String, usize)>> = std::sync::Mutex::new(Vec::new());
++
++#[cfg(target_os = "wasi")]
++pub fn register_static_symbol(name: &str, addr: usize) {
++    STATIC_SYMBOLS.lock().unwrap().push((name.to_owned(), addr));
++}
++
++#[cfg(target_os = "wasi")]
++pub unsafe fn load_symbol_from_dylib<T: Copy>(
++    path: &Path,
++    sym_name: &str,
++) -> Result<T, DylibError> {
++    const { assert!(size_of::<T>() == size_of::<usize>()) };
++    let addr = STATIC_SYMBOLS.lock().unwrap().iter().find(|(n, _)| n == sym_name).map(|(_, a)| *a);
++    match addr {
++        Some(addr) => Ok(unsafe { std::mem::transmute_copy::<usize, T>(&addr) }),
++        None => Err(DylibError::DlOpen(
++            path.display().to_string(),
++            "this compiler can't load proc-macro libraries".to_owned(),
++        )),
++    }
++}
++
+ pub(crate) fn dlsym_proc_macros(
+     path: &Path,
+     stable_crate_id: StableCrateId,
+diff --git a/compiler/rustc_metadata/src/lib.rs b/compiler/rustc_metadata/src/lib.rs
+index 1706fece2..bb4c86b73 100644
+--- a/compiler/rustc_metadata/src/lib.rs
++++ b/compiler/rustc_metadata/src/lib.rs
+@@ -26,4 +26,6 @@
+ 
+ pub use fs::{METADATA_FILENAME, emit_wrapper_file};
+ pub use host_dylib::{DylibError, load_symbol_from_dylib};
++#[cfg(target_os = "wasi")]
++pub use host_dylib::register_static_symbol;
+ pub use rmeta::{EncodedMetadata, METADATA_HEADER, ProcMacroKind, encode_metadata, rendered_const};
+diff --git a/compiler/rustc_session/src/filesearch.rs b/compiler/rustc_session/src/filesearch.rs
+index 10c62d932..511c3bc04 100644
+--- a/compiler/rustc_session/src/filesearch.rs
++++ b/compiler/rustc_session/src/filesearch.rs
+@@ -341,6 +341,11 @@ fn from_env_args_next() -> Option<PathBuf> {
+         rustlib_path.exists().then_some(p)
+     }
+ 
++    // A wasm-hosted rustc has no dll path; its embedder mounts the sysroot at /sysroot.
++    if cfg!(target_os = "wasi") {
++        return PathBuf::from("/sysroot");
++    }
++
+     from_env_args_next()
+         .unwrap_or_else(|| default_from_rustc_driver_dll().expect("Failed finding sysroot"))
+ }
+diff --git a/compiler/rustc_session/src/output.rs b/compiler/rustc_session/src/output.rs
+index 4824abae6..f6fef7691 100644
+--- a/compiler/rustc_session/src/output.rs
++++ b/compiler/rustc_session/src/output.rs
+@@ -43,6 +43,10 @@ pub fn check_file_is_writeable(file: &Path, sess: &Session) {
+ }
+ 
+ fn is_writeable(p: &Path) -> bool {
++    // WASI has no permission bits; a wasm-hosted rustc can always write its own outputs.
++    if cfg!(target_os = "wasi") {
++        return true;
++    }
+     match p.metadata() {
+         Err(..) => true,
+         Ok(m) => !m.permissions().readonly(),
+diff --git a/compiler/rustc_target/src/spec/targets/wasm32_wasip1.rs b/compiler/rustc_target/src/spec/targets/wasm32_wasip1.rs
+index 0983327d3..5319cb0ba 100644
+--- a/compiler/rustc_target/src/spec/targets/wasm32_wasip1.rs
++++ b/compiler/rustc_target/src/spec/targets/wasm32_wasip1.rs
+@@ -21,12 +21,18 @@ pub(crate) fn target() -> Target {
+     options.os = Os::Wasi;
+     options.env = Env::P1;
+     options.add_pre_link_args(LinkerFlavor::WasmLld(Cc::Yes), &["--target=wasm32-wasip1"]);
++    // A wasm-hosted rustc (SolStudio's in-browser compiler) runs the whole compiler on the
++    // main stack and needs most of the 4 GiB address space.
++    options.add_pre_link_args(
++        LinkerFlavor::WasmLld(Cc::Yes),
++        &["-Wl,-z,stack-size=67108864", "-Wl,--max-memory=4294967296"],
++    );
+ 
+     options.pre_link_objects_self_contained = crt_objects::pre_wasi_self_contained();
+     options.post_link_objects_self_contained = crt_objects::post_wasi_self_contained();
+ 
+     // FIXME: Figure out cases in which WASM needs to link with a native toolchain.
+-    options.link_self_contained = LinkSelfContainedDefault::True;
++    options.link_self_contained = LinkSelfContainedDefault::False;
+ 
+     // Right now this is a bit of a workaround but we're currently saying that
+     // the target by default has a static crt which we're taking as a signal
+diff --git a/src/bootstrap/src/core/build_steps/compile.rs b/src/bootstrap/src/core/build_steps/compile.rs
+index 3021f52d1..5ff80cfb5 100644
+--- a/src/bootstrap/src/core/build_steps/compile.rs
++++ b/src/bootstrap/src/core/build_steps/compile.rs
+@@ -1447,8 +1447,14 @@ fn rustc_llvm_env(builder: &Builder<'_>, cargo: &mut Cargo, target: TargetSelect
+         cargo.env("LLVM_OFFLOAD", "1");
+     }
+ 
+-    // This always has to be the host LLVM config, because it is executed by rustc_llvm
+-    cargo.env("LLVM_CONFIG", builder.host_llvm_config());
++    // This always has to be the host LLVM config, because it is executed by rustc_llvm.
++    // Exception: a cross-built LLVM (e.g. for a wasm32-wasip1 host) can come with its own
++    // runnable llvm-config that describes the target libraries.
++    let target_llvm_config = builder.config.target_config.get(&target).and_then(|c| c.llvm_config.clone());
++    match target_llvm_config {
++        Some(path) if target != builder.host_target => cargo.env("LLVM_CONFIG", path),
++        _ => cargo.env("LLVM_CONFIG", builder.host_llvm_config()),
++    };
+ 
+     // Some LLVM linker flags (-L and -l) may be needed to link `rustc_llvm`. Its build script
+     // expects these to be passed via the `LLVM_LINKER_FLAGS` env variable, separated by

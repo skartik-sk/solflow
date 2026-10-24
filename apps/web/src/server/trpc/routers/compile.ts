@@ -25,6 +25,91 @@ function hashIR(irJson: unknown): string {
     .slice(0, 16);
 }
 
+/** Load a project's IR (regenerating it from the flow if needed) and open a BUILDING record. */
+async function startBuild(ctx: any, projectId: string) {
+  const project = await ctx.prisma.project.findFirst({
+    where: { id: projectId, userId: ctx.session.user.id },
+    select: { id: true, irData: true, framework: true, flowData: true },
+  });
+  if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+  // Regenerate IR from flow data if irData is missing
+  let irData = project.irData;
+  if (!irData && project.flowData) {
+    try {
+      const fd = project.flowData as unknown as { nodes: Node[]; edges: Edge[] };
+      const ir = flowToIR(fd.nodes, fd.edges);
+      irData = ir as unknown as typeof irData;
+      // Persist the regenerated IR
+      await ctx.prisma.project.update({
+        where: { id: project.id },
+        data: { irData: ir as unknown as any },
+      });
+    } catch (irErr) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `IR generation failed: ${irErr instanceof Error ? irErr.message : String(irErr)}`,
+      });
+    }
+  }
+
+  if (!irData) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        "Project has no flow data. Add a Program node with at least one connected Instruction.",
+    });
+  }
+
+  // Rate limit: 5 compile jobs per user per 5 minutes
+  const rl = compileRateLimit(ctx.session.user.id ?? "anonymous");
+  if (!rl.allowed) {
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `Compile rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+    });
+  }
+
+  const irHash = hashIR(irData);
+  const framework = (project.framework?.toLowerCase() ?? "anchor") as
+    | "anchor"
+    | "pinocchio"
+    | "quasar";
+
+  // Create compilation record as BUILDING
+  const compilation = await ctx.prisma.compilation.create({
+    data: {
+      projectId,
+      status: "BUILDING",
+      framework: project.framework,
+      irHash,
+    },
+  });
+  return { project, irData, irHash, framework, compilation };
+}
+
+async function saveGeneratedCode(ctx: any, projectId: string, files: { path: string; content: string }[]) {
+  const generatedCode = files
+    .map((f) => `// ─── ${f.path} ───────────────────────────\n${f.content}`)
+    .join("\n\n");
+  await ctx.prisma.project.update({
+    where: { id: projectId },
+    data: { generatedCode: generatedCode as any },
+  });
+}
+
+// A deployable sBPF program: 64-bit little-endian ELF for EM_BPF (0xf7), at most 1 MiB.
+function isSbpfProgram(bytes: Buffer): boolean {
+  return (
+    bytes.length > 64 &&
+    bytes.length <= 1024 * 1024 &&
+    bytes.readUInt32BE(0) === 0x7f454c46 &&
+    bytes[4] === 2 &&
+    bytes[5] === 1 &&
+    bytes.readUInt16LE(18) === 0xf7
+  );
+}
+
 // ─── Router ──────────────────────────────────────────────────────────────────
 
 export const compileRouter = router({
@@ -41,66 +126,7 @@ export const compileRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const project = await ctx.prisma.project.findFirst({
-        where: { id: input.projectId, userId: ctx.session.user.id },
-        select: { id: true, irData: true, framework: true, flowData: true },
-      });
-      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
-
-      // Regenerate IR from flow data if irData is missing
-      let irData = project.irData;
-      if (!irData && project.flowData) {
-        try {
-          const fd = project.flowData as unknown as { nodes: Node[]; edges: Edge[] };
-          const ir = flowToIR(fd.nodes, fd.edges);
-          irData = ir as unknown as typeof irData;
-          // Persist the regenerated IR
-          await ctx.prisma.project.update({
-            where: { id: project.id },
-            data: { irData: ir as unknown as any },
-          });
-        } catch (irErr) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `IR generation failed: ${irErr instanceof Error ? irErr.message : String(irErr)}`,
-          });
-        }
-      }
-
-      if (!irData) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "Project has no flow data. Add a Program node with at least one connected Instruction.",
-        });
-      }
-
-      // Rate limit: 5 compile jobs per user per 5 minutes
-      const rl = compileRateLimit(ctx.session.user.id ?? "anonymous");
-      if (!rl.allowed) {
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message: `Compile rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
-        });
-      }
-
-      const irHash = hashIR(irData);
-
-      // ── Generate code + compile locally (no Docker/Redis needed) ────────
-      const framework = (project.framework?.toLowerCase() ?? "anchor") as
-        | "anchor"
-        | "pinocchio"
-        | "quasar";
-
-      // Create compilation record as BUILDING
-      const compilation = await ctx.prisma.compilation.create({
-        data: {
-          projectId: input.projectId,
-          status: "BUILDING",
-          framework: project.framework,
-          irHash,
-        },
-      });
+      const { project, irData, irHash, framework, compilation } = await startBuild(ctx, input.projectId);
 
       try {
         // Step 1: Generate Rust source from IR
@@ -109,16 +135,8 @@ export const compileRouter = router({
           throw new Error(result.errors.map((e) => e.message).join("; "));
         }
 
-        const generatedCode = result.files
-          .map((f) => `// ─── ${f.path} ───────────────────────────\n${f.content}`)
-          .join("\n\n");
         const codegenWarnings = result.warnings.map((w) => w.message);
-
-        // Update project with generated code
-        await ctx.prisma.project.update({
-          where: { id: input.projectId },
-          data: { generatedCode: generatedCode as any },
-        });
+        await saveGeneratedCode(ctx, input.projectId, result.files);
 
         // Step 2: Compile using best available method (WASM → Local CLI → codegen only)
         let buildLogs: string[] = [`Code generation — ${result.files.length} file(s)`];
@@ -277,6 +295,84 @@ export const compileRouter = router({
           error: err instanceof Error ? err.message : String(err),
         };
       }
+    }),
+
+  // ── In-browser build: generate source, the client compiles it ───────────
+  prepareBrowserBuild: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { project, irData, framework, compilation } = await startBuild(ctx, input.projectId);
+      const result = generateCode(irData as any, framework);
+      if (result.errors.length > 0) {
+        const message = result.errors.map((e) => e.message).join("; ");
+        await ctx.prisma.compilation.update({
+          where: { id: compilation.id },
+          data: { status: "FAILED", errors: [message] as unknown as any, completedAt: new Date() },
+        });
+        throw new TRPCError({ code: "BAD_REQUEST", message });
+      }
+      await saveGeneratedCode(ctx, input.projectId, result.files);
+      return {
+        jobId: compilation.id,
+        framework: project.framework,
+        files: result.files.map((f) => ({ path: f.path, content: f.content })),
+        warnings: result.warnings.map((w) => w.message),
+      };
+    }),
+
+  // ── In-browser build: store the program the client compiled ─────────────
+  completeBrowserBuild: protectedProcedure
+    .input(
+      z.object({
+        jobId: z.string(),
+        // base64 sBPF program; ~1.4 MB of base64 covers the 1 MiB program limit
+        program: z.string().max(1_500_000).optional(),
+        logs: z.array(z.string().max(10_000)).max(500).default([]),
+        errors: z.array(z.string().max(20_000)).max(50).default([]),
+        durationMs: z.number().int().nonnegative().max(600_000).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const compilation = await ctx.prisma.compilation.findFirst({
+        where: { id: input.jobId, project: { userId: ctx.session.user.id } },
+        select: { id: true, projectId: true, status: true },
+      });
+      if (!compilation) throw new TRPCError({ code: "NOT_FOUND" });
+      if (compilation.status !== "BUILDING") {
+        throw new TRPCError({ code: "CONFLICT", message: "This build already finished." });
+      }
+
+      const program = input.program ? Buffer.from(input.program, "base64") : null;
+      if (program && !isSbpfProgram(program)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Not a valid Solana program." });
+      }
+      const success = !!program && input.errors.length === 0;
+
+      await ctx.prisma.compilation.update({
+        where: { id: compilation.id },
+        data: {
+          status: success ? "SUCCESS" : "FAILED",
+          logs: input.logs.join("\n"),
+          ...(input.errors.length > 0 ? { errors: input.errors as unknown as any } : {}),
+          // The bytes live in the DB (serverless); binaryUrl just marks "has a binary" for deploy.
+          ...(success
+            ? {
+                binarySize: program!.length,
+                binaryBytes: new Uint8Array(program!),
+                binaryUrl: `browser:${compilation.id}.so`,
+              }
+            : {}),
+          ...(input.durationMs !== undefined ? { duration: input.durationMs } : {}),
+          completedAt: new Date(),
+        },
+      });
+      if (success) {
+        await ctx.prisma.project.update({
+          where: { id: compilation.projectId },
+          data: { status: "COMPILED" },
+        });
+      }
+      return { jobId: compilation.id, success, binarySize: program?.length ?? null };
     }),
 
   // ── Get compilation status ───────────────────────────────────────────────

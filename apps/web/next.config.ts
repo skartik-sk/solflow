@@ -55,6 +55,7 @@ const nextConfig: NextConfig = {
     "@solflow/ui",
     "@solflow/ir",
     "@solflow/codegen",
+    "@solflow/browser-compiler",
     "@solflow/flow-nodes",
     "@solflow/auth",
   ],

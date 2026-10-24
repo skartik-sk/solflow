@@ -1,0 +1,23 @@
+[package]
+name = "sbpf-link"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sbpf-assembler = "0.3.1"
+sbpf-common = "0.3.1"
+either = "1.16.0"
+object = { version = "0.40.0", features = ["write"] }
+thiserror = "2.0.18"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "=0.2.127"
+brotli-decompressor = "5"
+
+[profile.release]
+opt-level = "s"
+lto = true

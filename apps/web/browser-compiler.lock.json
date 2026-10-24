@@ -1,0 +1,21 @@
+{
+  "release": "browser-compiler-v1",
+  "files": {
+    "manifest.json": {
+      "sha256": "dd3ecdcb17ed96fde6e559d7f832d79f149e7855717a4cd83504035e6569cd4a",
+      "size": 1605
+    },
+    "pinocchio.tar.br": {
+      "sha256": "0f5afeccdaa4fb04e628960a9533826cdc047678861bf5eb10d6a76996685d6c",
+      "size": 12709695
+    },
+    "rustc.wasm.br": {
+      "sha256": "fd0fbb32cb22ee8e1ed005d5c0aa7ab83f7700d66403a9f8cf511e21bbd1d9dc",
+      "size": 16272372
+    },
+    "sbpf_link_bg.wasm": {
+      "sha256": "366376fb5b245ce5ab7d3b24aa15f4b72e6c6944badc42e8091eda92b341fafb",
+      "size": 1257533
+    }
+  }
+}

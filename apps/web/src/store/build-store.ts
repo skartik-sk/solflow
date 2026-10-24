@@ -9,6 +9,21 @@ import { create } from "zustand";
 // the build still succeeds, so show it as a warning.
 const STACK_WARNING = /Stack offset of \d+ exceeded max offset/;
 
+const toBase64 = (bytes: Uint8Array) => {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+};
+
+const logLevel = (line: string): BuildLogLine["level"] =>
+  /^error/i.test(line) && !STACK_WARNING.test(line)
+    ? "error"
+    : /^warning/i.test(line) || STACK_WARNING.test(line)
+      ? "warn"
+      : "info";
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface BuildLogLine {
@@ -134,6 +149,84 @@ const INITIAL: Omit<
   deploymentId: null,
 };
 
+// ─── In-browser compile ───────────────────────────────────────────────────────
+
+/** Returns false when the caller should fall back to the server compile. */
+async function compileInBrowser(
+  projectId: string,
+  framework: string,
+  client: ReturnType<typeof import("@/lib/trpc/client").getVanillaClient>,
+  get: () => BuildState,
+  set: (partial: Partial<BuildState>) => void,
+): Promise<boolean> {
+  const browser = await import("@solflow/browser-compiler");
+  if (!browser.browserCompileSupported(framework)) return false;
+
+  const log = (line: string, level: BuildLogLine["level"] = "info") =>
+    get().addLog({ line, level, timestamp: Date.now() });
+
+  const prep = await client.compile.prepareBrowserBuild.mutate({ projectId });
+  set({ compileStatus: "building", compileJobId: prep.jobId });
+  log(`Code generation — ${prep.files.length} file(s)`);
+  for (const warning of prep.warnings) log(warning, "warn");
+  log("Compiling in your browser…");
+
+  const started = performance.now();
+  let lastStep = "";
+  let lastPct = -1;
+  try {
+    const build = await browser.compileInBrowser(framework, prep.files, (step, loaded, total) => {
+      if (step !== lastStep) {
+        lastStep = step;
+        lastPct = -1;
+        if (!loaded) log(`${step}…`);
+      }
+      if (loaded && total) {
+        const pct = Math.floor((loaded / total) * 4) * 25;
+        if (pct !== lastPct) {
+          lastPct = pct;
+          log(`${step}: ${pct}% of ${(total / 1e6).toFixed(1)} MB (first time only)`);
+        }
+      }
+    });
+    const durationMs = Math.round(performance.now() - started);
+    const warnings = build.stderr.split("\n").filter((l) => l.trim());
+    for (const line of warnings) log(line, logLevel(line));
+    const done = await client.compile.completeBrowserBuild.mutate({
+      jobId: prep.jobId,
+      program: toBase64(build.program),
+      logs: [...get().compileLogs.map((l) => l.line)],
+      durationMs,
+    });
+    log(
+      `Compilation successful — ${build.program.length} bytes, compiled in your browser in ${(build.timings.rustcMs / 1000).toFixed(1)}s`,
+    );
+    set({ compileStatus: "success", compileBinarySize: done.binarySize });
+    return true;
+  } catch (err) {
+    const e = err as { message?: string; stderr?: string; unsupported?: boolean };
+    const message = e.message ?? String(err);
+    const rustErrors = e.stderr?.trim() && message === "Rust compilation failed";
+    await client.compile.completeBrowserBuild
+      .mutate({ jobId: prep.jobId, errors: [rustErrors ? e.stderr! : message] })
+      .catch(() => undefined);
+
+    if (rustErrors) {
+      // Real compile errors: the server would report the same thing.
+      for (const line of e.stderr!.split("\n").filter((l) => l.trim())) log(line, logLevel(line));
+      set({ compileStatus: "error", compileErrors: [e.stderr!] });
+      return true;
+    }
+    log(
+      e.unsupported
+        ? `${message} — compiling on the server instead.`
+        : `Browser compiler unavailable (${message}) — compiling on the server instead.`,
+      "warn",
+    );
+    return false;
+  }
+}
+
 // ─── Store ────────────────────────────────────────────────────────────────────
 
 export const useBuildStore = create<BuildState>((set, get) => ({
@@ -172,18 +265,18 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
+
+      // Pinocchio builds run in the browser; anything else, or any browser failure, uses the server.
+      const framework = useProjectStore.getState().framework.toUpperCase();
+      if (await compileInBrowser(projectId, framework, client, get, set)) return;
+
       const result = await client.compile.start.mutate({ projectId });
 
       set({ compileStatus: "building", compileJobId: result.jobId });
 
       if (result.logs && Array.isArray(result.logs)) {
         for (const line of result.logs) {
-          const level = /^error/i.test(line) && !STACK_WARNING.test(line)
-            ? "error"
-            : /^warning/i.test(line) || STACK_WARNING.test(line)
-              ? "warn"
-              : "info";
-          get().addLog({ line, level, timestamp: Date.now() });
+          get().addLog({ line, level: logLevel(line), timestamp: Date.now() });
         }
       }
 

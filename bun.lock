@@ -154,6 +154,7 @@
         "@solana/web3.js": "^1.98.4",
         "@solflow/audit": "workspace:*",
         "@solflow/auth": "workspace:*",
+        "@solflow/browser-compiler": "workspace:*",
         "@solflow/codegen": "workspace:*",
         "@solflow/db": "workspace:*",
         "@solflow/flow-nodes": "workspace:*",
@@ -253,6 +254,20 @@
         "@solflow/tsconfig": "workspace:*",
         "@types/react": "^19.0.0",
         "next": "^15.3.0",
+        "typescript": "^5.8.0",
+        "vitest": "^3.0.0",
+      },
+    },
+    "packages/browser-compiler": {
+      "name": "@solflow/browser-compiler",
+      "version": "0.0.0",
+      "dependencies": {
+        "@bjorn3/browser_wasi_shim": "0.4.2",
+      },
+      "devDependencies": {
+        "@solflow/codegen": "workspace:*",
+        "@solflow/ir": "workspace:*",
+        "@solflow/tsconfig": "workspace:*",
         "typescript": "^5.8.0",
         "vitest": "^3.0.0",
       },
@@ -687,6 +702,8 @@
     "@babel/traverse": ["@babel/traverse@7.29.0", "", { "dependencies": { "@babel/code-frame": "^7.29.0", "@babel/generator": "^7.29.0", "@babel/helper-globals": "^7.28.0", "@babel/parser": "^7.29.0", "@babel/template": "^7.28.6", "@babel/types": "^7.29.0", "debug": "^4.3.1" } }, "sha512-4HPiQr0X7+waHfyXPZpWPfWL/J7dcN1mx9gL6WdQVMbPnF3+ZhSMs8tCxN7oHddJE9fhNE7+lxdnlyemKfJRuA=="],
 
     "@babel/types": ["@babel/types@7.29.0", "", { "dependencies": { "@babel/helper-string-parser": "^7.27.1", "@babel/helper-validator-identifier": "^7.28.5" } }, "sha512-LwdZHpScM4Qz8Xw2iKSzS+cfglZzJGvofQICy7W7v4caru4EaAmyUuO6BGrbyQ2mYV11W0U8j5mBhd14dd3B0A=="],
+
+    "@bjorn3/browser_wasi_shim": ["@bjorn3/browser_wasi_shim@0.4.2", "", {}, "sha512-/iHkCVUG3VbcbmEHn5iIUpIrh7a7WPiwZ3sHy4HZKZzBdSadwdddYDZAII2zBvQYV0Lfi8naZngPCN7WPHI/hA=="],
 
     "@codama/cli": ["@codama/cli@1.5.0", "", { "dependencies": { "@codama/nodes": "1.5.1", "@codama/visitors": "1.5.1", "@codama/visitors-core": "1.5.1", "commander": "^14.0.2", "picocolors": "^1.1.1", "prompts": "^2.4.2" }, "bin": { "codama": "bin/cli.cjs" } }, "sha512-+q62IvEA6o7ji/mcnGgAvyPWyiFx3cojVGrFNG8NSm0zFXrBk1lT3n/qg+2Ag8C8aHwno9boXgDTxV+P5VCDYw=="],
 
@@ -1565,6 +1582,8 @@
     "@solflow/audit": ["@solflow/audit@workspace:packages/audit"],
 
     "@solflow/auth": ["@solflow/auth@workspace:packages/auth"],
+
+    "@solflow/browser-compiler": ["@solflow/browser-compiler@workspace:packages/browser-compiler"],
 
     "@solflow/cloud": ["@solflow/cloud@workspace:apps/cloud"],
 
