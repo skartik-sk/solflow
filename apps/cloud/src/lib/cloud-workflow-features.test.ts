@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildAssistantWorkflowDraft,
   createSimulationReport,
+  cronFromText,
   evaluateCloudTemplateCertification,
   redactPreviewValue,
 } from "./cloud-workflow-features";
@@ -221,4 +222,37 @@ describe("cloud workflow feature helpers", () => {
     expect(report.transactionPlan[0]?.effect).not.toContain("token-secret");
     expect(report.transactionPlan[0]?.effect).not.toContain("query-secret");
   });
+
+  it("combines a schedule, a data source and an alert from one prompt", () => {
+    const draft = buildAssistantWorkflowDraft("Watch wallet activity every 5 minutes and alert my Discord webhook");
+    const types = draft.definition.nodes.map((node) => node.type);
+    expect(types).toContain("action:helius-wallet-activity");
+    expect(types).toContain("action:discord-message");
+    expect(types).not.toContain("output:webhook");
+    const trigger = draft.definition.nodes.find((node) => node.type === "trigger:cron");
+    expect(trigger?.data).toMatchObject({ cronExpression: "*/5 * * * *" });
+  });
+
+  it("adds a webhook summary and a Squads proposal when asked", () => {
+    const swap = buildAssistantWorkflowDraft("When SOL goes below 180, prepare a Jupiter swap and send a webhook summary");
+    expect(swap.definition.nodes.map((node) => node.type)).toEqual(
+      expect.arrayContaining(["action:jupiter-swap-order", "output:webhook"]),
+    );
+    const squads = buildAssistantWorkflowDraft("Query treasury token accounts and create a Squads approval proposal");
+    expect(squads.definition.nodes.map((node) => node.type)).toEqual(
+      expect.arrayContaining(["action:token-account-query", "action:squads-proposal"]),
+    );
+    // every added node is wired in
+    for (const node of squads.definition.nodes) {
+      if (node.type.startsWith("trigger:")) continue;
+      expect(squads.definition.edges.some((e) => e.target === node.id)).toBe(true);
+    }
+  });
+
+  it("parses schedules", () => {
+    expect(cronFromText("every 2 hours")).toBe("0 */2 * * *");
+    expect(cronFromText("run daily")).toBe("0 0 * * *");
+    expect(cronFromText("once")).toBeNull();
+  });
 });
+

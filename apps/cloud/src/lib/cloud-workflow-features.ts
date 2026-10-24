@@ -919,6 +919,157 @@ export function buildAssistantWorkflowDraft(
   prompt: string,
 ): AssistantWorkflowDraft {
   const text = prompt.toLowerCase();
+  return augmentDraft(primaryDraft(text), text);
+}
+
+/** Cron expression for "every 5 minutes", "hourly", "daily", … or null. */
+export function cronFromText(text: string): string | null {
+  const m = text.match(/every\s+(\d+)\s*(s|sec|second|m|min|minute|h|hr|hour|d|day)s?\b/);
+  if (m) {
+    const n = Math.max(1, Number(m[1]));
+    const unit = m[2][0];
+    if (unit === "s") return "* * * * *"; // cron resolution is one minute
+    if (unit === "m") return n >= 60 ? "0 * * * *" : `*/${n} * * * *`;
+    if (unit === "h") return n >= 24 ? "0 0 * * *" : `0 */${n} * * *`;
+    return `0 0 */${n} * *`;
+  }
+  if (/every minute/.test(text)) return "* * * * *";
+  if (/hourly|every hour/.test(text)) return "0 * * * *";
+  if (/daily|every day/.test(text)) return "0 0 * * *";
+  return null;
+}
+
+function notificationNode(
+  text: string,
+  id: string,
+  position: { x: number; y: number },
+): WorkflowNodeInput {
+  if (text.includes("dialect")) {
+    return {
+      id,
+      type: "action:dialect-alert",
+      position,
+      data: {
+        credentialId: "",
+        appId: "YOUR_DIALECT_APP_ID",
+        recipientType: "subscriber",
+        walletAddress: "YOUR_WALLET_ADDRESS",
+        channels: ["IN_APP"],
+        title: "SolStudio Cloud Alert",
+        body: "Workflow finished: {{ $json }}",
+      },
+    };
+  }
+  if (text.includes("telegram")) {
+    return {
+      id,
+      type: "action:telegram-message",
+      position,
+      data: {
+        credentialId: "",
+        chatId: "YOUR_CHAT_ID",
+        text: "SolStudio Cloud alert: {{ $json }}",
+        parseMode: "",
+        disableNotification: false,
+      },
+    };
+  }
+  return {
+    id,
+    type: "action:discord-message",
+    position,
+    data: {
+      webhookUrl: "",
+      credentialId: "",
+      content: "SolStudio Cloud alert: {{ $json }}",
+      username: "SolStudio Cloud",
+      embeds: [],
+      wait: true,
+    },
+  };
+}
+
+const NOTIFICATION_TYPES = ["action:discord-message", "action:telegram-message", "action:dialect-alert"];
+
+/**
+ * Templates cover one main intent. Layer the rest of the prompt on top: a schedule
+ * ("every 5 minutes"), alerts (Discord/Telegram/Dialect), a webhook summary, or a
+ * Squads proposal, each as a branch off the step that feeds the final output.
+ */
+function augmentDraft(draft: AssistantWorkflowDraft, text: string): AssistantWorkflowDraft {
+  const nodes = draft.definition.nodes.map((node) => ({ ...node }));
+  const edges = [...draft.definition.edges];
+  const tags = [...draft.tags];
+  const has = (types: string[]) => nodes.some((node) => types.includes(node.type));
+
+  const cron = cronFromText(text);
+  const trigger = nodes.find((node) => node.type.startsWith("trigger:"));
+  if (cron && trigger && trigger.type !== "trigger:webhook") {
+    trigger.type = "trigger:cron";
+    trigger.data = { cronExpression: cron, timezone: "UTC" };
+    if (!tags.includes("cron")) tags.push("cron");
+  }
+
+  const output = [...nodes].reverse().find((node) => node.type.startsWith("output:"));
+  const feed = output ? edges.find((e) => e.target === output.id) : undefined;
+  const anchor = feed?.source ?? output?.id ?? nodes.at(-1)?.id;
+  const baseX = output?.position?.x ?? 640;
+  let row = 0;
+  const branch = (node: WorkflowNodeInput, tag: string) => {
+    row += 1;
+    node.position = { x: baseX, y: 180 + row * 170 };
+    nodes.push(node);
+    if (anchor) edges.push(edge(`e-${node.id}`, anchor, node.id, feed?.sourceHandle));
+    if (!tags.includes(tag)) tags.push(tag);
+  };
+
+  const wantsAlert = /discord|telegram|dialect/.test(text);
+  if (wantsAlert && !has(NOTIFICATION_TYPES)) {
+    branch(notificationNode(text, "notify", { x: 0, y: 0 }), "notification");
+  }
+  const wantsWebhook =
+    text.includes("webhook") && !wantsAlert && !/helius webhook|webhook source|webhook trigger/.test(text);
+  if (wantsWebhook && !has(["output:webhook", "action:helius-webhook-create"])) {
+    branch(
+      {
+        id: "webhook",
+        type: "output:webhook",
+        position: { x: 0, y: 0 },
+        data: {
+          url: "",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentialId: "",
+          body: "{{ $json }}",
+          timeoutMs: 10000,
+        },
+      },
+      "webhook",
+    );
+  }
+  if (text.includes("squads") && !has(["action:squads-proposal"])) {
+    branch(
+      {
+        id: "squads",
+        type: "action:squads-proposal",
+        position: { x: 0, y: 0 },
+        data: {
+          apiUrl: "",
+          multisig: "YOUR_MULTISIG_ADDRESS",
+          title: "SolStudio treasury proposal",
+          description: "Created from a SolStudio Cloud workflow run.",
+          payload: {},
+          credentialId: "",
+        },
+      },
+      "squads",
+    );
+  }
+
+  return { ...draft, tags, definition: { nodes, edges } };
+}
+
+function primaryDraft(text: string): AssistantWorkflowDraft {
 
   if (
     text.includes("umbra") ||
@@ -1100,63 +1251,6 @@ export function buildAssistantWorkflowDraft(
         edge("e2", "tip", "accounts", "tip floor"),
         edge("e3", "accounts", "display", "tip accounts"),
       ],
-    );
-  }
-
-  if (
-    text.includes("discord") ||
-    text.includes("telegram") ||
-    text.includes("dialect") ||
-    text.includes("notification")
-  ) {
-    const useTelegram = text.includes("telegram");
-    const useDialect = text.includes("dialect");
-    return workflowDraft(
-      "external-notification",
-      useDialect ? "Dialect Alert" : useTelegram ? "Telegram Alert" : "Discord Alert",
-      "Send run output to a configured notification channel.",
-      ["notification", useDialect ? "dialect" : useTelegram ? "telegram" : "discord"],
-      [
-        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
-        {
-          id: "notify",
-          type: useDialect ? "action:dialect-alert" : useTelegram ? "action:telegram-message" : "action:discord-message",
-          position: { x: 340, y: 180 },
-          data: useDialect
-            ? {
-                credentialId: "",
-                appId: "YOUR_DIALECT_APP_ID",
-                recipientType: "subscriber",
-                walletAddress: "YOUR_WALLET_ADDRESS",
-                channels: ["IN_APP"],
-                title: "SolStudio Cloud Alert",
-                body: "Workflow finished: {{ $json }}",
-              }
-            : useTelegram
-              ? {
-                  credentialId: "",
-                  chatId: "YOUR_CHAT_ID",
-                  text: "SolStudio Cloud alert: {{ $json }}",
-                  parseMode: "",
-                  disableNotification: false,
-                }
-              : {
-                  webhookUrl: "",
-                  credentialId: "",
-                  content: "SolStudio Cloud alert: {{ $json }}",
-                  username: "SolStudio Cloud",
-                  embeds: [],
-                  wait: true,
-                },
-        },
-        {
-          id: "result",
-          type: "output:result",
-          position: { x: 640, y: 180 },
-          data: { name: "Notification", status: "success", value: "{{ $json.notification }}" },
-        },
-      ],
-      [edge("e1", "trigger", "notify"), edge("e2", "notify", "result", "notification")],
     );
   }
 
@@ -1426,6 +1520,34 @@ export function buildAssistantWorkflowDraft(
         edge("e3", "guard", "swap", "true"),
         edge("e4", "swap", "result", "order"),
       ],
+    );
+  }
+
+  if (
+    text.includes("discord") ||
+    text.includes("telegram") ||
+    text.includes("dialect") ||
+    text.includes("notification")
+  ) {
+    const useTelegram = text.includes("telegram");
+    const useDialect = text.includes("dialect");
+    // Only when no data source or action matched above; augmentDraft adds alerts to those.
+    return workflowDraft(
+      "external-notification",
+      useDialect ? "Dialect Alert" : useTelegram ? "Telegram Alert" : "Discord Alert",
+      "Send run output to a configured notification channel.",
+      ["notification", useDialect ? "dialect" : useTelegram ? "telegram" : "discord"],
+      [
+        { id: "trigger", type: "trigger:manual", position: { x: 80, y: 180 }, data: {} },
+        notificationNode(text, "notify", { x: 340, y: 180 }),
+        {
+          id: "result",
+          type: "output:result",
+          position: { x: 640, y: 180 },
+          data: { name: "Notification", status: "success", value: "{{ $json.notification }}" },
+        },
+      ],
+      [edge("e1", "trigger", "notify"), edge("e2", "notify", "result", "notification")],
     );
   }
 
