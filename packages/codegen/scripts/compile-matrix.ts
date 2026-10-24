@@ -8,7 +8,8 @@ import { tmpdir } from "os";
 import { basename, dirname, join, resolve } from "path";
 import { parseArgs } from "util";
 import { flowToIR, type ProgramIR } from "@solflow/ir";
-import { parseProgram } from "@solflow/rust-parser";
+// By path, not as a dependency: rust-parser already depends on codegen (via idl-import).
+import { parseProgram } from "../../rust-parser/src/index";
 import { generateCode } from "../src/index";
 
 const { values, positionals } = parseArgs({

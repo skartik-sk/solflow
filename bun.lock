@@ -375,7 +375,6 @@
       },
       "devDependencies": {
         "@solflow/eslint-config": "workspace:*",
-        "@solflow/rust-parser": "workspace:*",
         "@solflow/tsconfig": "workspace:*",
         "@types/handlebars": "*",
         "typescript": "^5.8.0",
