@@ -426,7 +426,8 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
         type: "set-field" as const,
         account: accountName,
         field: f?.trim() || "",
-        value: cleanAccountName(v?.trim() || ""),
+        // Keep the expression (e.g. `ctx.accounts.mint.key()`); normalizeLogic canonicalizes it.
+        value: v?.trim() || "",
       })).filter(op => op.field);
       if (setOps.length > 0) {
         if (setOps.length === 1) return { op: setOps[0], nextLine: endLine };

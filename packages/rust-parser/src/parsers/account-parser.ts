@@ -94,14 +94,17 @@ function parseAccountFields(body: string): ParsedAccount[] {
   const lines = body.split("\n");
 
   for (const line of lines) {
-    const trimmed = line.trim();
+    const raw = line.trim();
 
     // Collect doc comments
-    const docMatch = trimmed.match(/^\/\/\/\s*(.*)/);
+    const docMatch = raw.match(/^\/\/\/\s*(.*)/);
     if (docMatch) {
       pendingDoc = (pendingDoc ? pendingDoc + " " : "") + docMatch[1].trim();
       continue;
     }
+    // Ordinary comments (e.g. a commented-out `// has_one = x` inside #[account(...)]) aren't code.
+    const trimmed = raw.replace(/(^|[^:"])\/\/.*$/, "$1").trim();
+    if (!trimmed) continue;
 
     // Collect #[account(...)] attributes — handle multi-line by accumulating
     if (trimmed.startsWith("#[account")) {

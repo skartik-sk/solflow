@@ -19,7 +19,8 @@ export const RE_FN_SIG =
 
 /** Match #[derive(Accounts)] struct — allows other derives alongside Accounts (e.g. Debug, Clone) */
 export const RE_ACCOUNTS_STRUCT =
-  /(?:#\[instruction\s*\(([^)]*)\)\s*\])?\s*#\[derive\s*\(\s*[^)]*\bAccounts\b[^)]*\)\s*\]\s*(?:\/\/\/\s*(.*))?\s*pub\s+struct\s+(\w+)\s*(?:<\s*'info\s*>)?\s*\{/;
+  // Other attributes (`#[instruction(..)]`) and comments may sit on either side of the derive.
+  /(?:#\[instruction\s*\(([^)]*)\)\s*\])?\s*#\[derive\s*\(\s*[^)]*\bAccounts\b[^)]*\)\s*\](?:\s*#\[[^\]]*\]|\s*\/\/(?!\/)[^\n]*)*\s*(?:\/\/\/\s*(.*))?\s*pub\s+struct\s+(\w+)\s*(?:<\s*'info\s*>)?\s*\{/;
 
 /** Match a field inside an Accounts struct */
 export const RE_ACCOUNT_FIELD =

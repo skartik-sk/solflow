@@ -310,8 +310,8 @@ function parseSeedsExpr(expr: string): Array<{ type: SeedType; value: string }> 
     if (s.startsWith('"') || s.startsWith('b"')) {
       // "vault" and b"vault" are both byte-string literals; store the bare text like the editor does.
       seeds.push({ type: "literal", value: s.replace(/^b/, "").replace(/"/g, "") });
-    } else if (s.includes(".")) {
-      seeds.push({ type: "account-field", value: s });
+    } else if (s.includes(".") || s.startsWith("&")) {
+      seeds.push(normalizeSeedExpr(s));
     } else if (s === "bump") {
       seeds.push({ type: "literal", value: "bump" });
     } else {
@@ -320,6 +320,20 @@ function parseSeedsExpr(expr: string): Array<{ type: SeedType; value: string }> 
   }
 
   return seeds;
+}
+
+/**
+ * `signer.key().as_ref()` → the account `signer`; `amount.to_le_bytes().as_ref()` → the arg
+ * `amount` (generators encode args by type). Anything else (e.g. `config.seed.to_le_bytes()`)
+ * stays as a byte expression the generators emit as written.
+ */
+function normalizeSeedExpr(expr: string): { type: SeedType; value: string } {
+  const s = expr.replace(/^&/, "").replace(/\.as_ref\(\)$/, "").trim();
+  const key = s.match(/^(?:self\.|ctx\.accounts\.)?(\w+)(?:\.to_account_info\(\))?\.key(?:\(\))?(?:\.to_bytes\(\))?$/);
+  if (key) return { type: "account-field", value: key[1] };
+  const bytes = s.match(/^(\w+)\.to_le_bytes\(\)$/);
+  if (bytes) return { type: "instruction-arg", value: bytes[1] };
+  return { type: "account-field", value: s.replace(/^(?:self\.|ctx\.accounts\.)/, "") };
 }
 
 /**

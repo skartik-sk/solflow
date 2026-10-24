@@ -15,6 +15,7 @@ import { parseErrors } from "./parsers/error-parser";
 import { parseEvents } from "./parsers/event-parser";
 import { parseConstants } from "./parsers/constant-parser";
 import { parseLogic, parseLogicWithContext } from "./parsers/logic-parser";
+import { normalizeLogic } from "./parsers/normalize-logic";
 import { readRustProject, parseCargoVersion, scanRustProject } from "./scanner";
 import { parsedProgramToFlow } from "./converters/to-flow";
 import { extractInstructionBody } from "./parsers/program-parser";
@@ -157,14 +158,19 @@ function parseContent(content: string, version?: string, includeLogic?: boolean)
     if (shouldParseLogic) {
       const body = extractInstructionBody(content, ix.name);
       if (body) {
-        ix.logicOps = parseLogicWithContext(body, content, ix.accountsStructName, new Set());
+        const accountNames = (accounts[ix.accountsStructName] ?? accounts[ix.name] ?? []).map((a) => a.name);
+        ix.logicOps = normalizeLogic(parseLogicWithContext(body, content, ix.accountsStructName, new Set()), accountNames);
       }
     }
   }
 
+  // Keep the program's address: clients and deployments refer to it.
+  const programId = content.match(/declare_id!\s*\(\s*"([1-9A-HJ-NP-Za-km-z]{32,44})"\s*\)/)?.[1];
+
   return {
     name: programName || "unknown_program",
     version: version || "0.1.0",
+    ...(programId ? { programId } : {}),
     instructions,
     accounts,
     states,

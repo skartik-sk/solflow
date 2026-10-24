@@ -82,42 +82,59 @@ export function detectAccountKind(rustType: string): {
   accountType: string;
   stateType?: string;
 } {
-  const t = rustType.trim();
-
-  if (t.startsWith("Signer<") || t === "Signer") return { accountType: "signer" };
-  if (t === "SystemAccount<" || t.startsWith("SystemAccount<") || t === "SystemAccount")
-    return { accountType: "system-account" };
-  if (t.startsWith("Program<")) return { accountType: "system-program" };
-  if (t.startsWith("Account<"))
-    return { accountType: "account", stateType: extractGeneric(t) };
-  if (t.startsWith("AccountLoader<"))
-    return { accountType: "account", stateType: extractGeneric(t) };
-  if (t.startsWith("LazyAccount<"))
-    return { accountType: "account", stateType: extractGeneric(t) };
-  if (t.startsWith("TokenAccount<") || t.startsWith("InterfaceAccount<"))
-    return { accountType: "token-account" };
-  if (t.startsWith("Mint<") || t.startsWith("InterfaceMint<"))
-    return { accountType: "mint" };
-  if (t.startsWith("Interface<"))
-    return { accountType: "account", stateType: extractGeneric(t) };
-  if (t.startsWith("AssociatedToken<"))
-    return { accountType: "associated-token" };
-  if (t === "UncheckedAccount" || t === "AccountInfo<" || t === "&AccountInfo" || t === "AccountInfo")
-    return { accountType: "unchecked-account" };
-  if (t === "System<" || t.startsWith("System<") || t === "System")
-    return { accountType: "system-program" };
-  if (t === "Token<" || t.startsWith("Token<") || t === "Token")
-    return { accountType: "token-program" };
-  if (t === "Rent" || t === "Rent<") return { accountType: "rent" };
-  if (t === "Clock" || t === "Clock<") return { accountType: "clock" };
-  if (t.startsWith("Syscall<")) return { accountType: "system-program" };
-  if (t.startsWith("Option<Account<")) {
-    const inner = extractGeneric(t.replace(/^Option<</, "").replace(/>$/, ""));
-    return { accountType: "account", stateType: inner };
+  // `Box<…>`, `Option<…>` and paths (`anchor_spl::token::Mint`) don't change the account kind.
+  let t = rustType.trim().replace(/\s+/g, "");
+  for (;;) {
+    const unwrapped = t.match(/^(?:Box|Option)<(.+)>$/);
+    if (!unwrapped) break;
+    t = unwrapped[1];
   }
-  if (t.startsWith("Option<"))
-    return { accountType: "unchecked-account" };
+  const wrapper = t.match(/^(?:[\w]+::)*(\w+)/)?.[1] ?? t;
+  const inner = t.includes("<") ? extractGeneric(t).replace(/^(?:\w+::)*/, "") : undefined;
 
+  switch (wrapper) {
+    case "Signer":
+      return { accountType: "signer" };
+    case "SystemAccount":
+      return { accountType: "system-account" };
+    case "UncheckedAccount":
+    case "AccountInfo":
+      return { accountType: "unchecked-account" };
+    case "Sysvar":
+      if (inner === "Rent") return { accountType: "rent" };
+      if (inner === "Clock") return { accountType: "clock" };
+      return { accountType: "unchecked-account" };
+    case "Rent":
+      return { accountType: "rent" };
+    case "Clock":
+      return { accountType: "clock" };
+    case "Program":
+    case "Interface":
+      if (inner === "System") return { accountType: "system-program" };
+      if (inner === "Token" || inner === "Token2022" || inner === "TokenInterface") return { accountType: "token-program" };
+      if (inner === "AssociatedToken") return { accountType: "associated-token-program" };
+      return { accountType: "program", stateType: inner };
+    case "System":
+    case "Syscall":
+      return { accountType: "system-program" };
+    case "Token":
+    case "TokenInterface":
+      return { accountType: "token-program" };
+    case "Account":
+    case "InterfaceAccount":
+    case "AccountLoader":
+    case "LazyAccount":
+      if (inner === "Mint") return { accountType: "mint" };
+      if (inner === "TokenAccount") return { accountType: "token-account" };
+      return { accountType: "account", stateType: inner };
+    case "TokenAccount":
+      return { accountType: "token-account" };
+    case "Mint":
+    case "InterfaceMint":
+      return { accountType: "mint" };
+    case "AssociatedToken":
+      return { accountType: "associated-token" };
+  }
   return { accountType: "account" };
 }
 

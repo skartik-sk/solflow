@@ -42,6 +42,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
       version: parsed.version || "0.1.0",
       description: parsed.description,
       programId: parsed.programId,
+      constants: parsed.constants,
     },
   });
 
@@ -91,13 +92,14 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
 
     // Create Account nodes for this instruction
     const ixAccounts = parsed.accounts[ix.accountsStructName] ?? [];
-    for (const acc of ixAccounts) {
+    for (const [order, acc] of ixAccounts.entries()) {
       // Skip utility accounts — create one shared node instead
       const utilityType = getUtilityAccountType(acc);
       if (utilityType) {
         // Create or reuse shared utility node
         const utilityId = getOrCreateUtilityNode(utilityType, nodes, edges);
-        edges.push(makeEdge(ixNodeId, utilityId, "account-out", "utility-in"));
+        // The account's position in the struct is part of the instruction's interface.
+        edges.push({ ...makeEdge(ixNodeId, utilityId, "account-out", "utility-in"), data: { order } });
         totalAccounts++;
         continue;
       }
@@ -130,7 +132,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
         },
       });
 
-      edges.push(makeEdge(ixNodeId, accNodeId, "account-out", "account-in"));
+      edges.push({ ...makeEdge(ixNodeId, accNodeId, "account-out", "account-in"), data: { order } });
 
       // Link state to account using both name-based and type-based matching
       if (acc.stateType) {
@@ -342,13 +344,13 @@ const utilityNodeCache = new Map<string, string>();
 function getUtilityAccountType(acc: ParsedAccount): string | null {
   const nameNorm = normalizeForMatch(acc.name);
   // Check by account name
+  // Exact names only: `associated_token_program` must not match `token_program`.
   for (const key of Object.keys(UTILITY_ACCOUNT_TYPES)) {
-    if (nameNorm.includes(normalizeForMatch(key))) return key;
+    if (nameNorm === normalizeForMatch(key)) return key;
   }
-  // Check by accountType — Program types that are system programs
-  if (acc.accountType) {
-    const typeNorm = normalizeForMatch(acc.accountType);
-    if (typeNorm.includes("system") && typeNorm.includes("program")) return "system_program";
+  // Otherwise by type, whatever the field is called.
+  for (const [key, type] of Object.entries(UTILITY_EDITOR_TYPES)) {
+    if (acc.accountType === type) return key;
   }
   return null;
 }

@@ -421,6 +421,23 @@ function buildAccountIR(
     }
   }
 
+  // Constraints parsed from source (imported programs) cover what the editor's flags can't
+  // express — has_one, owner, address, realloc, `constraint = …`, close targets, token checks
+  // on existing accounts. The flags the editor toggles (mut, signer, init, seeds) stay authoritative.
+  if (Array.isArray(data.constraints)) {
+    const FLAG_OWNED = new Set(["mut", "signer", "init", "init-if-needed", "seeds"]);
+    for (const c of data.constraints as Constraint[]) {
+      if (!c || typeof c !== "object" || FLAG_OWNED.has(c.type)) continue;
+      const existing = merged.find((m) => m.type === c.type);
+      if (c.type === "close" && existing?.type === "close") {
+        if (!existing.target) existing.target = c.target;
+        continue;
+      }
+      if (c.type === "close" && !data.isClose) continue;
+      if (c.type === "has-one" || c.type === "custom" || !existing) merged.push(c);
+    }
+  }
+
   return {
     id: toUuid(accNode.id),
     sourceNodeId: accNode.id,
@@ -605,7 +622,17 @@ function buildInstructionIR(
 ): Instruction {
   const data = ixNode.data as Record<string, unknown>;
 
+  // Imported programs record each account's position in the source struct on its edge (shared
+  // nodes like system_program sit at different positions per instruction); that order is ABI.
+  const edgeOrder = (accId: string) => {
+    const e = edges.find((x) => x.source === ixNode.id && x.target === accId) as (Edge & { data?: { order?: number } }) | undefined;
+    return e?.data?.order;
+  };
   const accountNodes = getConnectedNodes(ixNode.id, "account", nodes, edges);
+  if (accountNodes.some((n) => edgeOrder(n.id) !== undefined)) {
+    const index = new Map(accountNodes.map((n, i) => [n.id, i]));
+    accountNodes.sort((a, b) => (edgeOrder(a.id) ?? 1e6 + index.get(a.id)!) - (edgeOrder(b.id) ?? 1e6 + index.get(b.id)!));
+  }
   // Collect ALL logic + custom-code nodes, following chains (A→B→C)
   const allLogicNodes = collectAllLogicNodes(ixNode.id, nodes, edges);
 
