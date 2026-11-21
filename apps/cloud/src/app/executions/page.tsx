@@ -4,30 +4,11 @@
 
 import React from "react";
 import Link from "next/link";
-import {
-  Activity,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  CircleSlash,
-  Timer,
-} from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { AppShell } from "@/components/layout/AppShell";
-
-const STATUS_CONFIG: Record<
-  string,
-  { icon: typeof CheckCircle2; color: string; bg: string }
-> = {
-  COMPLETED: { icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  SUCCESS: { icon: CheckCircle2, color: "text-emerald-400", bg: "bg-emerald-500/10" },
-  FAILED: { icon: XCircle, color: "text-red-400", bg: "bg-red-500/10" },
-  RUNNING: { icon: Loader2, color: "text-blue-400", bg: "bg-blue-500/10" },
-  QUEUED: { icon: Clock, color: "text-amber-400", bg: "bg-amber-500/10" },
-  CANCELLED: { icon: CircleSlash, color: "text-zinc-400", bg: "bg-zinc-500/10" },
-  TIMED_OUT: { icon: Timer, color: "text-orange-400", bg: "bg-orange-500/10" },
-};
+import { EmptyPanel, PageHeader, SkeletonRows, StatusPill, btnQuiet, panel, rowClass } from "@/components/ui-kit/cloud-ui";
+import { RunsMini } from "@/components/ui-kit/cloud-minis";
 
 type ExecutionListItem = {
   id: string;
@@ -63,71 +44,50 @@ export default function ExecutionsPage() {
 
   return (
     <AppShell>
-      <div className="mb-6">
-        <h1 className="text-lg font-bold">Executions</h1>
-        <p className="text-xs text-muted-foreground">History of workflow executions</p>
-      </div>
+      <PageHeader title="Runs" description="History of workflow executions, newest first" />
 
-      {isLoading && (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
+      {isLoading && <SkeletonRows rows={6} />}
 
       {!isLoading && executions.length > 0 && (
-        <div className="space-y-2">
+        <div className={`${panel} overflow-hidden`}>
+          <div className="hidden h-9 grid-cols-[112px_minmax(0,1fr)_96px_64px_72px_80px_16px] items-center gap-4 border-b border-white/[0.07] px-4 text-[12px] text-muted-foreground md:grid">
+            <span>Status</span>
+            <span>Workflow</span>
+            <span>Trigger</span>
+            <span className="text-right">Nodes</span>
+            <span className="text-right">Duration</span>
+            <span className="text-right">Started</span>
+            <span />
+          </div>
           {executions.map((exec) => {
-            const cfg = STATUS_CONFIG[exec.status] ?? STATUS_CONFIG.QUEUED;
-            const Icon = cfg.icon;
             const workflowName = exec.workflow?.name ?? "Unknown";
+            const started = exec.startedAt ? timeAgo(exec.startedAt) : timeAgo(exec.createdAt);
 
             return (
               <Link
                 key={exec.id}
                 href={`/executions/${exec.id}`}
-                className="flex items-center justify-between rounded-xl border border-border bg-card p-4 hover:border-border/80 hover:shadow-md transition-all"
+                className={`group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5 transition-colors duration-150 hover:bg-white/[0.025] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary md:grid-cols-[112px_minmax(0,1fr)_96px_64px_72px_80px_16px] md:gap-4 ${rowClass}`}
               >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${cfg.bg}`}
-                  >
-                    <Icon
-                      size={14}
-                      className={`${cfg.color} ${exec.status === "RUNNING" ? "animate-spin" : ""}`}
-                    />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{workflowName}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {exec.triggerType} trigger
-                      {exec.errorMessage && (
-                        <span className="ml-2 text-red-400">
-                          {exec.errorMessage.slice(0, 60)}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="hidden md:flex items-center gap-3 text-[11px] text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Timer size={10} />
-                      {formatDuration(exec.duration)}
+                <span className="order-2 justify-self-end md:order-none md:justify-self-start">
+                  <StatusPill status={exec.status} />
+                </span>
+                <span className="order-1 min-w-0 md:order-none">
+                  <span className="block truncate text-[13.5px] font-medium">{workflowName}</span>
+                  {exec.errorMessage && (
+                    <span className="mt-0.5 block truncate text-[12px] text-red-400">
+                      {exec.errorMessage.slice(0, 60)}
                     </span>
-                    <span>{exec.nodesExecuted} nodes</span>
-                    <span className="flex items-center gap-1">
-                      <Clock size={10} />
-                      {exec.startedAt ? timeAgo(exec.startedAt) : timeAgo(exec.createdAt)}
-                    </span>
-                  </div>
-
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${cfg.bg} ${cfg.color}`}
-                  >
-                    {exec.status}
+                  )}
+                  <span className="mt-0.5 block text-[12px] tabular-nums text-muted-foreground md:hidden">
+                    {exec.triggerType} · {exec.nodesExecuted} nodes · {formatDuration(exec.duration)} · {started}
                   </span>
-                </div>
+                </span>
+                <span className="hidden truncate text-[12.5px] capitalize text-muted-foreground md:block">{exec.triggerType.toLowerCase()}</span>
+                <span className="hidden text-right font-mono text-[12px] tabular-nums text-muted-foreground md:block">{exec.nodesExecuted}</span>
+                <span className="hidden text-right font-mono text-[12px] tabular-nums text-muted-foreground md:block">{formatDuration(exec.duration)}</span>
+                <span className="hidden text-right text-[12px] tabular-nums text-muted-foreground md:block">{started}</span>
+                <ChevronRight className="hidden h-4 w-4 text-muted-foreground/50 transition-transform duration-150 group-hover:translate-x-0.5 md:block" aria-hidden />
               </Link>
             );
           })}
@@ -135,13 +95,16 @@ export default function ExecutionsPage() {
       )}
 
       {!isLoading && executions.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Activity className="h-10 w-10 text-muted-foreground/30 mb-3" />
-          <p className="text-sm text-muted-foreground">No executions yet</p>
-          <p className="text-xs text-muted-foreground/60">
-            Run a workflow to see execution history
-          </p>
-        </div>
+        <EmptyPanel
+          title="No executions yet"
+          body="Run a workflow to see execution history. Each run keeps its trigger data, node outputs and logs."
+          art={<RunsMini />}
+          actions={
+            <Link href="/workflows" className={btnQuiet}>
+              Open workflows
+            </Link>
+          }
+        />
       )}
     </AppShell>
   );

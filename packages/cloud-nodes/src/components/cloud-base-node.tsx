@@ -10,11 +10,11 @@ import { getIconByName } from "../icons";
 // ─── Status badge ─────────────────────────────────────────────────────────
 
 const STATUS_STYLES: Record<string, { dot: string; bg: string }> = {
-  idle:    { dot: "bg-zinc-500", bg: "" },
-  running: { dot: "bg-blue-400 animate-pulse", bg: "border-blue-500/40" },
-  success: { dot: "bg-emerald-400", bg: "border-emerald-500/30" },
-  error:   { dot: "bg-red-400", bg: "border-red-500/30" },
-  skipped: { dot: "bg-zinc-400", bg: "border-zinc-500/30" },
+  idle:    { dot: "bg-white/25", bg: "" },
+  running: { dot: "bg-primary animate-pulse motion-reduce:animate-none", bg: "border-primary/50" },
+  success: { dot: "bg-green-400", bg: "border-green-500/30" },
+  error:   { dot: "bg-red-400", bg: "border-red-500/35" },
+  skipped: { dot: "bg-white/30", bg: "border-white/[0.06] opacity-70" },
 };
 
 // ─── Handle position calculator ───────────────────────────────────────────
@@ -51,32 +51,33 @@ export const CloudBaseNode = memo(function CloudBaseNode({
   return (
     <div
       className={`
-        relative min-w-[180px] max-w-[240px] rounded-xl border bg-card text-card-foreground
-        shadow-lg shadow-black/30 transition-all duration-150
-        ${selected ? "border-primary shadow-primary/20 shadow-xl scale-[1.02]" : "border-border hover:border-border/80"}
+        relative min-w-[180px] max-w-[240px] rounded-xl border bg-popover text-card-foreground
+        shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_12px_24px_-12px_rgba(0,0,0,0.7)]
+        transition-[border-color,box-shadow,opacity] duration-150 ease-out
+        ${selected ? "border-primary/70 ring-1 ring-primary/40" : "border-white/[0.1] hover:border-white/[0.18]"}
         ${statusStyle?.bg || ""}
       `}
       style={{ borderLeft: `3px solid ${accentColor}` } as React.CSSProperties}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 rounded-t-xl border-b border-border px-3 py-2">
+      <div className="flex h-10 items-center gap-2.5 rounded-t-xl border-b border-white/[0.07] px-3">
         <span
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-xs"
-          style={{ background: `${accentColor}22`, color: accentColor }}
+          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[7px] text-xs"
+          style={{ background: `${accentColor}24`, color: accentColor }}
         >
           {iconEl}
         </span>
-        <span className="truncate text-xs font-semibold leading-none tracking-wide flex-1">
+        <span className="flex-1 truncate text-[13px] font-medium leading-none tracking-[-0.005em]">
           {label}
         </span>
         {status && (
-          <span className={`h-2 w-2 rounded-full shrink-0 ${statusStyle?.dot}`} />
+          <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusStyle?.dot}`} />
         )}
       </div>
 
       {/* Body — preview of node data */}
       {children && (
-        <div className="px-3 py-2 text-[11px] text-muted-foreground space-y-0.5 overflow-hidden [&>*]:truncate">
+        <div className="space-y-0.5 overflow-hidden px-3 py-2 font-mono text-[11.5px] text-muted-foreground [&>*]:truncate">
           {children}
         </div>
       )}

@@ -27,7 +27,7 @@ import { useExecutionStore } from "@/store/execution-store";
 
 const connectionLineStyle: React.CSSProperties = {
   strokeWidth: 2,
-  stroke: "#3b82f6",
+  stroke: "#58d3db",
 };
 
 const fitViewOptions = { padding: 0.2 };
@@ -40,7 +40,7 @@ const defaultEdgeOptions: DefaultEdgeOptions = {
 };
 
 const EDGE_STATUS_COLOR: Record<string, string> = {
-  running: "#60a5fa",
+  running: "#58d3db",
   success: "#34d399",
   error: "#f87171",
   skipped: "#a1a1aa",
@@ -53,11 +53,11 @@ function FitViewButton() {
   return (
     <button
       onClick={() => fitView({ padding: 0.2, duration: 300 })}
-      className="absolute bottom-28 left-3 z-10 flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground shadow-lg transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="absolute bottom-[183px] left-[15px] z-10 flex h-[30px] w-[30px] items-center justify-center rounded-[10px] border border-white/[0.08] bg-popover text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_8px_20px_-10px_rgba(0,0,0,0.8)] outline-none transition-[color,background-color,transform] duration-150 ease-out hover:bg-[#1b1e23] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary active:scale-[0.97] motion-reduce:transition-none"
       title="Fit to screen"
       aria-label="Fit canvas to screen"
     >
-      <Maximize2 size={14} />
+      <Maximize2 size={13} />
     </button>
   );
 }
@@ -106,6 +106,8 @@ export function WorkflowCanvas() {
 
         return {
           ...edge,
+          // Visual only: editor.css colours the path by run status
+          className: [edge.className, `ss-edge-${status}`].filter(Boolean).join(" "),
           animated: status === "running" || edge.animated,
           style: {
             ...edge.style,
@@ -200,15 +202,12 @@ export function WorkflowCanvas() {
         defaultEdgeOptions={defaultEdgeOptions}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} />
-        <Controls
-          showInteractive
-          className="rounded-xl border border-border bg-card shadow-lg"
-        />
+        <Controls showInteractive className="ss-ed-controls" />
         <MiniMap
           nodeColor={minimapNodeColor}
           zoomable
           pannable
-          className="rounded-xl border border-border bg-card shadow-lg"
+          className="ss-ed-minimap"
           style={{ width: 140, height: 90 }}
         />
         <FitViewButton />

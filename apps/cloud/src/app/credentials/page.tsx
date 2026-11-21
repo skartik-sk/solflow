@@ -3,9 +3,11 @@
 // Credentials Page — manage encrypted provider credentials for cloud nodes.
 
 import React, { useState } from "react";
-import { KeyRound, Loader2, Pencil, Plus, Shield, Trash2 } from "lucide-react";
+import { KeyRound, Loader2, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 import { AppShell } from "@/components/layout/AppShell";
 import { trpc } from "@/lib/trpc/client";
+import { Dialog, EmptyPanel, Field, PageHeader, SkeletonRows, btnGhost, btnPrimary, iconBtn, iconBtnDanger, inputClass, panel, rowClass } from "@/components/ui-kit/cloud-ui";
+import { KeysMini } from "@/components/ui-kit/cloud-minis";
 
 const CREDENTIAL_TYPES = [
   { value: "openai", label: "OpenAI" },
@@ -49,9 +51,6 @@ const emptyForm: FormState = {
   baseUrl: "",
   headers: "",
 };
-
-const inputClass =
-  "w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50";
 
 const RPC_ENDPOINT_TYPES: CredentialType[] = ["helius", "rpcfast", "quicknode", "alchemy", "triton"];
 const API_URL_TYPES: CredentialType[] = ["jupiter", "switchboard", "squads", "dialect"];
@@ -172,139 +171,196 @@ export default function CredentialsPage() {
     setForm({ ...emptyForm, type: queryCredentialType });
   }, [openedFromQuery, queryCredentialType]);
 
+  const closeForm = () => { setForm(null); setFormError(null); };
+  const typeLabel = (value: string) => CREDENTIAL_TYPES.find((t) => t.value === value)?.label ?? value;
+
   return (
     <AppShell>
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-bold">Credentials</h1>
-          <p className="text-xs text-muted-foreground">
-            Encrypted provider secrets for workflow nodes
-          </p>
-        </div>
-        <button
-          onClick={() => setForm({ ...emptyForm, type: queryCredentialType ?? "openai" })}
-          className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus size={13} />
-          Add Credential
-        </button>
-      </div>
-
-      <div className="mb-6 flex items-start gap-3 rounded-lg border border-blue-500/20 bg-blue-500/5 p-4">
-        <Shield className="mt-0.5 shrink-0 text-blue-400" size={16} />
-        <div>
-          <p className="text-xs font-medium text-blue-400">Encrypted at rest</p>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            Secrets are stored server-side with AES-256-GCM and never returned to the browser.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Credentials"
+        description={
+          <span className="inline-flex items-center gap-1.5">
+            <Lock className="h-3 w-3" aria-hidden />
+            Encrypted at rest with AES-256-GCM. Secrets are never returned to the browser.
+          </span>
+        }
+        actions={
+          <button
+            type="button"
+            onClick={() => setForm({ ...emptyForm, type: queryCredentialType ?? "openai" })}
+            className={btnPrimary}
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            Add credential
+          </button>
+        }
+      />
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {credentials?.length ? credentials.map((credential) => (
+        <SkeletonRows rows={4} />
+      ) : credentials?.length ? (
+        <div className={panel}>
+          <div className="hidden h-9 grid-cols-[minmax(0,1fr)_120px_110px_110px_72px] items-center gap-4 border-b border-white/[0.07] px-4 text-[12px] text-muted-foreground md:grid">
+            <span>Label</span>
+            <span>Provider</span>
+            <span>Created</span>
+            <span>Last used</span>
+            <span />
+          </div>
+          {credentials.map((credential) => (
             <div
               key={credential.id}
-              className="flex items-center justify-between rounded-lg border border-border bg-card p-4"
+              className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 md:grid-cols-[minmax(0,1fr)_120px_110px_110px_72px] md:gap-4 ${rowClass}`}
             >
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-                  <KeyRound size={16} className="text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm font-semibold">{credential.label}</p>
-                  <p className="text-[11px] text-muted-foreground">
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-white/[0.07] bg-background text-muted-foreground">
+                  <KeyRound className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[13.5px] font-medium">{credential.label}</p>
+                  {/* Phones: provider and dates under the label */}
+                  <p className="mt-0.5 truncate text-[12px] text-muted-foreground md:hidden">
                     {credential.type} · Created {new Date(credential.createdAt).toLocaleDateString()}
                     {credential.lastUsedAt ? ` · Used ${new Date(credential.lastUsedAt).toLocaleDateString()}` : ""}
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-1">
+              <span className="hidden truncate text-[12.5px] text-muted-foreground md:block">{typeLabel(credential.type)}</span>
+              <span className="hidden text-[12.5px] tabular-nums text-muted-foreground md:block">
+                {new Date(credential.createdAt).toLocaleDateString()}
+              </span>
+              <span className="hidden text-[12.5px] tabular-nums text-muted-foreground md:block">
+                {credential.lastUsedAt ? new Date(credential.lastUsedAt).toLocaleDateString() : "Never"}
+              </span>
+              <div className="flex items-center justify-end gap-0.5">
                 <button
+                  type="button"
                   onClick={() => setForm({ ...emptyForm, id: credential.id, label: credential.label, type: credential.type as CredentialType })}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className={iconBtn}
                   title="Edit credential"
+                  aria-label={`Edit ${credential.label}`}
                 >
-                  <Pencil size={12} />
+                  <Pencil className="h-3.5 w-3.5" aria-hidden />
                 </button>
                 <button
+                  type="button"
                   onClick={() => {
                     if (confirm("Delete this credential? Running workflows using it will fail.")) {
                       deleteCredential.mutate({ id: credential.id });
                     }
                   }}
                   disabled={deleteCredential.isPending}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-red-400/70 hover:bg-red-500/10 hover:text-red-400 disabled:opacity-40"
+                  className={iconBtnDanger}
                   title="Delete credential"
+                  aria-label={`Delete ${credential.label}`}
                 >
-                  <Trash2 size={12} />
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
                 </button>
               </div>
             </div>
-          )) : (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <KeyRound className="mb-3 h-10 w-10 text-muted-foreground/30" />
-              <p className="text-sm text-muted-foreground">No credentials yet</p>
-              <p className="mb-4 text-xs text-muted-foreground/60">
-                Add provider keys for AI, Solana RPC, Jupiter, Helius, Jito, notifications, Squads, or webhook nodes
-              </p>
-            </div>
-          )}
+          ))}
         </div>
+      ) : (
+        <EmptyPanel
+          title="No credentials yet"
+          body="Add provider keys for AI, Solana RPC, Jupiter, Helius, Jito, notifications, Squads, or webhook nodes."
+          art={<KeysMini />}
+          actions={
+            <button
+              type="button"
+              onClick={() => setForm({ ...emptyForm, type: queryCredentialType ?? "openai" })}
+              className={btnPrimary}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add credential
+            </button>
+          }
+        />
       )}
 
       {form && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-2xl">
-            <h2 className="mb-4 text-sm font-bold">
-              {form.id ? "Edit Credential" : "Add Credential"}
-            </h2>
-            <div className="space-y-3">
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Label</label>
-                <input
-                  className={inputClass}
-                  value={form.label}
-                  onChange={(e) => setForm({ ...form, label: e.target.value })}
-                  placeholder="Production OpenAI"
-                  autoFocus
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-muted-foreground">Type</label>
-                <select
-                  className={inputClass}
-                  value={form.type}
-                  disabled={!!form.id}
-                  onChange={(e) => setForm({ ...form, type: e.target.value as CredentialType })}
-                >
-                  {CREDENTIAL_TYPES.map((type) => (
-                    <option key={type.value} value={type.value}>{type.label}</option>
-                  ))}
-                </select>
-              </div>
+        <Dialog
+          title={form.id ? "Edit credential" : "Add credential"}
+          description={form.id ? "Leave secret fields empty to keep the existing encrypted value." : "Stored encrypted on the server. You won't be able to read it back."}
+          onClose={closeForm}
+          footer={
+            <>
+              <button type="button" onClick={closeForm} className={btnGhost}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={!form.label.trim() || pending}
+                className={btnPrimary}
+              >
+                {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+                Save
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3.5">
+            <Field label="Label" htmlFor="cred-label">
+              <input
+                id="cred-label"
+                className={inputClass}
+                value={form.label}
+                onChange={(e) => setForm({ ...form, label: e.target.value })}
+                placeholder="Production OpenAI"
+                autoComplete="off"
+                autoFocus
+              />
+            </Field>
+            <Field label="Type" htmlFor="cred-type">
+              <select
+                id="cred-type"
+                className={inputClass}
+                value={form.type}
+                disabled={!!form.id}
+                onChange={(e) => setForm({ ...form, type: e.target.value as CredentialType })}
+              >
+                {CREDENTIAL_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>{type.label}</option>
+                ))}
+              </select>
+            </Field>
 
-              {form.type === "webhook" ? (
-                <>
-                  <input className={inputClass} value={form.bearerToken} onChange={(e) => setForm({ ...form, bearerToken: e.target.value })} placeholder={form.id ? "New bearer token (optional)" : "Bearer token"} />
-                  <input className={inputClass} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.id ? "New API key (optional)" : "API key"} />
-                  <input className={inputClass} value={form.apiKeyHeader} onChange={(e) => setForm({ ...form, apiKeyHeader: e.target.value })} placeholder="API key header, default X-API-Key" />
-                  <textarea className={`${inputClass} font-mono text-[11px]`} rows={3} value={form.headers} onChange={(e) => setForm({ ...form, headers: e.target.value })} placeholder='{"X-Signature": "..."}' />
-                </>
-              ) : form.type === "discord" ? (
+            {/* Secret fields are masked (type=password) and never prefilled */}
+            {form.type === "webhook" ? (
+              <>
+                <Field label="Bearer token" htmlFor="cred-bearer">
+                  <input id="cred-bearer" type="password" autoComplete="off" className={inputClass} value={form.bearerToken} onChange={(e) => setForm({ ...form, bearerToken: e.target.value })} placeholder={form.id ? "New bearer token (optional)" : "Bearer token"} />
+                </Field>
+                <Field label="API key" htmlFor="cred-key">
+                  <input id="cred-key" type="password" autoComplete="off" className={inputClass} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} placeholder={form.id ? "New API key (optional)" : "API key"} />
+                </Field>
+                <Field label="API key header" htmlFor="cred-header">
+                  <input id="cred-header" autoComplete="off" className={inputClass} value={form.apiKeyHeader} onChange={(e) => setForm({ ...form, apiKeyHeader: e.target.value })} placeholder="API key header, default X-API-Key" />
+                </Field>
+                <Field label="Headers (JSON)" htmlFor="cred-headers">
+                  <textarea id="cred-headers" className={`${inputClass} h-auto py-2 font-mono sm:text-[12px]`} rows={3} value={form.headers} onChange={(e) => setForm({ ...form, headers: e.target.value })} placeholder='{"X-Signature": "..."}' />
+                </Field>
+              </>
+            ) : form.type === "discord" ? (
+              <Field label="Webhook URL" htmlFor="cred-url">
                 <input
+                  id="cred-url"
+                  type="password"
+                  autoComplete="off"
                   className={inputClass}
                   value={form.baseUrl}
                   onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                   placeholder={form.id ? "New Discord webhook URL (optional)" : "Discord webhook URL"}
                 />
-              ) : (
-                <>
+              </Field>
+            ) : (
+              <>
+                <Field label={form.type === "telegram" ? "Bot token" : "API key"} htmlFor="cred-key">
                   <input
+                    id="cred-key"
+                    type="password"
+                    autoComplete="off"
                     className={inputClass}
                     value={form.apiKey}
                     onChange={(e) => setForm({ ...form, apiKey: e.target.value })}
@@ -320,8 +376,14 @@ export default function CredentialsPage() {
                             : "API key"
                     }
                   />
-                  {[...API_URL_TYPES, ...RPC_ENDPOINT_TYPES].includes(form.type) && (
+                </Field>
+                {[...API_URL_TYPES, ...RPC_ENDPOINT_TYPES].includes(form.type) && (
+                  <Field label={RPC_ENDPOINT_TYPES.includes(form.type) ? "RPC endpoint" : "API URL"} htmlFor="cred-url">
                     <input
+                      id="cred-url"
+                      // RPC endpoint URLs usually carry the provider key, so they are masked too
+                      type={RPC_ENDPOINT_TYPES.includes(form.type) ? "password" : "text"}
+                      autoComplete="off"
                       className={inputClass}
                       value={form.baseUrl}
                       onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
@@ -345,40 +407,18 @@ export default function CredentialsPage() {
                                 : "Optional Jupiter base URL"
                       }
                     />
-                  )}
-                </>
-              )}
+                  </Field>
+                )}
+              </>
+            )}
 
-              {(formError || createCredential.error || updateCredential.error) && (
-                <p className="text-[11px] text-red-400">
-                  {formError ?? createCredential.error?.message ?? updateCredential.error?.message}
-                </p>
-              )}
-              {form.id && (
-                <p className="text-[10px] text-muted-foreground/60">
-                  Leave secret fields empty to keep the existing encrypted value.
-                </p>
-              )}
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                onClick={() => { setForm(null); setFormError(null); }}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={save}
-                disabled={!form.label.trim() || pending}
-                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                {pending && <Loader2 size={12} className="animate-spin" />}
-                Save
-              </button>
-            </div>
+            {(formError || createCredential.error || updateCredential.error) && (
+              <p className="rounded-[10px] border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-[12.5px] text-red-300" role="alert">
+                {formError ?? createCredential.error?.message ?? updateCredential.error?.message}
+              </p>
+            )}
           </div>
-        </div>
+        </Dialog>
       )}
     </AppShell>
   );

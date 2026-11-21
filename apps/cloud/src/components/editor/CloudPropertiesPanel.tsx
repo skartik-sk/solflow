@@ -10,13 +10,14 @@ import { useEditorUIStore } from "@/store/editor-ui-store";
 import { trpc } from "@/lib/trpc/client";
 import type { CloudFlowNodeData, CloudSafetyControls, NodeProperty } from "@solflow/cloud-nodes";
 import { assessCloudSafetyPolicy, getIconByName, CATEGORY_LABELS } from "@solflow/cloud-nodes";
+import { edBtn, edIconBtn, edInput, edLabel, edPanelHeader, edPanelTitle, edx } from "./editor-chrome";
 
 // ─── Field helpers ────────────────────────────────────────────────────────────
 
 function FieldRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="space-y-1">
-      <label className="block text-[11px] font-medium text-muted-foreground">
+    <div className="space-y-1.5">
+      <label className={`block ${edLabel}`}>
         {label}
       </label>
       {children}
@@ -24,11 +25,17 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
-const inputClass =
-  "w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50";
+const inputClass = edx(edInput, "h-8 px-2.5");
 
-const selectClass =
-  "w-full rounded-md border border-border bg-input px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+const selectClass = edx(edInput, "h-8");
+
+// Textareas size by rows, not by the 28px input height
+const textareaClass = edx(edInput, "h-auto px-2.5 py-1.5 leading-relaxed resize-y font-mono text-[11.5px]");
+
+const checkLabel = "flex cursor-pointer items-center gap-2 text-[12.5px] text-foreground/90";
+
+const linkClass =
+  "inline-flex items-center gap-1 rounded-sm text-[11.5px] font-medium text-primary outline-none hover:underline hover:decoration-primary/40 hover:underline-offset-2 focus-visible:outline-2 focus-visible:outline-primary";
 
 const LAMPORTS_PER_SOL = 1_000_000_000;
 const CREDENTIAL_TYPES = [
@@ -102,9 +109,9 @@ function CredentialSelect({
       </select>
       <Link
         href={createHref}
-        className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+        className={linkClass}
       >
-        <Plus size={10} />
+        <Plus size={11} />
         Add {typeLabel} credential
       </Link>
     </div>
@@ -136,9 +143,9 @@ function WalletSelect({
       </select>
       <Link
         href="/wallets"
-        className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+        className={linkClass}
       >
-        <Plus size={10} />
+        <Plus size={11} />
         Create Cloud wallet
       </Link>
     </div>
@@ -196,14 +203,14 @@ function PropertyField({
 
     case "boolean":
       return (
-        <label className="flex cursor-pointer items-center gap-2">
+        <label className={checkLabel}>
           <input
             type="checkbox"
             checked={!!value}
             onChange={(e) => onChange(e.target.checked)}
-            className="rounded"
+            className="h-3.5 w-3.5 rounded"
           />
-          <span className="text-xs">{property.label}</span>
+          <span>{property.label}</span>
         </label>
       );
 
@@ -227,7 +234,7 @@ function PropertyField({
     case "code":
       return (
         <textarea
-          className={`${inputClass} resize-y font-mono text-[11px]`}
+          className={textareaClass}
           rows={4}
           value={strValue}
           onChange={(e) => onChange(e.target.value)}
@@ -277,25 +284,30 @@ export function CloudPropertiesPanel() {
   const nodeData = data?.data ?? {};
 
   return (
-    <div className="flex h-full w-[280px] flex-col border-l border-border bg-card">
+    <aside
+      aria-label="Properties"
+      className="flex h-full w-[280px] shrink-0 flex-col border-l border-border bg-card"
+    >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-        <div className="flex items-center gap-2">
+      <div className={edx(edPanelHeader, "justify-between pr-1.5")}>
+        <div className="flex min-w-0 items-center gap-2">
           {data && (
             <span
-              className="flex h-5 w-5 items-center justify-center rounded"
-              style={{ background: `${data.color}22`, color: data.color }}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px] [&_svg]:h-3 [&_svg]:w-3"
+              style={{ background: `${data.color}24`, color: data.color }}
             >
               {getIconByName(data.icon)}
             </span>
           )}
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className={edx(edPanelTitle, "truncate")}>
             {data ? data.label : "Properties"}
           </p>
         </div>
         <button
           onClick={toggleProperties}
-          className="text-muted-foreground hover:text-foreground"
+          className={edIconBtn}
+          aria-label="Close properties"
+          title="Close properties"
         >
           <X size={13} />
         </button>
@@ -313,13 +325,17 @@ export function CloudPropertiesPanel() {
             {/* Category badge */}
             <div className="flex items-center gap-2">
               <span
-                className="rounded px-2 py-0.5 text-[10px] font-medium"
-                style={{
-                  background: `${data.color}22`,
-                  color: data.color,
-                }}
+                className="inline-flex h-5 items-center gap-1.5 rounded-full border border-white/[0.08] bg-white/[0.03] px-2 text-[11px] font-medium text-muted-foreground"
               >
+                <span
+                  aria-hidden
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{ background: data.color }}
+                />
                 {CATEGORY_LABELS[data.category]}
+              </span>
+              <span className="ml-auto truncate font-mono text-[10.5px] text-muted-foreground/50">
+                {data.type}
               </span>
             </div>
 
@@ -336,7 +352,7 @@ export function CloudPropertiesPanel() {
                   }}
                 />
                 {prop.description && (
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  <p className="text-[11px] leading-relaxed text-muted-foreground/70">
                     {prop.description}
                   </p>
                 )}
@@ -345,14 +361,14 @@ export function CloudPropertiesPanel() {
 
             {/* Ports info */}
             {data.inputs.length > 0 && (
-              <div className="pt-2 border-t border-border">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/40 mb-1">
+              <div className="border-t border-border pt-3">
+                <p className={`mb-1.5 ${edLabel}`}>
                   Inputs
                 </p>
                 {data.inputs.map((p) => (
                   <span
                     key={p.label}
-                    className="mr-1 mb-1 inline-block rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-400"
+                    className="mb-1 mr-1 inline-flex h-5 items-center rounded-[5px] bg-white/[0.04] px-1.5 font-mono text-[11px] text-foreground/80 shadow-[0_0_0_1px_rgba(255,255,255,0.07)]"
                   >
                     {p.label}
                   </span>
@@ -361,14 +377,14 @@ export function CloudPropertiesPanel() {
             )}
 
             {data.outputs.length > 0 && (
-              <div className="pt-2 border-t border-border">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/40 mb-1">
+              <div className="border-t border-border pt-3">
+                <p className={`mb-1.5 ${edLabel}`}>
                   Outputs
                 </p>
                 {data.outputs.map((p) => (
                   <span
                     key={p.label}
-                    className="mr-1 mb-1 inline-block rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-400"
+                    className="mb-1 mr-1 inline-flex h-5 items-center rounded-[5px] bg-primary/10 px-1.5 font-mono text-[11px] text-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_22%,transparent)]"
                   >
                     {p.label}
                   </span>
@@ -377,19 +393,22 @@ export function CloudPropertiesPanel() {
             )}
 
             {/* Actions */}
-            <div className="pt-2 border-t border-border space-y-1.5">
+            <div className="flex gap-1.5 border-t border-border pt-3">
               <button
                 onClick={() =>
                   useWorkflowStore.getState().duplicateNodes([selectedNode.id])
                 }
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent transition-colors"
+                className={edx(edBtn, "h-8 flex-1 justify-center")}
               >
                 <Copy size={12} />
                 Duplicate
               </button>
               <button
                 onClick={() => removeNode(selectedNode.id)}
-                className="flex w-full items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                className={edx(
+                  edBtn,
+                  "h-8 flex-1 justify-center bg-red-500/[0.06] text-red-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(248,113,113,0.22)] hover:bg-red-500/[0.12] hover:text-red-300",
+                )}
               >
                 <Trash2 size={12} />
                 Delete
@@ -398,7 +417,7 @@ export function CloudPropertiesPanel() {
           </div>
         )}
       </div>
-    </div>
+    </aside>
   );
 }
 
@@ -417,33 +436,45 @@ function WorkflowSafetySettings({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border border-border bg-background/60 p-3">
-        <div className="mb-2 flex items-center gap-2">
-          <Settings className="h-4 w-4 text-primary" />
-          <p className="text-xs font-semibold">Workflow Safety</p>
+      <div className="rounded-[10px] border border-white/[0.07] bg-white/[0.02] p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+        <div className="mb-1.5 flex items-center gap-2">
+          <span className="flex h-5 w-5 items-center justify-center rounded-[5px] bg-primary/10 text-primary">
+            <Settings className="h-3 w-3" />
+          </span>
+          <p className="text-[12.5px] font-semibold tracking-[-0.005em]">Workflow safety</p>
         </div>
-        <p className="text-[10px] leading-relaxed text-muted-foreground">
+        <p className="text-[11.5px] leading-relaxed text-muted-foreground">
           These controls are saved with the workflow and enforced before wallet actions or webhook execution.
         </p>
       </div>
 
       <div
-        className={`rounded-lg border p-3 ${
+        className={`rounded-[10px] border p-3 ${
           assessment.level === "ready"
-            ? "border-emerald-500/25 bg-emerald-500/10"
+            ? "border-green-500/20 bg-green-500/[0.07]"
             : assessment.level === "weak"
-              ? "border-amber-500/25 bg-amber-500/10"
-              : "border-blue-500/20 bg-blue-500/10"
+              ? "border-amber-500/20 bg-amber-500/[0.07]"
+              : "border-primary/20 bg-primary/[0.06]"
         }`}
       >
-        <p className="text-xs font-semibold">
+        <p className="flex items-center gap-2 text-[12.5px] font-semibold">
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 rounded-full ${
+              assessment.level === "ready"
+                ? "bg-green-400"
+                : assessment.level === "weak"
+                  ? "bg-amber-400"
+                  : "bg-primary"
+            }`}
+          />
           {assessment.level === "ready"
             ? "Automation policy ready"
             : assessment.level === "weak"
               ? "Automation policy needs limits"
               : "Manual approval mode"}
         </p>
-        <div className="mt-1 space-y-1 text-[10px] leading-relaxed text-muted-foreground">
+        <div className="mt-1.5 space-y-1 text-[11.5px] leading-relaxed text-muted-foreground">
           {[...assessment.issues, ...assessment.warnings].slice(0, 4).map((item) => (
             <p key={item}>- {item}</p>
           ))}
@@ -454,31 +485,31 @@ function WorkflowSafetySettings({
       </div>
 
       <FieldRow label="Simulation required">
-        <label className="flex cursor-pointer items-center gap-2">
+        <label className={checkLabel}>
           <input
             type="checkbox"
             checked={safety.simulationRequired !== false}
             onChange={(event) => onChange({ simulationRequired: event.target.checked })}
-            className="rounded"
+            className="h-3.5 w-3.5 rounded"
           />
-          <span className="text-xs">Require simulation before signing</span>
+          <span>Require simulation before signing</span>
         </label>
       </FieldRow>
 
       <FieldRow label="Manual approval">
-        <label className="flex cursor-pointer items-center gap-2">
+        <label className={checkLabel}>
           <input
             type="checkbox"
             checked={safety.manualApprovalRequired !== false}
             onChange={(event) => onChange({ manualApprovalRequired: event.target.checked })}
-            className="rounded"
+            className="h-3.5 w-3.5 rounded"
           />
-          <span className="text-xs">Pause wallet actions for review</span>
+          <span>Pause wallet actions for review</span>
         </label>
       </FieldRow>
 
       <FieldRow label="Wallet automation">
-        <label className="flex cursor-pointer items-center gap-2">
+        <label className={checkLabel}>
           <input
             type="checkbox"
             checked={safety.walletAutomationAllowed === true}
@@ -490,11 +521,11 @@ function WorkflowSafetySettings({
                   : safety.manualApprovalRequired !== false,
               })
             }
-            className="rounded"
+            className="h-3.5 w-3.5 rounded"
           />
-          <span className="text-xs">Allow signing without per-run approval</span>
+          <span>Allow signing without per-run approval</span>
         </label>
-        <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground/60">
+        <p className="text-[11px] leading-relaxed text-muted-foreground/70">
           Leave this off unless the workflow has tight spend, mint, and slippage limits.
         </p>
       </FieldRow>
@@ -531,7 +562,7 @@ function WorkflowSafetySettings({
 
       <FieldRow label="Allowed mints">
         <textarea
-          className={`${inputClass} resize-y font-mono text-[11px]`}
+          className={textareaClass}
           rows={4}
           value={formatList(safety.allowedMints)}
           onChange={(event) => onChange({ allowedMints: parseList(event.target.value) })}
@@ -542,7 +573,7 @@ function WorkflowSafetySettings({
 
       <FieldRow label="Webhook allowlist">
         <textarea
-          className={`${inputClass} resize-y font-mono text-[11px]`}
+          className={textareaClass}
           rows={4}
           value={formatList(safety.webhookAllowlist)}
           onChange={(event) => onChange({ webhookAllowlist: parseList(event.target.value) })}

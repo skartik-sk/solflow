@@ -95,7 +95,7 @@ export async function GET(
   );
   zipEntries["ir.json"] = strToU8(`${JSON.stringify(ir, null, 2)}\n`);
 
-  const sdk = await generateSDK(ir);
+  const sdk = await generateSDK(ir, { framework: framework as "anchor" | "pinocchio" | "quasar" });
   for (const file of sdk.files) {
     zipEntries[`sdk/${file.path}`] = strToU8(file.content);
   }

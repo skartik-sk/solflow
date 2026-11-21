@@ -5,8 +5,14 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { zipSync } from "fflate";
 import { router, protectedProcedure } from "../trpc";
-import { generateSDK } from "@solflow/sdk-gen";
+import { generateSDK, type SdkFramework } from "@solflow/sdk-gen";
 import type { ProgramIR } from "@solflow/ir";
+
+/** Project.framework (enum, any case) → the SDK's discriminator scheme. */
+function sdkFramework(framework: string | null | undefined): SdkFramework {
+  const f = (framework ?? "anchor").toLowerCase();
+  return f === "pinocchio" || f === "quasar" ? f : "anchor";
+}
 
 export const sdkRouter = router({
   generate: protectedProcedure
@@ -19,7 +25,7 @@ export const sdkRouter = router({
       // 1. Fetch project with IR data
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, userId: ctx.session.user.id },
-        select: { id: true, irData: true, name: true },
+        select: { id: true, irData: true, name: true, framework: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       if (!project.irData) {
@@ -33,7 +39,7 @@ export const sdkRouter = router({
       const ir = project.irData as unknown as ProgramIR;
 
       // 3. Generate SDK via Codama
-      const result = await generateSDK(ir);
+      const result = await generateSDK(ir, { framework: sdkFramework(project.framework) });
 
       return {
         files: result.files,
@@ -49,7 +55,7 @@ export const sdkRouter = router({
       // Fetch project IR
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, userId: ctx.session.user.id },
-        select: { id: true, irData: true },
+        select: { id: true, irData: true, framework: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
       if (!project.irData) {
@@ -60,7 +66,7 @@ export const sdkRouter = router({
       }
 
       const ir = project.irData as unknown as ProgramIR;
-      const result = await generateSDK(ir);
+      const result = await generateSDK(ir, { framework: sdkFramework(project.framework) });
 
       // Zip all files
       const entries: Record<string, Uint8Array> = {};

@@ -6,3 +6,5 @@ export { irToAnchorIDL } from "./ir-to-anchor-idl";
 export type { AnchorIDL } from "./ir-to-anchor-idl";
 export { generateSDK } from "./generate-sdk";
 export type { GeneratedSDKFile, SDKGenerationResult } from "./types";
+export { instructionDiscriminator, sha256 } from "./discriminators";
+export type { SdkFramework } from "./discriminators";

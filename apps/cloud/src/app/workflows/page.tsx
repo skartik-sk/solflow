@@ -4,11 +4,13 @@
 
 import React from "react";
 import Link from "next/link";
-import { Workflow, Plus, Play, Power, PowerOff, Loader2 } from "lucide-react";
+import { ArrowUpRight, Plus, Power, PowerOff, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { NewWorkflowDialog } from "@/components/workflows/NewWorkflowDialog";
+import { EmptyPanel, PageHeader, SkeletonRows, btnPrimary, btnQuiet, focusRing, iconBtn, panel, rowClass } from "@/components/ui-kit/cloud-ui";
+import { WorkflowMini } from "@/components/ui-kit/cloud-minis";
 
 type WorkflowListItem = {
   id: string;
@@ -43,29 +45,27 @@ export default function WorkflowsPage() {
 
   return (
     <AppShell>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-lg font-bold">Workflows</h1>
-          <p className="text-xs text-muted-foreground">Manage your automation workflows</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowNewWorkflow(true)}
-          className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={13} />
-          New Workflow
-        </button>
-      </div>
+      <PageHeader
+        title="Workflows"
+        description="Manage your automation workflows"
+        actions={
+          <button type="button" onClick={() => setShowNewWorkflow(true)} className={btnPrimary}>
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            New workflow
+          </button>
+        }
+      />
 
-      {isLoading && (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-        </div>
-      )}
+      {isLoading && <SkeletonRows rows={5} />}
 
-      {!isLoading && workflows && (
-        <div className="space-y-2">
+      {!isLoading && workflows && workflows.length > 0 && (
+        <div className={panel}>
+          <div className="hidden h-9 grid-cols-[minmax(0,1fr)_80px_124px_40px] items-center gap-4 border-b border-white/[0.07] px-4 text-[12px] text-muted-foreground md:grid">
+            <span>Name</span>
+            <span className="text-right">Runs</span>
+            <span>Status</span>
+            <span />
+          </div>
           {(workflows as WorkflowListItem[]).map((wf) => {
             const isActive = wf.status === "ACTIVE";
             const isToggling =
@@ -75,79 +75,76 @@ export default function WorkflowsPage() {
             return (
               <div
                 key={wf.id}
-                className="flex items-center justify-between rounded-xl border border-border bg-card p-4 hover:border-border/80 hover:shadow-md transition-all"
+                className={`group grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 px-4 py-2.5 transition-colors duration-150 hover:bg-white/[0.02] md:grid-cols-[minmax(0,1fr)_80px_124px_40px] md:gap-4 ${rowClass}`}
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-500/10">
-                    <Workflow size={16} className="text-blue-400" />
-                  </div>
-                  <div>
-                    <Link
-                      href={`/editor/${wf.id}`}
-                      className="text-sm font-semibold hover:text-primary transition-colors"
-                    >
-                      {wf.name}
-                    </Link>
-                    <p className="text-[11px] text-muted-foreground">
-                      {wf.description || "No description"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-4">
-                  <div className="hidden md:flex items-center gap-3 text-[11px] text-muted-foreground">
-                    <span>{wf._count?.executions ?? 0} runs</span>
-                  </div>
-
-                  <button
-                    onClick={() => handleToggle(wf.id, isActive)}
-                    disabled={isToggling}
-                    className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[10px] font-medium transition-colors ${
-                      isActive
-                        ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                    } disabled:opacity-50`}
-                    title={isActive ? "Deactivate" : "Activate"}
-                  >
-                    {isToggling ? (
-                      <Loader2 size={10} className="animate-spin" />
-                    ) : isActive ? (
-                      <PowerOff size={10} />
-                    ) : (
-                      <Power size={10} />
-                    )}
-                    {isActive ? "Active" : "Inactive"}
-                  </button>
-
+                <div className="min-w-0">
                   <Link
                     href={`/editor/${wf.id}`}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                    className={`block truncate rounded-sm text-[13.5px] font-medium transition-colors hover:text-primary ${focusRing}`}
                   >
-                    <Play size={12} />
+                    {wf.name}
                   </Link>
+                  <p className="mt-0.5 truncate text-[12px] text-muted-foreground">
+                    {wf.description || "No description"}
+                  </p>
                 </div>
+
+                <span className="hidden text-right text-[12.5px] tabular-nums text-muted-foreground md:block">
+                  {wf._count?.executions ?? 0}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => handleToggle(wf.id, isActive)}
+                  disabled={isToggling}
+                  className={`inline-flex h-7 w-fit items-center gap-1.5 rounded-md border px-2 text-[12px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] disabled:opacity-50 ${focusRing} ${
+                    isActive
+                      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-400 hover:bg-emerald-400/15"
+                      : "border-white/[0.08] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
+                  title={isActive ? "Deactivate" : "Activate"}
+                  aria-label={`${isActive ? "Deactivate" : "Activate"} ${wf.name}`}
+                >
+                  {isToggling ? (
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                  ) : isActive ? (
+                    <PowerOff className="h-3 w-3" aria-hidden />
+                  ) : (
+                    <Power className="h-3 w-3" aria-hidden />
+                  )}
+                  {isActive ? "Active" : "Inactive"}
+                </button>
+
+                <Link
+                  href={`/editor/${wf.id}`}
+                  className={iconBtn}
+                  aria-label={`Open ${wf.name} in the editor`}
+                >
+                  <ArrowUpRight className="h-4 w-4" aria-hidden />
+                </Link>
               </div>
             );
           })}
-
-          {workflows.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <Workflow className="h-10 w-10 text-muted-foreground/30 mb-3" />
-              <p className="text-sm text-muted-foreground">No workflows yet</p>
-              <p className="text-xs text-muted-foreground/60 mb-4">
-                Create your first workflow to get started
-              </p>
-              <button
-                type="button"
-                onClick={() => setShowNewWorkflow(true)}
-                className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground"
-              >
-                <Plus size={13} />
-                Create Workflow
-              </button>
-            </div>
-          )}
         </div>
+      )}
+
+      {!isLoading && workflows && workflows.length === 0 && (
+        <EmptyPanel
+          title="No workflows yet"
+          body="Create your first workflow to get started. The starter runs a Jupiter price check with no wallet."
+          art={<WorkflowMini />}
+          actions={
+            <>
+              <button type="button" onClick={() => setShowNewWorkflow(true)} className={btnPrimary}>
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+                Create workflow
+              </button>
+              <Link href="/marketplace" className={btnQuiet}>
+                Browse templates
+              </Link>
+            </>
+          }
+        />
       )}
       {showNewWorkflow && (
         <NewWorkflowDialog onClose={() => setShowNewWorkflow(false)} />

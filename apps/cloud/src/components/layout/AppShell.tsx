@@ -5,6 +5,9 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ArrowUpRight } from "lucide-react";
+import { SolMark } from "@/components/ui-kit/cloud-mark";
+import { focusRing } from "@/components/ui-kit/cloud-ui";
 
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -29,41 +32,57 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         : pathname?.startsWith(item.href),
     )?.href ?? "/dashboard";
 
+  const navLink = (item: (typeof NAV_ITEMS)[number]) => {
+    const active = activeHref === item.href;
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        aria-current={active ? "page" : undefined}
+        className={`inline-flex h-8 shrink-0 items-center rounded-md px-2.5 transition-colors duration-150 ${focusRing} ${
+          active ? "bg-white/[0.06] font-medium text-foreground" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        {item.label}
+      </Link>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-background">
-      <nav className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-20">
-        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-6">
-            <Link href="/" className="text-sm font-bold tracking-tight">
-              SolStudio <span className="text-primary">Cloud</span>
-            </Link>
-            <div className="hidden md:flex items-center gap-4 text-xs text-muted-foreground">
-              {NAV_ITEMS.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`transition-colors ${
-                    activeHref === item.href
-                      ? "text-foreground font-medium"
-                      : "hover:text-foreground"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </div>
-          </div>
-          <div className="hidden items-center gap-3 text-xs text-muted-foreground md:flex">
-            <a href={WEB_EDITOR_URL} className="hover:text-foreground transition-colors">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-background/85 backdrop-blur-md">
+        <div className="mx-auto flex h-12 max-w-6xl items-center gap-5 px-4 sm:px-6">
+          <Link href="/" className={`flex shrink-0 items-center gap-2 rounded-md text-[14px] font-semibold tracking-[-0.01em] ${focusRing}`}>
+            <SolMark size={22} />
+            <span>
+              SolStudio <span className="font-normal text-muted-foreground">Cloud</span>
+            </span>
+          </Link>
+
+          <nav className="hidden items-center gap-0.5 text-[13px] md:flex" aria-label="App">
+            {NAV_ITEMS.map(navLink)}
+          </nav>
+
+          <div className="ml-auto flex items-center gap-0.5 text-[13px]">
+            <a href={WEB_EDITOR_URL} className={`hidden h-8 items-center gap-1 rounded-md px-2.5 text-muted-foreground transition-colors duration-150 hover:text-foreground sm:inline-flex ${focusRing}`}>
               Web Editor
+              <ArrowUpRight className="h-3 w-3" aria-hidden />
             </a>
-            <a href={CLOUD_DOCS_URL} className="hover:text-foreground transition-colors">
+            <a href={CLOUD_DOCS_URL} className={`inline-flex h-8 items-center rounded-md px-2.5 text-muted-foreground transition-colors duration-150 hover:text-foreground ${focusRing}`}>
               Docs
             </a>
           </div>
         </div>
-      </nav>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+
+        {/* Phones: the same links as a scrolling row */}
+        <nav
+          className="flex gap-0.5 overflow-x-auto border-t border-white/[0.05] px-3 py-1.5 text-[13px] [scrollbar-width:none] md:hidden"
+          aria-label="App"
+        >
+          {NAV_ITEMS.map(navLink)}
+        </nav>
+      </header>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-12 pt-6 sm:px-6">{children}</main>
     </div>
   );
 }

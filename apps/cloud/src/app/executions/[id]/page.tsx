@@ -25,6 +25,14 @@ import {
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
+import { EdEmptyState, edBtn, edPrimaryBtn, edx } from "@/components/editor/editor-chrome";
+
+const card =
+  "rounded-[14px] border border-white/[0.07] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
+const inset = "rounded-[10px] border border-white/[0.06] bg-background/60";
+const sectionTitle = "text-[13px] font-semibold tracking-[-0.01em] text-foreground";
+const fieldLabel = "text-[11px] font-medium text-muted-foreground";
+const pageBtn = edx(edBtn, "h-8 px-3 text-[12.5px]");
 
 const NODE_STATUS_CONFIG: Record<
   string,
@@ -32,51 +40,51 @@ const NODE_STATUS_CONFIG: Record<
 > = {
   COMPLETED: {
     icon: CheckCircle2,
-    color: "text-emerald-400",
-    bg: "bg-emerald-500/10",
-    border: "border-emerald-500/30",
+    color: "text-green-400",
+    bg: "bg-green-500/10",
+    border: "border-green-500/20",
   },
   FAILED: {
     icon: XCircle,
     color: "text-red-400",
     bg: "bg-red-500/10",
-    border: "border-red-500/30",
+    border: "border-red-500/20",
   },
   RUNNING: {
     icon: Loader2,
-    color: "text-blue-400",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/30",
+    color: "text-primary",
+    bg: "bg-primary/10",
+    border: "border-primary/25",
   },
   QUEUED: {
     icon: Clock,
     color: "text-amber-400",
     bg: "bg-amber-500/10",
-    border: "border-amber-500/30",
+    border: "border-amber-500/20",
   },
   WAITING: {
     icon: ShieldCheck,
     color: "text-amber-300",
     bg: "bg-amber-500/10",
-    border: "border-amber-500/30",
+    border: "border-amber-500/20",
   },
   TIMED_OUT: {
     icon: Timer,
     color: "text-orange-400",
     bg: "bg-orange-500/10",
-    border: "border-orange-500/30",
+    border: "border-orange-500/20",
   },
   CANCELLED: {
     icon: CircleSlash,
-    color: "text-zinc-400",
-    bg: "bg-zinc-500/10",
-    border: "border-zinc-500/30",
+    color: "text-muted-foreground",
+    bg: "bg-white/[0.04]",
+    border: "border-white/[0.08]",
   },
   SKIPPED: {
     icon: CircleSlash,
-    color: "text-zinc-400",
-    bg: "bg-zinc-500/10",
-    border: "border-zinc-500/30",
+    color: "text-muted-foreground",
+    bg: "bg-white/[0.04]",
+    border: "border-white/[0.08]",
   },
 };
 
@@ -211,92 +219,112 @@ export default function ExecutionDetailPage() {
   return (
     <AppShell>
         {isLoading && (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          <div className="flex items-center justify-center gap-2 py-16 text-[13px] text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary motion-reduce:animate-none" />
+            Loading execution…
           </div>
         )}
 
         {!isLoading && !execution && (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <XCircle className="h-10 w-10 text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">Execution not found</p>
-            <Link href="/executions" className="text-xs text-primary hover:underline mt-2">
-              Back to executions
-            </Link>
+          <div className="py-16">
+            <EdEmptyState
+              icon={<XCircle size={15} />}
+              hint="Check the link, or open the run from Executions."
+              action={
+                <Link href="/executions" className={edBtn}>
+                  Back to executions
+                </Link>
+              }
+            >
+              Execution not found
+            </EdEmptyState>
           </div>
         )}
 
         {!isLoading && execution && (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2.5">
                 <Link
                   href="/executions"
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+                  aria-label="Back to executions"
+                  title="Back to executions"
+                  className="group flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
                 >
-                  <ArrowLeft size={14} />
+                  <ArrowLeft
+                    size={14}
+                    className="transition-transform duration-150 ease-out group-hover:-translate-x-0.5 motion-reduce:transition-none"
+                  />
                 </Link>
-                <div>
-                  <h1 className="text-lg font-bold">
-                    {execution.workflow?.name ?? "Execution"}
-                  </h1>
-                  <p className="text-xs text-muted-foreground">
-                    Execution {execution.id.slice(0, 12)}...
-                    {" "}&middot; {execution.triggerType} trigger
+                <div className="min-w-0">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <h1 className="truncate text-[17px] font-semibold tracking-[-0.02em]">
+                      {execution.workflow?.name ?? "Execution"}
+                    </h1>
+                    <span
+                      className={`inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium ${overallCfg.border} ${overallCfg.bg} ${overallCfg.color}`}
+                    >
+                      <OverallIcon
+                        size={11}
+                        className={overallStatus === "RUNNING" ? "animate-spin motion-reduce:animate-none" : ""}
+                      />
+                      {overallStatus}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                    <span className="font-mono text-[11.5px] text-foreground/70">
+                      {execution.id.slice(0, 12)}...
+                    </span>
+                    <span aria-hidden className="text-white/20">&middot;</span>
+                    {execution.triggerType} trigger
                   </p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <span
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${overallCfg.bg} ${overallCfg.color}`}
-                >
-                  <OverallIcon
-                    size={12}
-                    className={overallStatus === "RUNNING" ? "animate-spin" : ""}
-                  />
-                  {overallStatus}
-                </span>
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   onClick={handleReRun}
                   disabled={reRun.isPending}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+                  className={pageBtn}
                 >
-                  <RotateCw size={11} className={reRun.isPending ? "animate-spin" : ""} />
+                  <RotateCw size={12} className={reRun.isPending ? "animate-spin motion-reduce:animate-none" : ""} />
                   Re-run
                 </button>
                 <button
                   onClick={handleReplay}
                   disabled={replayExecution.isPending}
-                  className="flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+                  className={pageBtn}
                 >
-                  <RotateCw size={11} className={replayExecution.isPending ? "animate-spin" : ""} />
+                  <RotateCw size={12} className={replayExecution.isPending ? "animate-spin motion-reduce:animate-none" : ""} />
                   Replay
                 </button>
                 {needsWalletApproval && (
                   <button
                     onClick={handleApproveReplay}
                     disabled={approveReplay.isPending}
-                    className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/40 px-3 text-xs font-medium text-amber-300 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+                    className={edx(
+                      pageBtn,
+                      "bg-amber-500/[0.07] text-amber-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(251,191,36,0.3)] hover:bg-amber-500/[0.12] hover:text-amber-200",
+                    )}
                   >
-                    <ShieldCheck size={11} className={approveReplay.isPending ? "animate-pulse" : ""} />
+                    <ShieldCheck size={12} className={approveReplay.isPending ? "animate-pulse motion-reduce:animate-none" : ""} />
                     Approve replay
                   </button>
                 )}
                 {execution.workflowId && (
                   <Link
                     href={`/editor/${execution.workflowId}`}
-                    className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                    className={edx(edPrimaryBtn, "h-8 px-3 text-[12.5px]")}
                   >
-                    <ExternalLink size={11} />
-                    Open Workflow
+                    <ExternalLink size={12} />
+                    Open workflow
                   </Link>
                 )}
               </div>
             </div>
 
             {/* Summary cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+            <div className={`${card} mb-4 grid grid-cols-2 overflow-hidden sm:grid-cols-3 md:grid-cols-5 [&>*]:border-white/[0.06] max-md:[&>*]:border-b md:[&>*:not(:last-child)]:border-r`}>
               <SummaryCard
                 label="Duration"
                 value={formatDuration(execution.duration)}
@@ -320,20 +348,24 @@ export default function ExecutionDetailPage() {
             </div>
 
             {execution.errorMessage && (
-              <div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/5 p-4">
-                <p className="text-xs font-semibold text-red-400 mb-1">Error</p>
-                <p className="text-xs text-red-300/80 font-mono">
+              <div className="mb-4 rounded-[14px] border border-red-500/20 bg-red-500/[0.05] px-4 py-3">
+                <p className="mb-1 flex items-center gap-2 text-[12.5px] font-semibold text-red-400">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-red-400" />
+                  Error
+                </p>
+                <p className="break-words font-mono text-[12px] text-red-300/85">
                   {execution.errorMessage}
                 </p>
               </div>
             )}
 
             {needsWalletApproval && (
-              <div className="mb-6 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
-                <p className="text-xs font-semibold text-amber-300 mb-1">
+              <div className="mb-4 rounded-[14px] border border-amber-500/20 bg-amber-500/[0.05] px-4 py-3">
+                <p className="mb-1 flex items-center gap-2 text-[12.5px] font-semibold text-amber-300">
+                  <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                   Wallet action waiting for approval
                 </p>
-                <p className="text-xs leading-relaxed text-amber-100/70">
+                <p className="text-[12.5px] leading-relaxed text-amber-100/70">
                   This workflow tried to sign a transfer or swap without the automation permission. Approve a replay for this run, or enable wallet automation in workflow safety settings when spend, mint, and slippage limits are strict enough.
                 </p>
               </div>
@@ -352,15 +384,20 @@ export default function ExecutionDetailPage() {
 
             {/* Node timeline */}
             <div>
-              <h2 className="text-sm font-semibold mb-3">Node Execution Timeline</h2>
+              <div className="mb-2 flex items-baseline gap-2">
+                <h2 className={sectionTitle}>Node timeline</h2>
+                <span className="font-mono text-[11.5px] tabular-nums text-muted-foreground/60">
+                  {nodeResults.length}
+                </span>
+              </div>
               {nodeResults.length === 0 ? (
-                <div className="rounded-xl border border-border bg-card p-8 text-center">
-                  <p className="text-xs text-muted-foreground">
+                <div className={`${card} py-10`}>
+                  <EdEmptyState hint="Nodes report here as the run reaches them.">
                     No node results available
-                  </p>
+                  </EdEmptyState>
                 </div>
               ) : (
-                <div className="space-y-2">
+                <div className={`${card} overflow-hidden`}>
                   {nodeResults.map((nr, idx) => {
                     return (
                       <NodeResultCard
@@ -418,57 +455,62 @@ function ReplayDiffPanel({
   });
 
   return (
-    <div className="mb-6 rounded-xl border border-border bg-card p-4">
+    <div className={`${card} mb-4 p-4`}>
       <div className="mb-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <GitCompare className="h-4 w-4 text-primary" />
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-primary/10 text-primary">
+            <GitCompare className="h-3.5 w-3.5" />
+          </span>
           <div>
-            <p className="text-sm font-semibold">Replay diff</p>
-            <p className="text-[11px] text-muted-foreground">
-              Compared with {sourceId.slice(0, 12)}...
+            <p className={sectionTitle}>Replay diff</p>
+            <p className="text-[12px] text-muted-foreground">
+              Compared with{" "}
+              <span className="font-mono text-[11.5px] text-foreground/70">
+                {sourceId.slice(0, 12)}...
+              </span>
             </p>
           </div>
         </div>
         {isLoading && (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground motion-reduce:animate-none" />
         )}
       </div>
       <div className="grid gap-2 md:grid-cols-2">
         {rows.length === 0 ? (
-          <div className="rounded-lg border border-border bg-background/50 p-3 text-xs text-muted-foreground">
+          <div className={`${inset} p-3 text-[12.5px] text-muted-foreground`}>
             No replay node results yet.
           </div>
         ) : (
           rows.map((row) => (
             <div
               key={row.nodeId}
-              className="rounded-lg border border-border bg-background/50 p-3"
+              className={`${inset} p-3`}
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-xs font-semibold">{row.nodeType}</p>
-                  <p className="font-mono text-[10px] text-muted-foreground">
+                  <p className="truncate text-[12.5px] font-medium">{row.nodeType}</p>
+                  <p className="font-mono text-[11px] text-muted-foreground/70">
                     {row.nodeId.slice(0, 12)}...
                   </p>
                 </div>
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                  className={`inline-flex h-5 shrink-0 items-center rounded-full border px-2 font-mono text-[10.5px] font-medium ${
                     row.statusChanged
-                      ? "bg-amber-500/10 text-amber-300"
-                      : "bg-emerald-500/10 text-emerald-300"
+                      ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                      : "border-green-500/20 bg-green-500/10 text-green-400"
                   }`}
                 >
                   {row.sourceStatus} → {row.currentStatus}
                 </span>
               </div>
-              <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                <span>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                <span className="tabular-nums">
                   duration{" "}
                   {row.durationDelta == null
                     ? "—"
                     : `${row.durationDelta >= 0 ? "+" : ""}${row.durationDelta}ms`}
                 </span>
-                {row.outputChanged && <span className="text-cyan-300">output changed</span>}
+                {row.outputChanged && <span className="text-primary">output changed</span>}
                 {row.errorChanged && <span className="text-red-300">error changed</span>}
                 {!row.outputChanged && !row.errorChanged && !row.statusChanged && (
                   <span>same result</span>
@@ -515,25 +557,26 @@ function ExecutionReplayPanel({ nodeResults }: { nodeResults: ExecutionNodeResul
   const logs = Array.isArray(active.logs) ? active.logs : [];
 
   return (
-    <div className="mb-6 rounded-xl border border-border bg-card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <div className={`${card} mb-4 p-4`}>
+      <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold">Execution Replay</p>
-          <p className="text-[11px] text-muted-foreground">
-            Step through node inputs, outputs, timing, logs, and failure points.
+          <p className={sectionTitle}>Step through</p>
+          <p className="text-[12px] text-muted-foreground">
+            Inputs, outputs, timing and logs for each node in order.
           </p>
         </div>
         <button
           type="button"
           onClick={() => setPlaying((value) => !value)}
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-pressed={playing}
+          className={pageBtn}
         >
           {playing ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
           {playing ? "Pause" : "Play"}
         </button>
       </div>
 
-      <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+      <div className="mb-3 flex items-center gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
         {nodeResults.map((result, index) => {
           const stepCfg = NODE_STATUS_CONFIG[result.status] ?? NODE_STATUS_CONFIG.QUEUED;
           const activeStep = index === activeIndex;
@@ -545,17 +588,19 @@ function ExecutionReplayPanel({ nodeResults }: { nodeResults: ExecutionNodeResul
                 setActiveIndex(index);
                 setPlaying(false);
               }}
-              className={`min-w-[132px] rounded-lg border px-3 py-2 text-left transition-colors ${
+              aria-current={activeStep ? "step" : undefined}
+              className={`min-w-[136px] shrink-0 rounded-[10px] border px-2.5 py-2 text-left outline-none transition-[background-color,border-color,box-shadow] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary ${
                 activeStep
-                  ? `${stepCfg.border} ${stepCfg.bg} ring-2 ring-primary/30`
-                  : "border-border bg-background hover:bg-accent/50"
+                  ? `${stepCfg.border} bg-white/[0.04] shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_45%,transparent)]`
+                  : "border-white/[0.06] bg-background/60 hover:border-white/[0.12] hover:bg-white/[0.03]"
               }`}
             >
               <div className="flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: statusDotColor(result.status) }} />
-                <span className="truncate text-xs font-semibold">{result.nodeType}</span>
+                <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground/60">{index + 1}</span>
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: statusDotColor(result.status) }} />
+                <span className="truncate text-[12.5px] font-medium">{result.nodeType}</span>
               </div>
-              <p className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+              <p className="mt-0.5 truncate font-mono text-[10.5px] text-muted-foreground/70">
                 {result.nodeId?.slice(0, 12)}...
               </p>
             </button>
@@ -563,24 +608,26 @@ function ExecutionReplayPanel({ nodeResults }: { nodeResults: ExecutionNodeResul
         })}
       </div>
 
-      <div className={`rounded-lg border ${cfg.border} ${cfg.bg} p-3`}>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Icon className={`h-4 w-4 ${cfg.color} ${active.status === "RUNNING" ? "animate-spin" : ""}`} />
-            <div>
-              <p className="text-xs font-semibold">{active.nodeType}</p>
-              <p className="font-mono text-[10px] text-muted-foreground">{active.nodeId}</p>
+      <div className={`${inset} p-3`}>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] ${cfg.bg}`}>
+              <Icon className={`h-3.5 w-3.5 ${cfg.color} ${active.status === "RUNNING" ? "animate-spin motion-reduce:animate-none" : ""}`} />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-[13px] font-semibold">{active.nodeType}</p>
+              <p className="truncate font-mono text-[11px] text-muted-foreground/70">{active.nodeId}</p>
             </div>
           </div>
-          <div className="flex gap-2 text-[10px] text-muted-foreground">
-            <span>{active.status}</span>
+          <div className="flex gap-3 font-mono text-[11.5px] tabular-nums text-muted-foreground">
+            <span className={cfg.color}>{active.status}</span>
             <span>{formatDuration(active.duration)}</span>
             <span>{formatTime(active.startedAt)}</span>
           </div>
         </div>
 
         {active.error && (
-          <pre className="mb-3 overflow-x-auto rounded-md border border-red-500/20 bg-red-500/5 p-2 font-mono text-[11px] text-red-300">
+          <pre className="mb-3 overflow-x-auto rounded-[8px] border border-red-500/20 bg-red-500/[0.05] p-2.5 font-mono text-[12px] text-red-300">
             {active.error}
           </pre>
         )}
@@ -591,23 +638,9 @@ function ExecutionReplayPanel({ nodeResults }: { nodeResults: ExecutionNodeResul
         </div>
 
         {logs.length > 0 && (
-          <div className="mt-3 rounded-md border border-border/50 bg-background p-2">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Logs
-            </p>
-            <div className="space-y-1 font-mono text-[11px]">
-              {logs.slice(0, 5).map((log, index) => (
-                <div key={index} className="grid grid-cols-[70px_48px_1fr] gap-2">
-                  <span className="text-muted-foreground/60">
-                    {log.timestamp ? formatTime(new Date(log.timestamp)) : "-"}
-                  </span>
-                  <span className={log.level === "error" ? "text-red-300" : log.level === "warn" ? "text-amber-300" : "text-blue-300"}>
-                    {log.level ?? "info"}
-                  </span>
-                  <span className="truncate">{log.message ?? ""}</span>
-                </div>
-              ))}
-            </div>
+          <div className="mt-3">
+            <p className={`mb-1 ${fieldLabel}`}>Logs</p>
+            <LogLines logs={logs.slice(0, 5)} empty="-" />
           </div>
         )}
       </div>
@@ -615,10 +648,43 @@ function ExecutionReplayPanel({ nodeResults }: { nodeResults: ExecutionNodeResul
   );
 }
 
+const LOG_DOT: Record<string, string> = {
+  info: "bg-white/20",
+  warn: "bg-amber-400",
+  error: "bg-red-400",
+};
+
+const LOG_TEXT: Record<string, string> = {
+  info: "text-foreground/85",
+  warn: "text-amber-300",
+  error: "text-red-400",
+};
+
+/** Mono execution log with level dots, matching the editor's run output. */
+function LogLines({ logs, empty, className = "" }: { logs: ExecutionNodeLog[]; empty: string; className?: string }) {
+  return (
+    <div role="log" className={`rounded-[8px] border border-white/[0.06] bg-[#0c0d10] px-2.5 py-1.5 font-mono text-[12px] ${className}`}>
+      {logs.map((log, index) => {
+        const level = log.level ?? "info";
+        return (
+          <div key={index} className="flex min-h-[22px] items-start gap-2.5 py-[3px] leading-4">
+            <span className="w-[70px] shrink-0 tabular-nums text-muted-foreground/50">
+              {log.timestamp ? formatTime(new Date(log.timestamp)) : empty}
+            </span>
+            <span aria-hidden className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${LOG_DOT[level] ?? LOG_DOT.info}`} />
+            <span className="sr-only">{level}</span>
+            <span className={`min-w-0 truncate ${LOG_TEXT[level] ?? LOG_TEXT.info}`}>{log.message ?? ""}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function statusDotColor(status: string): string {
-  if (status === "COMPLETED") return "#34d399";
+  if (status === "COMPLETED") return "#4ade80";
   if (status === "FAILED") return "#f87171";
-  if (status === "RUNNING") return "#60a5fa";
+  if (status === "RUNNING") return "#58d3db";
   if (status === "WAITING") return "#fbbf24";
   return "#a1a1aa";
 }
@@ -626,11 +692,11 @@ function statusDotColor(status: string): string {
 function SnapshotBlock({ title, value }: { title: string; value: unknown }) {
   const json = stableJson(value ?? null).slice(0, 1800);
   return (
-    <div>
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="min-w-0">
+      <p className={`mb-1 ${fieldLabel}`}>
         {title}
       </p>
-      <pre className="max-h-[220px] overflow-auto rounded-md border border-border/50 bg-background p-2 font-mono text-[11px] text-muted-foreground">
+      <pre className="max-h-[220px] overflow-auto rounded-[8px] border border-white/[0.06] bg-[#0c0d10] p-2.5 font-mono text-[12px] leading-relaxed text-foreground/80">
         {json}
       </pre>
     </div>
@@ -639,11 +705,9 @@ function SnapshotBlock({ title, value }: { title: string; value: unknown }) {
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-3">
-      <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 mb-0.5">
-        {label}
-      </p>
-      <p className="text-sm font-semibold">{value}</p>
+    <div className="min-w-0 px-4 py-3">
+      <p className={fieldLabel}>{label}</p>
+      <p className="mt-0.5 truncate font-mono text-[14px] font-medium tabular-nums tracking-[-0.01em]">{value}</p>
     </div>
   );
 }
@@ -678,45 +742,48 @@ function NodeResultCard({
   const Icon = cfg.icon;
 
   return (
-    <div className={`rounded-xl border ${cfg.border} ${cfg.bg} overflow-hidden`}>
+    <div className="border-t border-white/[0.06] first:border-t-0">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center justify-between p-3 text-left"
+        aria-expanded={expanded}
+        className="flex h-11 w-full items-center justify-between gap-3 px-3 text-left outline-none transition-colors duration-150 ease-out hover:bg-white/[0.025] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary sm:px-4"
       >
-        <div className="flex items-center gap-3">
-          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background text-[10px] font-bold text-muted-foreground">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="w-5 shrink-0 text-right font-mono text-[11px] tabular-nums text-muted-foreground/50">
             {index}
           </span>
-          <Icon
-            size={14}
-            className={`${cfg.color} ${status === "RUNNING" ? "animate-spin" : ""}`}
-          />
-          <div>
-            <p className="text-xs font-semibold">{nodeType}</p>
-            <p className="text-[10px] text-muted-foreground/60">
-              {nodeId.slice(0, 12)}...
-            </p>
-          </div>
+          <span
+            className={`inline-flex h-[22px] w-[104px] shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium ${cfg.border} ${cfg.bg} ${cfg.color}`}
+          >
+            <Icon
+              size={11}
+              className={`shrink-0 ${status === "RUNNING" ? "animate-spin motion-reduce:animate-none" : ""}`}
+            />
+            <span className="truncate">{status}</span>
+          </span>
+          <p className="min-w-0 truncate text-[13px] font-medium">{nodeType}</p>
+          <p className="hidden shrink-0 font-mono text-[11.5px] text-muted-foreground/60 md:block">
+            {nodeId.slice(0, 12)}...
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-[11px] text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-3">
+          <span className="font-mono text-[12px] tabular-nums text-muted-foreground">
             {formatDuration(duration)}
           </span>
-          <span className={`text-[10px] font-medium ${cfg.color}`}>{status}</span>
           {expanded ? (
-            <ChevronDown size={12} className="text-muted-foreground" />
+            <ChevronDown size={13} className="text-muted-foreground" />
           ) : (
-            <ChevronRight size={12} className="text-muted-foreground" />
+            <ChevronRight size={13} className="text-muted-foreground" />
           )}
         </div>
       </button>
 
       {expanded && (
-        <div className="border-t border-border/50 bg-background p-3 space-y-3">
+        <div className="space-y-3 border-t border-white/[0.06] bg-background/50 px-3 py-3 sm:px-4">
           {error && (
             <div>
-              <p className="text-[10px] font-semibold text-red-400 mb-0.5">Error</p>
-              <pre className="rounded-md bg-red-500/5 border border-red-500/20 p-2 text-[11px] text-red-300/80 overflow-x-auto font-mono">
+              <p className={`mb-1 ${fieldLabel} text-red-400`}>Error</p>
+              <pre className="overflow-x-auto rounded-[8px] border border-red-500/20 bg-red-500/[0.05] p-2.5 font-mono text-[12px] text-red-300/85">
                 {error}
               </pre>
             </div>
@@ -724,31 +791,19 @@ function NodeResultCard({
 
           {logs.length > 0 && (
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
+              <p className={`mb-1 ${fieldLabel}`}>
                 Logs
               </p>
-              <div className="max-h-[180px] space-y-1 overflow-y-auto rounded-md bg-muted/30 p-2 font-mono text-[11px]">
-                {logs.map((log, index) => (
-                  <div key={index} className="grid grid-cols-[70px_48px_1fr] gap-2">
-                    <span className="text-muted-foreground/50">
-                      {log.timestamp ? formatTime(new Date(log.timestamp)) : "—"}
-                    </span>
-                    <span className={log.level === "error" ? "text-red-300" : log.level === "warn" ? "text-amber-300" : "text-blue-300"}>
-                      {log.level ?? "info"}
-                    </span>
-                    <span className="truncate">{log.message ?? ""}</span>
-                  </div>
-                ))}
-              </div>
+              <LogLines logs={logs} empty="—" className="max-h-[180px] overflow-y-auto" />
             </div>
           )}
 
           {inputSnapshot != null && (
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
+              <p className={`mb-1 ${fieldLabel}`}>
                 Input
               </p>
-              <pre className="rounded-md bg-muted/30 p-2 text-[11px] overflow-x-auto font-mono max-h-[200px] overflow-y-auto">
+              <pre className="max-h-[200px] overflow-auto rounded-[8px] border border-white/[0.06] bg-[#0c0d10] p-2.5 font-mono text-[12px] leading-relaxed text-foreground/80">
                 {JSON.stringify(inputSnapshot, null, 2)}
               </pre>
             </div>
@@ -756,16 +811,16 @@ function NodeResultCard({
 
           {outputSnapshot != null && (
             <div>
-              <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">
+              <p className={`mb-1 ${fieldLabel}`}>
                 Output
               </p>
-              <pre className="rounded-md bg-muted/30 p-2 text-[11px] overflow-x-auto font-mono max-h-[200px] overflow-y-auto">
+              <pre className="max-h-[200px] overflow-auto rounded-[8px] border border-white/[0.06] bg-[#0c0d10] p-2.5 font-mono text-[12px] leading-relaxed text-foreground/80">
                 {JSON.stringify(outputSnapshot, null, 2)}
               </pre>
             </div>
           )}
 
-          <div className="flex items-center gap-4 text-[10px] text-muted-foreground/50">
+          <div className="flex items-center gap-4 font-mono text-[11px] tabular-nums text-muted-foreground/60">
             {startedAt && <span>Started: {formatTime(startedAt)}</span>}
             {completedAt && <span>Completed: {formatTime(completedAt)}</span>}
           </div>

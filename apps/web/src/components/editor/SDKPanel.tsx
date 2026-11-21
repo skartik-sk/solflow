@@ -40,6 +40,7 @@ export function SDKPanel() {
   const projectId = useProjectStore((s) => s.projectId);
   const projectName = useProjectStore((s) => s.projectName);
   const irJson = useCodeStore((s) => s.irJson);
+  const framework = useProjectStore((s) => s.framework);
   const [result, setResult] = useState<SDKResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<GeneratedFile | null>(null);
   const [copied, setCopied] = useState(false);
@@ -109,7 +110,7 @@ export function SDKPanel() {
     if (!irJson) return toast.error("No IR available. Add nodes first.");
     try {
       const { irToCodamaIDL } = await import("@solflow/sdk-gen");
-      const root = irToCodamaIDL(irJson);
+      const root = irToCodamaIDL(irJson, { framework });
       const slug = (projectName ?? "program")
         .toLowerCase()
         .replace(/\s+/g, "-");

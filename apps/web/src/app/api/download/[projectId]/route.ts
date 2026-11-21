@@ -122,7 +122,7 @@ export async function GET(
 
   // TypeScript SDK
   if (includes.has("sdk")) {
-    const sdk = await generateSDK(ir);
+    const sdk = await generateSDK(ir, { framework });
     for (const file of sdk.files) {
       zipEntries[`sdk/${file.path}`] = strToU8(file.content);
     }

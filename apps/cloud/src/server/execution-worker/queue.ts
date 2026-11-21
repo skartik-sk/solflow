@@ -243,11 +243,43 @@ function getQueueEvents(): QueueEvents {
  * In dev/VM ("all"/"worker" mode) a dedicated worker process consumes the
  * queue, so we just enqueue and return immediately (existing behavior).
  */
+const REDIS_REACHABLE_TIMEOUT_MS = 5_000;
+
+/** Resolves or rejects within `ms`, so an unreachable Redis can't hang a request until the platform kills it. */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 export async function queueExecution(
   executionId: string,
   workflowId: string,
 ): Promise<string> {
   const queue = getExecutionQueue();
+
+  // BullMQ connections retry forever (maxRetriesPerRequest: null), so a missing
+  // or deleted Redis would leave this request hanging and the run stuck in QUEUED.
+  // Check reachability first; on failure mark the run FAILED with a clear reason.
+  try {
+    const client = await withTimeout(queue.client, REDIS_REACHABLE_TIMEOUT_MS, "Redis connection timed out");
+    await withTimeout(client.ping(), REDIS_REACHABLE_TIMEOUT_MS, "Redis did not answer PING");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    const errorMessage = `Execution queue unavailable (${reason}). Check REDIS_URL for the cloud app.`;
+    logExecutionWorkerEvent("queue_unavailable", { executionId, workflowId, reason }, "error");
+    await prisma.workflowExecution
+      .update({
+        where: { id: executionId },
+        data: { status: "FAILED", errorMessage, completedAt: new Date() },
+      })
+      .catch(() => undefined);
+    throw new Error(errorMessage);
+  }
 
   if (!shouldRunWorkersInThisProcess()) {
     // Serverless: no dedicated worker — run inline and wait for completion.
@@ -640,16 +672,16 @@ export async function getExecutionQueueHealth(): Promise<{
   const startedAt = Date.now();
 
   try {
-    const client = await queue.client;
-    await client.ping();
-    const counts = await queue.getJobCounts(
+    const client = await withTimeout(queue.client, REDIS_REACHABLE_TIMEOUT_MS, "Redis connection timed out");
+    await withTimeout(client.ping(), REDIS_REACHABLE_TIMEOUT_MS, "Redis did not answer PING");
+    const counts = await withTimeout(queue.getJobCounts(
       "waiting",
       "active",
       "delayed",
       "completed",
       "failed",
       "paused",
-    );
+    ), REDIS_REACHABLE_TIMEOUT_MS, "Redis job counts timed out");
 
     return {
       redis: { ok: true, latencyMs: Date.now() - startedAt },

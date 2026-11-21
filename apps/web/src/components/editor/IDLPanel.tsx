@@ -29,6 +29,7 @@ function downloadJson(content: string, filename: string) {
 
 export function IDLPanel() {
   const irJson = useCodeStore((s) => s.irJson);
+  const framework = useProjectStore((s) => s.framework);
   const projectName = useProjectStore((s) => s.projectName);
 
   const [format, setFormat] = useState<IdlFormat>("anchor");
@@ -56,7 +57,7 @@ export function IDLPanel() {
           setIdlJson(JSON.stringify(idl, null, 2));
           setError(null);
         } else {
-          const root = sdkGen.irToCodamaIDL(irJson);
+          const root = sdkGen.irToCodamaIDL(irJson, { framework });
           setIdlJson(JSON.stringify(root, null, 2));
           setError(null);
         }
@@ -68,7 +69,7 @@ export function IDLPanel() {
     })();
 
     return () => { cancelled = true; };
-  }, [irJson, format]);
+  }, [irJson, format, framework]);
 
   const slug = useMemo(
     () => (projectName ?? "program").toLowerCase().replace(/\s+/g, "-"),

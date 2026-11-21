@@ -17,6 +17,8 @@ import { CloudPropertiesPanel } from "@/components/editor/CloudPropertiesPanel";
 import { EditorToolbar } from "@/components/editor/EditorToolbar";
 import { ExecutionPanel } from "@/components/editor/ExecutionPanel";
 import { ErrorBoundary } from "@/components/providers/ErrorBoundary";
+import { EdEmptyState } from "@/components/editor/editor-chrome";
+import "@/components/editor/editor.css";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { trpc } from "@/lib/trpc/client";
@@ -169,9 +171,9 @@ export default function EditorPage() {
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading workflow...
+        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary motion-reduce:animate-none" />
+          Loading workflow…
         </div>
       </div>
     );
@@ -180,12 +182,14 @@ export default function EditorPage() {
   if (error || !workflow) {
     return (
       <div className="flex h-screen items-center justify-center bg-background p-6">
-        <div className="w-full max-w-sm rounded-lg border border-red-500/30 bg-card p-5 text-center">
-          <AlertCircle className="mx-auto mb-3 h-8 w-8 text-red-400" />
-          <h1 className="text-sm font-semibold">Workflow not found</h1>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {error?.message ?? "This workflow does not exist or you do not have access."}
-          </p>
+        <div className="w-full max-w-sm rounded-2xl border border-white/[0.08] bg-card py-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_24px_60px_-24px_rgba(0,0,0,0.85)]">
+          <EdEmptyState
+            tone="error"
+            icon={<AlertCircle size={15} />}
+            hint={error?.message ?? "This workflow does not exist or you do not have access."}
+          >
+            <span className="font-semibold text-foreground">Workflow not found</span>
+          </EdEmptyState>
         </div>
       </div>
     );
@@ -193,11 +197,11 @@ export default function EditorPage() {
 
   return (
     <ErrorBoundary>
-    <div className="flex h-screen flex-col bg-background">
+    <div className="ss-editor flex h-screen flex-col bg-background text-[13px]">
       <EditorToolbar />
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {paletteOpen && <CloudNodePalette />}
-        <div className="relative flex-1">
+        <div className="relative min-w-0 flex-1">
           <WorkflowCanvas />
           <ExecutionPanel />
           <EditorAiAssistant context={assistantContext} onPrompt={askEditorAssistant} />

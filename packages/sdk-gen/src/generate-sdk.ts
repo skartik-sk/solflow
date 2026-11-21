@@ -5,6 +5,7 @@ import type { ProgramIR } from "@solflow/ir";
 import { createFromRoot } from "codama";
 import { getRenderMapVisitor } from "@codama/renderers-js";
 import { irToCodamaIDL } from "./ir-to-codama";
+import type { SdkFramework } from "./discriminators";
 import type { GeneratedSDKFile, SDKGenerationResult } from "./types";
 
 /**
@@ -13,9 +14,12 @@ import type { GeneratedSDKFile, SDKGenerationResult } from "./types";
  * Uses `@codama/renderers-js` to produce Solana Kit–compatible client code.
  * All file content is returned as strings — nothing is written to disk here.
  */
-export async function generateSDK(ir: ProgramIR): Promise<SDKGenerationResult> {
-  // 1. Build Codama root node from IR
-  const root = irToCodamaIDL(ir);
+export async function generateSDK(
+  ir: ProgramIR,
+  options: { framework?: SdkFramework } = {},
+): Promise<SDKGenerationResult> {
+  // 1. Build Codama root node from IR (framework decides the instruction discriminators)
+  const root = irToCodamaIDL(ir, options);
 
   // 2. Create a Codama instance from the root
   const codamaInstance = createFromRoot(root);
@@ -28,8 +32,10 @@ export async function generateSDK(ir: ProgramIR): Promise<SDKGenerationResult> {
 
   // 5. Convert RenderMap entries to GeneratedSDKFile[]
   const files: GeneratedSDKFile[] = [];
+  // Rendered client code lives under src/, which package.json "main", the
+  // tsconfig and examples/client.ts all point at.
   for (const [filePath, fragment] of renderMap) {
-    files.push({ path: filePath, content: fragment.content });
+    files.push({ path: `src/${filePath}`, content: fragment.content });
   }
 
   // 6. Add a hand-crafted package.json for the generated SDK

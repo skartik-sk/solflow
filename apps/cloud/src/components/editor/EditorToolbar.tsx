@@ -33,6 +33,15 @@ import { useExecutionStore } from "@/store/execution-store";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
 import { redactPreviewValue } from "@/lib/cloud-workflow-features";
+import {
+  EdDivider,
+  SolMark,
+  edBtn,
+  edGhostBtn,
+  edIconBtn,
+  edPrimaryBtn,
+  edx,
+} from "./editor-chrome";
 
 function serializeWorkflowDefinition(nodes: Node[], edges: Edge[]) {
   const serializedNodes = nodes.map((n) => {
@@ -391,21 +400,27 @@ export function EditorToolbar() {
   };
 
   return (
-    <div className="flex h-10 items-center justify-between border-b border-border bg-card px-2">
-      {/* Left: panels toggle + name */}
-      <div className="flex items-center gap-2">
+    <header className="flex h-11 shrink-0 items-center justify-between gap-3 overflow-x-auto border-b border-border bg-card px-2.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.02)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {/* Left: back, panels toggle, name, status */}
+      <div className="flex min-w-0 shrink-0 items-center gap-1">
         <Link
           href="/dashboard"
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="group flex h-7 items-center gap-0.5 rounded-md pl-0.5 pr-1 text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
           title="Back to dashboard"
           aria-label="Back to dashboard"
         >
-          <ChevronLeft size={14} />
+          <ChevronLeft
+            size={14}
+            className="transition-transform duration-150 ease-out group-hover:-translate-x-0.5 motion-reduce:transition-none"
+          />
+          <SolMark size={22} />
         </Link>
         <button
           onClick={togglePalette}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          className={edIconBtn}
           title={paletteOpen ? "Close palette" : "Open palette"}
+          aria-label={paletteOpen ? "Close palette" : "Open palette"}
+          aria-pressed={paletteOpen}
         >
           {paletteOpen ? (
             <PanelLeftClose size={14} />
@@ -414,26 +429,33 @@ export function EditorToolbar() {
           )}
         </button>
 
-        <div className="flex items-center gap-1.5">
-          <h1 className="text-xs font-semibold truncate max-w-[200px]">
+        <span className="px-0.5 text-[13px] text-white/15" aria-hidden>
+          /
+        </span>
+
+        <div className="flex min-w-0 items-center gap-1.5">
+          <h1
+            className="max-w-[200px] truncate px-0.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground"
+            title={workflowName}
+          >
             {workflowName}
           </h1>
           {isDirty && (
             <span
-              className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0"
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"
               title="Unsaved changes"
             />
           )}
         </div>
 
-        <span className="text-[10px] text-muted-foreground/50 ml-1">
+        <span className="ml-1.5 hidden shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/60 lg:inline">
           {nodes.length} nodes, {edges.length} connections
         </span>
         <span
-          className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+          className={`ml-1.5 inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-full border px-2 text-[11px] font-medium ${
             isActive
-              ? "bg-emerald-500/10 text-emerald-300"
-              : "bg-muted text-muted-foreground"
+              ? "border-green-500/20 bg-green-500/10 text-green-400"
+              : "border-white/[0.08] bg-white/[0.03] text-muted-foreground"
           }`}
           title={
             isActive
@@ -441,39 +463,45 @@ export function EditorToolbar() {
               : "Manual runs still work while inactive"
           }
         >
+          <span
+            aria-hidden
+            className={`h-1.5 w-1.5 rounded-full ${isActive ? "bg-green-400" : "bg-white/25"}`}
+          />
           {isActive ? "Triggers active" : "Manual run mode"}
         </span>
       </div>
 
       {/* Right: undo/redo, save, run */}
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         <button
           onClick={() => undo()}
           disabled={!canUndo}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 transition-colors"
+          className={edIconBtn}
           title="Undo (Ctrl+Z)"
+          aria-label="Undo"
         >
           <Undo2 size={13} />
         </button>
         <button
           onClick={() => redo()}
           disabled={!canRedo}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 transition-colors"
+          className={edIconBtn}
           title="Redo (Ctrl+Shift+Z)"
+          aria-label="Redo"
         >
           <Redo2 size={13} />
         </button>
 
-        <div className="mx-1 h-4 w-px bg-border" />
+        <EdDivider />
 
         <button
           onClick={handleSave}
           disabled={!workflowId || saveWorkflow.isPending}
-          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+          className={edGhostBtn}
           title="Save workflow"
         >
           {saveWorkflow.isPending ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" />
           ) : (
             <Save size={12} />
           )}
@@ -483,7 +511,7 @@ export function EditorToolbar() {
         <button
           onClick={handleSharePreview}
           disabled={nodes.length === 0}
-          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+          className={edGhostBtn}
           title="Copy shareable workflow preview"
         >
           <Share2 size={12} />
@@ -493,15 +521,19 @@ export function EditorToolbar() {
         <button
           onClick={handleToggleActive}
           disabled={!workflowId || activate.isPending || deactivate.isPending}
-          className={`flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors ${
+          className={
             isActive
-              ? "bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
-          } disabled:opacity-50`}
+              ? edx(
+                  edBtn,
+                  "bg-green-500/10 text-green-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_0_1px_rgba(74,222,128,0.25)] hover:bg-green-500/15 hover:text-green-300",
+                )
+              : edBtn
+          }
           title={isActive ? "Deactivate workflow" : "Activate workflow"}
+          aria-pressed={isActive}
         >
           {activate.isPending || deactivate.isPending ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" />
           ) : isActive ? (
             <PowerOff size={12} />
           ) : (
@@ -515,11 +547,11 @@ export function EditorToolbar() {
           disabled={
             !workflowId || simulateWorkflow.isPending || nodes.length === 0
           }
-          className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+          className={edBtn}
           title="Preflight workflow before running"
         >
           {simulateWorkflow.isPending ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" />
           ) : (
             <ShieldCheck size={12} />
           )}
@@ -534,21 +566,25 @@ export function EditorToolbar() {
             simulateWorkflow.isPending ||
             nodes.length === 0
           }
-          className="flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          className={edx(edPrimaryBtn, "ml-0.5")}
           title="Run workflow"
         >
           {isRunning ? (
-            <Loader2 size={12} className="animate-spin" />
+            <Loader2 size={12} className="animate-spin motion-reduce:animate-none" />
           ) : (
             <Play size={12} />
           )}
           {isRunning ? "Running..." : "Run"}
         </button>
 
+        <EdDivider />
+
         <button
           onClick={toggleProperties}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          className={edIconBtn}
           title={propertiesOpen ? "Close properties" : "Open properties"}
+          aria-label={propertiesOpen ? "Close properties" : "Open properties"}
+          aria-pressed={propertiesOpen}
         >
           {propertiesOpen ? (
             <PanelRightClose size={14} />
@@ -557,6 +593,6 @@ export function EditorToolbar() {
           )}
         </button>
       </div>
-    </div>
+    </header>
   );
 }

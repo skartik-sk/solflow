@@ -2,16 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertCircle,
-  ArrowRight,
-  Boxes,
-  Loader2,
-  Play,
-  Workflow,
-  X,
-} from "lucide-react";
+import { AlertCircle, ArrowRight, Boxes, Check, Loader2, Play, X } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
+import { btnGhost, btnPrimary, focusRing, iconBtn, inputClass } from "@/components/ui-kit/cloud-ui";
 
 const STARTER_DEFINITION = {
   nodes: [
@@ -166,16 +159,13 @@ export function NewWorkflowDialog({
   };
 
   const form = (
-    <form onSubmit={handleCreate} className="flex w-full flex-col gap-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-            New Cloud workflow
-          </p>
-          <h1 className="mt-1 text-2xl font-bold tracking-tight">
-            Name it, then choose a starting point
+    <form onSubmit={handleCreate} className="flex w-full flex-col">
+      <div className="flex items-start justify-between gap-4 px-5 pb-4 pt-4">
+        <div className="min-w-0">
+          <h1 id="new-workflow-title" className="text-[16px] font-semibold tracking-[-0.02em]">
+            New workflow
           </h1>
-          <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          <p className="mt-0.5 text-[12.5px] text-muted-foreground">
             Start with a runnable manual Jupiter Price check or fork one of the
             top marketplace templates.
           </p>
@@ -185,118 +175,118 @@ export function NewWorkflowDialog({
           onClick={handleCancel}
           className={
             isModal
-              ? "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              : "hidden h-9 items-center rounded-lg border border-border px-3 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:inline-flex"
+              ? `${iconBtn} -mr-1.5`
+              : `${btnGhost} hidden sm:inline-flex`
           }
           aria-label={isModal ? "Close new workflow dialog" : undefined}
         >
-          {isModal ? <X className="h-4 w-4" /> : "Cancel"}
+          {isModal ? <X className="h-4 w-4" aria-hidden /> : "Cancel"}
         </button>
       </div>
 
-      <section className="rounded-xl border border-border bg-card p-4">
-        <label
-          htmlFor="workflow-name"
-          className="mb-1 block text-xs font-semibold"
-        >
-          Workflow name
-        </label>
-        <input
-          id="workflow-name"
-          type="text"
-          autoComplete="off"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="h-10 w-full rounded-lg border border-border bg-input px-3 text-sm outline-none transition-colors placeholder:text-muted-foreground/50 focus:border-primary focus:ring-1 focus:ring-primary"
-          placeholder={
-            selectedTemplate ? selectedTemplate.title : "Cloud workflow name"
-          }
-          autoFocus
-        />
-        {formError && <p className="mt-2 text-xs text-red-400">{formError}</p>}
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Starting point
-          </h2>
-          {templatesQuery.isLoading && (
-            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Loading templates
-            </span>
-          )}
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-4">
-          <TemplateChoice
-            selected={selectedTemplateId === "starter"}
-            icon={<Play size={16} />}
-            title="Manual Jupiter Price"
-            description="Runnable starter: Manual Trigger into Jupiter Price and Workflow Result."
-            meta="No wallet required"
-            onClick={() => setSelectedTemplateId("starter")}
+      <div className="space-y-5 px-5 pb-5">
+        <div>
+          <label
+            htmlFor="workflow-name"
+            className="mb-1.5 block text-[12px] font-medium text-muted-foreground"
+          >
+            Workflow name
+          </label>
+          <input
+            id="workflow-name"
+            type="text"
+            autoComplete="off"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className={`${inputClass} h-10`}
+            placeholder={
+              selectedTemplate ? selectedTemplate.title : "Cloud workflow name"
+            }
+            aria-invalid={formError ? true : undefined}
+            aria-describedby={formError ? "workflow-name-error" : undefined}
+            autoFocus
           />
+          {formError && <p id="workflow-name-error" className="mt-1.5 text-[12px] text-red-400">{formError}</p>}
+        </div>
 
-          {templates.map((template) => (
+        <fieldset>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <legend className="text-[12px] font-medium text-muted-foreground">
+              Starting point
+            </legend>
+            {templatesQuery.isLoading && (
+              <span className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                Loading templates
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <TemplateChoice
-              key={template.id}
-              selected={selectedTemplateId === template.id}
-              icon={<Boxes size={16} />}
-              title={template.title}
-              description={template.description ?? ""}
-              meta={template.category}
-              onClick={() => {
-                setSelectedTemplateId(template.id);
-                if (name === "Manual Jupiter Price Check") {
-                  setName(template.title);
-                }
-              }}
+              selected={selectedTemplateId === "starter"}
+              icon={<Play className="h-3.5 w-3.5" />}
+              title="Manual Jupiter Price"
+              description="Runnable starter: Manual Trigger into Jupiter Price and Workflow Result."
+              meta="No wallet required"
+              onClick={() => setSelectedTemplateId("starter")}
             />
-          ))}
 
-          {templatesQuery.isLoading &&
-            [0, 1, 2].map((index) => (
-              <div
-                key={index}
-                className="min-h-[148px] rounded-xl border border-border bg-card p-4"
-              >
-                <div className="mb-4 h-8 w-8 animate-pulse rounded-lg bg-muted" />
-                <div className="mb-2 h-3 w-2/3 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-full animate-pulse rounded bg-muted" />
-              </div>
+            {templates.map((template) => (
+              <TemplateChoice
+                key={template.id}
+                selected={selectedTemplateId === template.id}
+                icon={<Boxes className="h-3.5 w-3.5" />}
+                title={template.title}
+                description={template.description ?? ""}
+                meta={template.category}
+                onClick={() => {
+                  setSelectedTemplateId(template.id);
+                  if (name === "Manual Jupiter Price Check") {
+                    setName(template.title);
+                  }
+                }}
+              />
             ))}
-        </div>
-      </section>
 
-      {(mutationError || templatesQuery.error) && (
-        <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{mutationError ?? templatesQuery.error?.message}</span>
-        </div>
-      )}
+            {templatesQuery.isLoading &&
+              [0, 1, 2].map((index) => (
+                <div
+                  key={index}
+                  className="min-h-[132px] rounded-[12px] border border-white/[0.07] bg-card p-3.5"
+                >
+                  <div className="mb-3 h-7 w-7 animate-pulse rounded-lg bg-muted motion-reduce:animate-none" />
+                  <div className="mb-2 h-2.5 w-2/3 animate-pulse rounded bg-muted motion-reduce:animate-none" />
+                  <div className="h-2.5 w-full animate-pulse rounded bg-muted/70 motion-reduce:animate-none" />
+                </div>
+              ))}
+          </div>
+        </fieldset>
 
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {(mutationError || templatesQuery.error) && (
+          <div className="flex items-start gap-2 rounded-[10px] border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-[12.5px] text-red-300" role="alert">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>{mutationError ?? templatesQuery.error?.message}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-col-reverse gap-2 border-t border-white/[0.07] px-5 py-3 sm:flex-row sm:justify-end">
         <button
           type="button"
           onClick={handleCancel}
-          className="inline-flex h-10 items-center justify-center rounded-lg border border-border px-4 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:hidden"
+          className={`${btnGhost} ${isModal ? "" : "sm:hidden"}`}
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={pending || !name.trim()}
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className={btnPrimary}
         >
-          {pending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Workflow className="h-4 w-4" />
-          )}
+          {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
           Create workflow
-          {!pending && <ArrowRight className="h-4 w-4" />}
+          {!pending && <ArrowRight className="h-3.5 w-3.5" aria-hidden />}
         </button>
       </div>
     </form>
@@ -305,24 +295,26 @@ export function NewWorkflowDialog({
   if (!isModal) {
     return (
       <div className="min-h-screen bg-background px-4 py-8 text-foreground">
-        <div className="mx-auto w-full max-w-4xl">{form}</div>
+        <div className="mx-auto w-full max-w-4xl rounded-[16px] border border-white/[0.07] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">{form}</div>
       </div>
     );
   }
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-end justify-center p-3 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="new-workflow-title"
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 cursor-default bg-black/60 backdrop-blur-[2px]"
         onClick={onClose}
         aria-label="Close new workflow dialog"
+        tabIndex={-1}
       />
-      <div className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-border bg-background p-5 shadow-2xl shadow-black/40">
+      <div className="relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-[16px] border border-white/[0.09] bg-popover shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_30px_80px_-20px_rgba(0,0,0,0.8)]">
         {form}
       </div>
     </div>
@@ -348,28 +340,31 @@ function TemplateChoice({
     <button
       type="button"
       onClick={onClick}
-      className={`min-h-[148px] rounded-xl border bg-card p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+      className={`relative flex min-h-[132px] flex-col rounded-[12px] border p-3.5 text-left transition-[border-color,background-color,transform] duration-150 active:scale-[0.98] ${focusRing} ${
         selected
-          ? "border-primary bg-primary/5"
-          : "border-border hover:border-primary/35 hover:bg-accent/30"
+          ? "border-primary/60 bg-primary/[0.06]"
+          : "border-white/[0.07] bg-card hover:border-white/[0.14]"
       }`}
       aria-pressed={selected}
     >
-      <span
-        className={`mb-3 inline-flex h-8 w-8 items-center justify-center rounded-lg ${
-          selected
-            ? "bg-primary text-primary-foreground"
-            : "bg-primary/10 text-primary"
-        }`}
-      >
-        {icon}
+      <span className="mb-2.5 flex items-center justify-between">
+        <span
+          className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${
+            selected
+              ? "bg-primary text-primary-foreground"
+              : "border border-white/[0.07] bg-background text-muted-foreground"
+          }`}
+        >
+          {icon}
+        </span>
+        {selected && <Check className="h-3.5 w-3.5 text-primary" aria-hidden />}
       </span>
-      <span className="block text-sm font-semibold">{title}</span>
-      <span className="mt-1 line-clamp-3 block text-xs leading-relaxed text-muted-foreground">
+      <span className="block text-[13px] font-medium leading-snug">{title}</span>
+      <span className="mt-1 line-clamp-2 block text-[12px] leading-relaxed text-muted-foreground">
         {description}
       </span>
-      <span className="mt-3 inline-flex rounded bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {meta}
+      <span className="mt-auto pt-2.5 text-[11px] font-medium capitalize text-muted-foreground/80">
+        {meta.toLowerCase()}
       </span>
     </button>
   );

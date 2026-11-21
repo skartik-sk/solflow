@@ -3,9 +3,11 @@
 // Wallets Page — manage encrypted cloud wallets.
 
 import React, { useState } from "react";
-import { Wallet, Plus, Trash2, Copy, Shield, Loader2 } from "lucide-react";
+import { Wallet, Plus, Trash2, Copy, Lock, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { AppShell } from "@/components/layout/AppShell";
+import { Dialog, EmptyPanel, Field, PageHeader, SkeletonRows, btnGhost, btnPrimary, focusRing, iconBtnDanger, inputClass, panel, rowClass } from "@/components/ui-kit/cloud-ui";
+import { WalletMini } from "@/components/ui-kit/cloud-minis";
 
 export default function WalletsPage() {
   const [showCreate, setShowCreate] = useState(false);
@@ -37,160 +39,182 @@ export default function WalletsPage() {
     deleteMutation.mutate({ id });
   };
 
+  const closeCreate = () => { setShowCreate(false); setLabel(""); };
+
   return (
     <AppShell>
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-lg font-bold">Cloud Wallets</h1>
-            <p className="text-xs text-muted-foreground">
-              Encrypted wallets for automated transaction signing
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCreate(true)}
-            className="flex h-8 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            <Plus size={13} />
-            Create Wallet
+      <PageHeader
+        title="Cloud wallets"
+        description="Encrypted wallets for automated transaction signing"
+        actions={
+          <button type="button" onClick={() => setShowCreate(true)} className={btnPrimary}>
+            <Plus className="h-3.5 w-3.5" aria-hidden />
+            Create wallet
           </button>
-        </div>
+        }
+      />
 
-        {/* Security notice */}
-        <div className="flex items-start gap-3 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 mb-6">
-          <Shield className="shrink-0 text-blue-400 mt-0.5" size={16} />
-          <div>
-            <p className="text-xs font-medium text-blue-400">Encrypted & Secure</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              Private keys are encrypted with AES-256-GCM using PBKDF2 key derivation.
-              Keys never leave the server unencrypted.
-            </p>
+      {/* Security notice */}
+      <div className="mb-4 flex items-start gap-2.5 rounded-[12px] border border-white/[0.07] bg-card/60 px-3.5 py-2.5 text-[12.5px] text-muted-foreground">
+        <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        <p>
+          <span className="font-medium text-foreground">Encrypted and server side.</span>{" "}
+          Private keys are encrypted with AES-256-GCM using PBKDF2 key derivation. Keys never leave the server unencrypted.
+        </p>
+      </div>
+
+      {/* Loading */}
+      {isLoading && <SkeletonRows rows={3} />}
+
+      {/* Wallet List */}
+      {!isLoading && (wallets && wallets.length > 0 ? (
+        <div className={panel}>
+          <div className="hidden h-9 grid-cols-[minmax(0,1fr)_240px_84px_100px_40px] items-center gap-4 border-b border-white/[0.07] px-4 text-[12px] text-muted-foreground md:grid">
+            <span>Label</span>
+            <span>Public key</span>
+            <span>Network</span>
+            <span>Created</span>
+            <span />
           </div>
-        </div>
-
-        {/* Loading */}
-        {isLoading && (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        )}
-
-        {/* Wallet List */}
-        {!isLoading && (
-          <div className="space-y-2">
-            {wallets && wallets.length > 0 ? wallets.map((wallet) => (
-              <div
-                key={wallet.id}
-                className="flex items-center justify-between rounded-xl border border-border bg-card p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10">
-                    <Wallet size={16} className="text-emerald-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">{wallet.label}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <code className="text-[11px] text-muted-foreground font-mono">
-                        {wallet.publicKey.slice(0, 20)}...{wallet.publicKey.slice(-4)}
-                      </code>
-                      <button
-                        onClick={() => navigator.clipboard.writeText(wallet.publicKey)}
-                        className="text-muted-foreground/40 hover:text-foreground"
-                        title="Copy address"
-                      >
-                        <Copy size={10} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {wallet.network}
-                  </span>
-                  <span className="text-[11px] text-muted-foreground">
-                    Created {new Date(wallet.createdAt).toLocaleDateString()}
-                  </span>
-                  <button
-                    onClick={() => handleDelete(wallet.id)}
-                    disabled={deleteMutation.isPending}
-                    className="flex h-7 w-7 items-center justify-center rounded-md text-red-400/60 hover:bg-red-500/10 hover:text-red-400 transition-colors disabled:opacity-30"
-                    title="Delete wallet"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              </div>
-            )) : (
-              <div className="flex flex-col items-center justify-center py-16 text-center">
-                <Wallet className="h-10 w-10 text-muted-foreground/30 mb-3" />
-                <p className="text-sm text-muted-foreground">No wallets yet</p>
-                <p className="text-xs text-muted-foreground/60 mb-4">
-                  Create a cloud wallet to start signing transactions
-                </p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Create Dialog */}
-        {showCreate && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-            <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
-              <h2 className="text-sm font-bold mb-4">Create Cloud Wallet</h2>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                    Label
-                  </label>
-                  <input
-                    className="w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                    placeholder="My Wallet"
-                    value={label}
-                    onChange={(e) => setLabel(e.target.value)}
-                    autoFocus
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                    Network
-                  </label>
-                  <select
-                    className="w-full rounded-md border border-border bg-input px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary"
-                    value={network}
-                    onChange={(e) => setNetwork(e.target.value)}
-                  >
-                    <option value="devnet">Devnet</option>
-                    <option value="mainnet">Mainnet</option>
-                  </select>
-                </div>
-                {createMutation.error && (
-                  <p className="text-[11px] text-red-400">
-                    {createMutation.error.message}
+          {wallets.map((wallet) => (
+            <div
+              key={wallet.id}
+              className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-2.5 md:grid-cols-[minmax(0,1fr)_240px_84px_100px_40px] md:gap-4 ${rowClass}`}
+            >
+              <div className="flex min-w-0 items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border border-white/[0.07] bg-background text-primary">
+                  <Wallet className="h-3.5 w-3.5" aria-hidden />
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-[13.5px] font-medium">{wallet.label}</p>
+                  <p className="mt-0.5 text-[12px] text-muted-foreground md:hidden">
+                    <span className="font-mono">{wallet.publicKey.slice(0, 4)}…{wallet.publicKey.slice(-4)}</span> · {wallet.network}
                   </p>
-                )}
-                <p className="text-[10px] text-muted-foreground/60">
-                  A new Ed25519 keypair will be generated and encrypted server-side with AES-256-GCM.
-                </p>
+                </div>
               </div>
-              <div className="flex justify-end gap-2 mt-5">
+
+              {/* Public key only; the private key is never sent to the browser */}
+              <div className="hidden min-w-0 items-center gap-1 md:flex">
+                <code className="truncate font-mono text-[12px] text-muted-foreground" title={wallet.publicKey}>
+                  {wallet.publicKey.slice(0, 20)}...{wallet.publicKey.slice(-4)}
+                </code>
                 <button
-                  onClick={() => { setShowCreate(false); setLabel(""); }}
-                  className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted-foreground hover:bg-accent transition-colors"
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(wallet.publicKey)}
+                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground ${focusRing}`}
+                  title="Copy address"
+                  aria-label={`Copy ${wallet.label} address`}
                 >
-                  Cancel
+                  <Copy className="h-3 w-3" aria-hidden />
+                </button>
+              </div>
+
+              <span className="hidden md:block">
+                <span
+                  className={`inline-flex h-6 items-center rounded-md border px-2 text-[11.5px] font-medium ${
+                    wallet.network === "mainnet"
+                      ? "border-amber-400/20 bg-amber-400/10 text-amber-300"
+                      : "border-white/[0.08] text-muted-foreground"
+                  }`}
+                >
+                  {wallet.network}
+                </span>
+              </span>
+              <span className="hidden text-[12.5px] tabular-nums text-muted-foreground md:block">
+                {new Date(wallet.createdAt).toLocaleDateString()}
+              </span>
+              <div className="flex items-center justify-end gap-0.5">
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(wallet.publicKey)}
+                  className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground md:hidden ${focusRing}`}
+                  title="Copy address"
+                  aria-label={`Copy ${wallet.label} address`}
+                >
+                  <Copy className="h-3.5 w-3.5" aria-hidden />
                 </button>
                 <button
-                  onClick={handleCreate}
-                  disabled={!label.trim() || createMutation.isPending}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                  type="button"
+                  onClick={() => handleDelete(wallet.id)}
+                  disabled={deleteMutation.isPending}
+                  className={iconBtnDanger}
+                  title="Delete wallet"
+                  aria-label={`Delete ${wallet.label}`}
                 >
-                  {createMutation.isPending && <Loader2 size={12} className="animate-spin" />}
-                  Create Wallet
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
                 </button>
               </div>
             </div>
+          ))}
+        </div>
+      ) : (
+        <EmptyPanel
+          title="No wallets yet"
+          body="Create a cloud wallet to start signing transactions."
+          art={<WalletMini />}
+          actions={
+            <button type="button" onClick={() => setShowCreate(true)} className={btnPrimary}>
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Create wallet
+            </button>
+          }
+        />
+      ))}
+
+      {/* Create Dialog */}
+      {showCreate && (
+        <Dialog
+          title="Create cloud wallet"
+          description="A new Ed25519 keypair will be generated and encrypted server-side with AES-256-GCM."
+          onClose={closeCreate}
+          footer={
+            <>
+              <button type="button" onClick={closeCreate} className={btnGhost}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={!label.trim() || createMutation.isPending}
+                className={btnPrimary}
+              >
+                {createMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}
+                Create wallet
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3.5">
+            <Field label="Label" htmlFor="wallet-label">
+              <input
+                id="wallet-label"
+                className={inputClass}
+                placeholder="My Wallet"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+            </Field>
+            <Field label="Network" htmlFor="wallet-network" hint={network === "mainnet" ? "Mainnet wallets sign real transactions with real funds." : undefined}>
+              <select
+                id="wallet-network"
+                className={inputClass}
+                value={network}
+                onChange={(e) => setNetwork(e.target.value)}
+              >
+                <option value="devnet">Devnet</option>
+                <option value="mainnet">Mainnet</option>
+              </select>
+            </Field>
+            {createMutation.error && (
+              <p className="rounded-[10px] border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-[12.5px] text-red-300" role="alert">
+                {createMutation.error.message}
+              </p>
+            )}
           </div>
-        )}
+        </Dialog>
+      )}
     </AppShell>
   );
 }

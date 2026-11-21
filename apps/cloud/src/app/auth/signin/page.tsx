@@ -4,7 +4,10 @@ import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import Link from "next/link";
 import { Suspense } from "react";
-import { Cloud, Github } from "lucide-react";
+import { Github } from "lucide-react";
+import { SolMark } from "@/components/ui-kit/cloud-mark";
+import { LandingRoot } from "@/components/landing/LandingRoot";
+import { CloudStage } from "@/components/landing/CloudScene";
 
 export default function CloudSignInPage() {
   return (
@@ -31,49 +34,72 @@ function SignInShell({ callbackUrl }: { callbackUrl: string }) {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary">
-              <Cloud className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-semibold tracking-tight">
-              SolStudio Cloud
-            </span>
-          </Link>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Sign in with your SolStudio account
-          </p>
-        </div>
+    <div className="grid min-h-screen bg-background text-foreground lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      {/* Form side */}
+      <div className="flex min-h-screen flex-col px-5 py-5 sm:px-8">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 self-start rounded-md text-[14px] font-semibold tracking-[-0.01em] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          <SolMark size={22} />
+          <span>
+            SolStudio <span className="font-normal text-muted-foreground">Cloud</span>
+          </span>
+        </Link>
 
-        <div className="rounded-lg border border-border bg-card p-6 shadow-lg">
-          <div className="flex flex-col gap-3">
+        <div className="mx-auto flex w-full max-w-[340px] flex-1 flex-col justify-center py-10">
+          <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.025em]">Sign in to SolStudio Cloud</h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">Use your SolStudio account. Workflows, wallets and runs come with it.</p>
+
+          <div className="mt-6 flex flex-col gap-2">
             <button
-              onClick={() =>
-                signIn("github", { callbackUrl: getProviderCallbackUrl() })
-              }
-              className="flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              type="button"
+              onClick={() => signIn("github", { callbackUrl: getProviderCallbackUrl() })}
+              className={providerButton}
             >
-              <Github className="h-4 w-4" />
+              <Github className="h-4 w-4" aria-hidden />
               Continue with GitHub
             </button>
 
             <button
-              onClick={() =>
-                signIn("google", { callbackUrl: getProviderCallbackUrl() })
-              }
-              className="flex h-11 w-full items-center justify-center gap-3 rounded-md border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              type="button"
+              onClick={() => signIn("google", { callbackUrl: getProviderCallbackUrl() })}
+              className={providerButton}
             >
               <GoogleIcon />
               Continue with Google
             </button>
           </div>
+
+          <p className="mt-6 text-[11.5px] leading-relaxed text-muted-foreground">
+            The same account as solstudio.fun. Credentials and wallet keys are encrypted on the server and never sent back to the browser.
+          </p>
+        </div>
+      </div>
+
+      {/* Product side: a workflow run, cropped by the panel's right and bottom edges */}
+      <div className="relative hidden overflow-hidden border-l border-white/[0.07] bg-card lg:block" aria-hidden>
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.05)_1px,transparent_1.2px)] bg-[length:22px_22px]" />
+        <div className="relative px-12 pt-14">
+          <p className="max-w-[26ch] text-[20px] font-semibold leading-snug tracking-[-0.025em]">
+            A cron fires, a price is read, a swap goes out.{" "}
+            <span className="text-muted-foreground">Every run is logged and can be replayed.</span>
+          </p>
+        </div>
+        <div className="absolute bottom-0 left-12 top-[180px] w-[max(900px,100%)]">
+          <LandingRoot className="sl-cloud !bg-transparent">
+            <div className="overflow-hidden rounded-tl-[18px] shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_40px_120px_-40px_rgba(0,0,0,0.9)]">
+              <CloudStage />
+            </div>
+          </LandingRoot>
         </div>
       </div>
     </div>
   );
 }
+
+const providerButton =
+  "flex h-10 w-full items-center justify-center gap-2.5 rounded-[10px] border border-white/[0.08] bg-card text-[13px] font-medium text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-[background-color,transform] duration-150 ease-out hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98]";
 
 function GoogleIcon() {
   return (

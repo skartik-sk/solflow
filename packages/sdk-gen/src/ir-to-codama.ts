@@ -26,7 +26,12 @@ import {
   fixedCountNode,
   prefixedCountNode,
   mapTypeNode,
+  bytesTypeNode,
+  bytesValueNode,
+  fixedSizeTypeNode,
+  fieldDiscriminatorNode,
 } from "codama";
+import { instructionDiscriminator, toHex, type SdkFramework } from "./discriminators";
 
 // ─── Public API ────────────────────────────────────────────────────────────────
 
@@ -35,9 +40,10 @@ import {
  * The RootNode can then be fed to `@codama/renderers-js` to produce
  * TypeScript client code compatible with Solana Kit (Web3.js 2.0).
  */
-export function irToCodamaIDL(ir: ProgramIR) {
+export function irToCodamaIDL(ir: ProgramIR, options: { framework?: SdkFramework } = {}) {
+  const framework = options.framework ?? "anchor";
   // ── 1. Instructions ──────────────────────────────────────────────
-  const instructions = ir.instructions.map((ix) => {
+  const instructions = ir.instructions.map((ix, index) => {
     const accounts = ix.accounts.map((acc) => {
       const isSigner =
         acc.constraints.some((c) => c.type === "signer") ||
@@ -66,10 +72,21 @@ export function irToCodamaIDL(ir: ProgramIR) {
       }),
     );
 
+    // The program dispatches on a leading discriminator (see ./discriminators);
+    // without it every transaction the SDK builds is rejected on-chain.
+    const disc = instructionDiscriminator(framework, ix.name, index);
+    const discriminatorArg = instructionArgumentNode({
+      name: "discriminator",
+      type: fixedSizeTypeNode(bytesTypeNode(), disc.length),
+      defaultValue: bytesValueNode("base16", toHex(disc)),
+      defaultValueStrategy: "omitted",
+    });
+
     return instructionNode({
       name: ix.name,
       accounts,
-      arguments: args,
+      arguments: [discriminatorArg, ...args],
+      discriminators: [fieldDiscriminatorNode("discriminator")],
       docs: ix.description ? [ix.description] : [],
     });
   });
@@ -92,11 +109,13 @@ export function irToCodamaIDL(ir: ProgramIR) {
   );
 
   // ── 3. Errors → a single enum DefinedType ────────────────────────
+  // Named <Program>ErrorKind: Codama's error renderer already exports a
+  // <Program>Error type for the error codes, and two exports of one name break index.ts.
   const definedTypes =
     ir.errors.length > 0
       ? [
           definedTypeNode({
-            name: `${toPascalCase(ir.program.name)}Error`,
+            name: `${toPascalCase(ir.program.name)}ErrorKind`,
             type: enumTypeNode(
               ir.errors.map((e) => enumEmptyVariantTypeNode(e.name)),
             ),

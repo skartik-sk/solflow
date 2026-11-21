@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { TRPCProvider } from "@/components/providers/TRPCProvider";
 import {
@@ -15,6 +16,9 @@ import {
   CLOUD_URL,
 } from "@/lib/social-metadata";
 import "./globals.css";
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(CLOUD_ORIGIN),
@@ -58,7 +62,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${geist.variable} ${geistMono.variable}`}>
       <body className="font-sans antialiased">
         <TRPCProvider>
           {children}

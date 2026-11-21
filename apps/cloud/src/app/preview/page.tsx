@@ -3,7 +3,8 @@
 import React, { Suspense, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { AlertTriangle, ArrowLeft, Clock, GitBranch, Share2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Clock, Share2, ShieldCheck } from "lucide-react";
+import { SolMark } from "@/components/ui-kit/cloud-mark";
 
 type PreviewNode = {
   id: string;
@@ -36,13 +37,16 @@ type PreviewSnapshot = {
   };
 };
 
+// The editor's node colours (content only)
 const NODE_COLORS: Record<string, string> = {
-  trigger: "#f59e0b",
-  action: "#3b82f6",
-  transform: "#06b6d4",
-  logic: "#8b5cf6",
-  output: "#10b981",
+  trigger: "#4ade80",
+  action: "#38bdf8",
+  transform: "#58d3db",
+  logic: "#c084fc",
+  output: "#f5a524",
 };
+
+const panel = "rounded-[14px] border border-white/[0.07] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]";
 
 function decodeSnapshot(raw: string | null): PreviewSnapshot | null {
   if (!raw) return null;
@@ -107,56 +111,59 @@ function PreviewContent() {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-card/60">
-        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between px-5">
-          <Link href="/" className="inline-flex items-center gap-2 text-sm font-semibold">
-            <ArrowLeft className="h-3.5 w-3.5" />
-            SolStudio Cloud
+      <header className="border-b border-white/[0.07] bg-background/85">
+        <div className="mx-auto flex h-12 max-w-6xl items-center justify-between gap-4 px-4 sm:px-6">
+          <Link href="/" className="inline-flex items-center gap-2 rounded-md text-[14px] font-semibold tracking-[-0.01em] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+            <SolMark size={22} />
+            <span>
+              SolStudio <span className="font-normal text-muted-foreground">Cloud</span>
+            </span>
           </Link>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground">
-            <Share2 className="h-3 w-3" />
-            Preview
+          <span className="inline-flex h-7 items-center gap-1.5 rounded-md border border-white/[0.08] px-2 text-[12px] text-muted-foreground">
+            <Share2 className="h-3 w-3" aria-hidden />
+            Shared preview
           </span>
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-5 py-8">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6">
         {!snapshot ? (
-          <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-6 text-center">
-            <AlertTriangle className="mx-auto mb-2 h-8 w-8 text-amber-300" />
-            <h1 className="text-sm font-semibold">Preview could not be opened</h1>
-            <p className="mt-1 text-xs text-muted-foreground">The snapshot link is missing or invalid.</p>
+          <div className={`${panel} mx-auto max-w-md p-5`}>
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-amber-400/10 text-amber-300">
+                <AlertTriangle className="h-4 w-4" aria-hidden />
+              </span>
+              <h1 className="text-[15px] font-semibold">Preview could not be opened</h1>
+            </div>
+            <p className="mt-2 text-[13px] text-muted-foreground">The snapshot link is missing or invalid. Ask for a fresh share link from the editor.</p>
           </div>
         ) : (
           <>
-            <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">{snapshot.name ?? "Workflow Preview"}</h1>
-                <p className="mt-1 text-sm text-muted-foreground">
+            <div className="mb-4 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div className="min-w-0">
+                <h1 className="truncate text-[20px] font-semibold leading-tight tracking-[-0.02em]">{snapshot.name ?? "Workflow Preview"}</h1>
+                <p className="mt-0.5 text-[13px] tabular-nums text-muted-foreground">
                   {nodes.length} node{nodes.length === 1 ? "" : "s"}{" "}
                   &middot; {edges.length} connection{edges.length === 1 ? "" : "s"}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+              <dl className={`${panel} grid grid-cols-2 overflow-hidden md:grid-cols-4`}>
                 <Metric label="Status" value={snapshot.status ?? "Draft"} />
                 <Metric label="Timeout" value={`${snapshot.settings?.timeout ?? 120}s`} />
                 <Metric label="Simulation" value={snapshot.settings?.safety?.simulationRequired === false ? "Optional" : "Required"} />
                 <Metric label="Generated" value={snapshot.generatedAt ? new Date(snapshot.generatedAt).toLocaleDateString() : "Now"} />
-              </div>
+              </dl>
             </div>
 
-            <section className="mb-6 rounded-lg border border-border bg-card p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <GitBranch className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-semibold">Workflow Graph</h2>
-                </div>
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                  <ShieldCheck className="h-3 w-3" />
+            <section className={`${panel} mb-3 overflow-hidden`}>
+              <div className="flex h-10 items-center justify-between border-b border-white/[0.07] px-4">
+                <h2 className="text-[13px] font-medium">Workflow graph</h2>
+                <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+                  <ShieldCheck className="h-3.5 w-3.5" aria-hidden />
                   Redacted snapshot
                 </div>
               </div>
-              <div className="overflow-auto rounded-lg border border-border bg-background">
+              <div className="overflow-auto bg-background bg-[radial-gradient(rgba(255,255,255,0.06)_1px,transparent_1.2px)] bg-[length:20px_20px]">
                 <div className="relative" style={{ width: bounds.width, height: bounds.height }}>
                   <svg className="absolute inset-0 h-full w-full" aria-hidden>
                     {edges.map((edge) => {
@@ -168,9 +175,8 @@ function PreviewContent() {
                           key={edge.id}
                           d={edgePath(source, target, bounds)}
                           fill="none"
-                          stroke="hsl(var(--muted-foreground))"
-                          strokeOpacity="0.35"
-                          strokeWidth="2"
+                          stroke="rgba(255,255,255,0.2)"
+                          strokeWidth="1.5"
                         />
                       );
                     })}
@@ -182,14 +188,14 @@ function PreviewContent() {
                     return (
                       <div
                         key={node.id}
-                        className="absolute w-[160px] rounded-lg border border-border bg-card p-3 shadow-lg"
-                        style={{ left: point.x, top: point.y, borderLeftWidth: 3, borderLeftColor: color }}
+                        className="absolute w-[160px] rounded-[10px] bg-popover"
+                        style={{ left: point.x, top: point.y, boxShadow: `inset 3px 0 0 ${color}, 0 0 0 1px rgba(255,255,255,0.1), 0 12px 24px -12px rgba(0,0,0,0.8)` }}
                       >
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="truncate text-xs font-semibold">{labelFor(node.type)}</span>
-                          <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">{category}</span>
+                        <div className="flex h-8 items-center justify-between gap-2 border-b border-white/[0.06] pl-3 pr-2">
+                          <span className="truncate text-[12px] font-medium">{labelFor(node.type)}</span>
+                          <span className="text-[10.5px]" style={{ color }}>{category}</span>
                         </div>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground">{node.id}</p>
+                        <p className="truncate px-3 py-1.5 font-mono text-[10.5px] text-muted-foreground">{node.id}</p>
                       </div>
                     );
                   })}
@@ -198,21 +204,24 @@ function PreviewContent() {
             </section>
 
             <section className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-lg border border-border bg-card p-4">
-                <h2 className="mb-3 text-sm font-semibold">Safety</h2>
-                <div className="space-y-2 text-xs text-muted-foreground">
+              <div className={`${panel} overflow-hidden`}>
+                <h2 className="flex h-10 items-center border-b border-white/[0.07] px-4 text-[13px] font-medium">Safety</h2>
+                <div className="text-[12.5px] text-muted-foreground">
                   <SafetyRow label="Simulation" value={snapshot.settings?.safety?.simulationRequired === false ? "Optional" : "Required"} />
                   <SafetyRow label="Manual approval" value={snapshot.settings?.safety?.manualApprovalRequired === false ? "Optional" : "Required"} />
                   <SafetyRow label="Wallet automation" value={snapshot.settings?.safety?.walletAutomationAllowed ? "Allowed" : "Locked"} />
                 </div>
               </div>
-              <div className="rounded-lg border border-border bg-card p-4">
-                <h2 className="mb-3 text-sm font-semibold">Nodes</h2>
-                <div className="space-y-2">
+              <div className={`${panel} overflow-hidden`}>
+                <h2 className="flex h-10 items-center border-b border-white/[0.07] px-4 text-[13px] font-medium">Nodes</h2>
+                <div>
                   {nodes.map((node) => (
-                    <div key={node.id} className="flex items-center justify-between gap-3 text-xs">
-                      <span>{labelFor(node.type)}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground">{node.type}</span>
+                    <div key={node.id} className="flex h-9 items-center justify-between gap-3 border-b border-white/[0.06] px-4 text-[12.5px] last:border-b-0">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: NODE_COLORS[categoryFor(node.type)] ?? NODE_COLORS.action }} aria-hidden />
+                        <span className="truncate">{labelFor(node.type)}</span>
+                      </span>
+                      <span className="truncate font-mono text-[11px] text-muted-foreground">{node.type}</span>
                     </div>
                   ))}
                 </div>
@@ -227,18 +236,22 @@ function PreviewContent() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-      <p className="truncate text-xs font-semibold">{value}</p>
+    <div className="-mb-px -mr-px min-w-0 border-b border-r border-white/[0.07] px-3.5 py-2">
+      <dt className="text-[11.5px] text-muted-foreground">{label}</dt>
+      <dd className="truncate text-[13px] font-medium">{value}</dd>
     </div>
   );
 }
 
 function SafetyRow({ label, value }: { label: string; value: string }) {
+  const good = value === "Required" || value === "Locked";
   return (
-    <div className="flex items-center justify-between rounded-md bg-background px-2 py-1.5">
+    <div className="flex h-9 items-center justify-between border-b border-white/[0.06] px-4 last:border-b-0">
       <span>{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
+      <span className={`inline-flex items-center gap-1.5 font-medium ${good ? "text-foreground" : "text-amber-300"}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${good ? "bg-emerald-400" : "bg-amber-400"}`} aria-hidden />
+        {value}
+      </span>
     </div>
   );
 }
@@ -247,8 +260,8 @@ export default function WorkflowPreviewPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background text-sm text-muted-foreground">
-          <Clock className="mr-2 h-4 w-4 animate-spin" />
+        <div className="flex min-h-screen items-center justify-center bg-background text-[13px] text-muted-foreground">
+          <Clock className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden />
           Loading preview...
         </div>
       }

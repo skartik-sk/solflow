@@ -1,0 +1,147 @@
+/* Cloud editor chrome: React Flow skin copied from apps/web components/editor/editor.css,
+   matched to the landing's Cloud workflow miniature. Scoped under .ss-editor (the editor page root).
+
+   globals.css styles React Flow inside `@layer components` with !important. An !important
+   declaration in an earlier layer wins, so these rules sit in `@layer base`. */
+
+@layer base {
+  .ss-editor .react-flow__background {
+    background-color: #0b0c0f !important;
+  }
+  .ss-editor .react-flow__background circle,
+  .ss-editor .react-flow__background pattern circle {
+    fill: rgba(255, 255, 255, 0.09);
+  }
+
+  /* Edges: quiet hairline, cyan when selected, status colours while a run is live */
+  .ss-editor .react-flow__edge-path {
+    stroke: rgba(255, 255, 255, 0.18) !important;
+    stroke-width: 1.5px !important;
+  }
+  .ss-editor .react-flow__edge:hover .react-flow__edge-path {
+    stroke: rgba(255, 255, 255, 0.32) !important;
+  }
+  .ss-editor .react-flow__edge.selected .react-flow__edge-path {
+    stroke: var(--primary) !important;
+  }
+  .ss-editor .react-flow__edge.ss-edge-running .react-flow__edge-path {
+    stroke: var(--primary) !important;
+    stroke-width: 1.75px !important;
+  }
+  .ss-editor .react-flow__edge.ss-edge-success .react-flow__edge-path {
+    stroke: rgba(74, 222, 128, 0.8) !important;
+    stroke-width: 1.75px !important;
+  }
+  .ss-editor .react-flow__edge.ss-edge-error .react-flow__edge-path {
+    stroke: rgba(248, 113, 113, 0.85) !important;
+    stroke-width: 1.75px !important;
+  }
+  .ss-editor .react-flow__edge.ss-edge-skipped .react-flow__edge-path {
+    stroke: rgba(255, 255, 255, 0.12) !important;
+    stroke-dasharray: 4 4;
+  }
+  .ss-editor .react-flow__connection-path {
+    stroke: var(--primary) !important;
+    stroke-width: 1.5px !important;
+  }
+
+  .ss-editor .react-flow__handle {
+    border-color: rgba(255, 255, 255, 0.28) !important;
+    background-color: #0e1013 !important;
+  }
+  .ss-editor .react-flow__handle:hover,
+  .ss-editor .react-flow__handle.connectingfrom,
+  .ss-editor .react-flow__handle.connectingto {
+    border-color: var(--primary) !important;
+    background-color: var(--primary) !important;
+  }
+
+  .ss-editor .react-flow__selection {
+    background: color-mix(in oklab, var(--primary) 7%, transparent) !important;
+    border: 1px solid color-mix(in oklab, var(--primary) 45%, transparent) !important;
+  }
+
+  /* Zoom controls + minimap: floating hairline cards */
+  .ss-editor .ss-ed-controls.react-flow__controls {
+    overflow: hidden;
+    margin: 15px;
+    /* clear the 44px collapsed run-output bar */
+    margin-bottom: 59px;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    background: var(--popover);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 20px -10px rgba(0, 0, 0, 0.8) !important;
+  }
+  .ss-editor .ss-ed-controls .react-flow__controls-button {
+    width: 30px;
+    height: 28px;
+    background-color: transparent !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    color: var(--muted-foreground) !important;
+    transition: color 150ms ease-out, background-color 150ms ease-out;
+  }
+  .ss-editor .ss-ed-controls .react-flow__controls-button:last-child {
+    border-bottom: 0 !important;
+  }
+  .ss-editor .ss-ed-controls .react-flow__controls-button:hover {
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    color: var(--foreground) !important;
+  }
+  .ss-editor .ss-ed-controls .react-flow__controls-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -2px;
+  }
+  .ss-editor .ss-ed-controls .react-flow__controls-button svg {
+    width: 11px;
+    height: 11px;
+    fill: currentColor;
+  }
+
+  .ss-editor .ss-ed-minimap.react-flow__minimap {
+    overflow: hidden;
+    margin: 15px;
+    margin-bottom: 59px;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 10px !important;
+    background-color: #0e1013 !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 8px 20px -10px rgba(0, 0, 0, 0.8);
+  }
+  .ss-editor .ss-ed-minimap .react-flow__minimap-mask {
+    fill: rgba(8, 9, 11, 0.6);
+  }
+
+  .ss-editor .react-flow__attribution {
+    background: transparent;
+    opacity: 0.4;
+  }
+}
+
+/* Bottom panel tabs: hairline underline in brand cyan */
+.ss-editor .ss-ed-tab[data-active="true"]::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-editor * {
+    transition-duration: 0ms !important;
+  }
+  .ss-editor .react-flow__edge-path {
+    animation: none !important;
+  }
+}
+
+/* Consistent focus ring for every control in the editor chrome */
+.ss-editor :where(button, a[href], select, summary, [role="tab"]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+.ss-editor :where(input[type="checkbox"], input[type="radio"]) {
+  accent-color: var(--primary);
+}
