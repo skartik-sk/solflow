@@ -52,7 +52,7 @@ function DiffBadge({
 }) {
   if (count === 0) return null;
   return (
-    <span className={`inline-flex items-center gap-0.5 text-[10px] ${color}`}>
+    <span className={`inline-flex items-center gap-0.5 text-[11px] ${color}`}>
       <span className="font-semibold">{count}</span> {label}
     </span>
   );
@@ -62,7 +62,7 @@ function DiffSummary({ diff }: { diff: FlowDiff }) {
   const { stats } = diff;
   if (stats.totalChanges === 0) {
     return (
-      <span className="text-[10px] text-muted-foreground">no changes</span>
+      <span className="text-[11px] text-muted-foreground">no changes</span>
     );
   }
 
@@ -144,7 +144,7 @@ function LabelEditor({
         if (e.key === "Enter") handleCommit();
         if (e.key === "Escape") onCancel();
       }}
-      className="w-full rounded border border-primary/40 bg-background px-1 py-0.5 text-xs font-medium text-foreground outline-none focus:ring-1 focus:ring-primary"
+      className="w-full rounded border border-primary/40 bg-background px-1 py-0.5 text-[12px] font-medium text-foreground outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
     />
   );
 }
@@ -223,7 +223,7 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
         Loading history…
       </div>
     );
@@ -231,9 +231,9 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
 
   if (!snapshots || snapshots.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-2 text-[13px] text-muted-foreground">
         <p>No versions yet.</p>
-        <p className="text-xs">Save manually (Ctrl+S) to create a version.</p>
+        <p className="text-[12px]">Save manually (Ctrl+S) to create a version.</p>
       </div>
     );
   }
@@ -241,21 +241,21 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
-        <span className="text-xs font-semibold text-foreground">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5 min-h-10">
+        <span className="text-[12px] font-semibold text-foreground">
           {snapshots.length} version{snapshots.length !== 1 ? "s" : ""}
         </span>
         <div className="flex items-center gap-2">
           {diffOverlay && (
             <button
               onClick={handleClearOverlay}
-              className="rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-0.5 text-[10px] font-semibold text-yellow-400 hover:bg-yellow-500/20"
+              className="rounded border border-yellow-500/40 bg-yellow-500/10 px-2 py-0.5 text-[11px] font-semibold text-yellow-400 hover:bg-yellow-500/20"
               title="Clear diff overlay from canvas"
             >
               Clear Overlay
             </button>
           )}
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground">
             Ctrl+S creates a version
           </span>
         </div>
@@ -281,17 +281,17 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
             return (
               <div
                 key={snap.id}
-                className={`group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-accent/30 ${
+                className={`group flex items-start gap-3 px-4 py-3 transition-colors duration-150 ease-out hover:bg-white/[0.06] ${
                   isFirst ? "bg-primary/5" : ""
                 } ${isOverlayActive ? "ring-1 ring-inset ring-yellow-500/40" : ""}`}
               >
                 {/* Version badge */}
                 <div className="mt-0.5 flex shrink-0 flex-col items-center gap-1">
                   <div
-                    className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold ${
+                    className={`flex h-6 min-w-6 items-center justify-center rounded-full px-1 font-mono text-[10px] font-semibold tabular-nums ${
                       isFirst
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
+                        ? "bg-primary/15 text-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                        : "bg-white/[0.05] text-muted-foreground"
                     }`}
                   >
                     v{snap.version}
@@ -319,7 +319,7 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
                       />
                     ) : (
                       <button
-                        className="min-w-0 truncate text-left text-xs font-medium text-foreground hover:text-primary"
+                        className="min-w-0 truncate text-left text-[12px] font-medium text-foreground hover:text-primary"
                         title="Click to edit label"
                         onClick={() => setEditingLabelId(snap.id)}
                       >
@@ -327,13 +327,13 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
                       </button>
                     )}
                     {isFirst && (
-                      <span className="shrink-0 rounded border border-primary/40 bg-primary/10 px-1 py-0.5 text-[9px] font-semibold text-primary">
+                      <span className="shrink-0 rounded border border-primary/40 bg-primary/10 px-1 py-0.5 text-[11px] font-semibold text-primary">
                         CURRENT
                       </span>
                     )}
                   </div>
 
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {formatRelativeTime(snap.createdAt)}
                   </p>
 
@@ -344,7 +344,7 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
                     </div>
                   )}
                   {!diff && !isFirst && (
-                    <p className="mt-0.5 text-[10px] text-muted-foreground/50">
+                    <p className="mt-0.5 text-[11px] text-muted-foreground/50">
                       initial version
                     </p>
                   )}
@@ -353,10 +353,10 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
                   {hasDiff && (
                     <button
                       onClick={() => handleToggleOverlay(snap)}
-                      className={`mt-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+                      className={`mt-1.5 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors duration-150 ease-out ${
                         isOverlayActive
                           ? "bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                          : "text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
                       }`}
                       title={
                         isOverlayActive
@@ -374,7 +374,7 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
                   <button
                     onClick={() => handleRestore(snap.id)}
                     disabled={isRestoring || !!restoringId}
-                    className="shrink-0 rounded px-2 py-1 text-[10px] font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 disabled:opacity-30"
+                    className="shrink-0 rounded px-2 py-1 text-[11px] font-medium text-muted-foreground opacity-0 transition-opacity hover:bg-white/[0.06] hover:text-foreground group-hover:opacity-100 disabled:opacity-30"
                     title={`Restore v${snap.version}`}
                   >
                     {isRestoring ? "Restoring…" : "Restore"}

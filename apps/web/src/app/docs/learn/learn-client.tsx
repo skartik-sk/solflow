@@ -1,18 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
+import { CopyInline } from "../copy-block";
 import {
-  ArrowLeft,
+  DocsPageHead,
+  DocsPager,
+  DocsShell,
+  pagerFor,
+} from "@/components/ui-kit/docs-shell";
+import { DocsTrackCards } from "@/components/ui-kit/docs-tracks";
+import {
   Bot,
-  Check,
   CheckCircle2,
   ChevronRight,
   Clock,
-  Cloud,
   Code2,
-  Copy,
   Database,
   Filter,
   GitBranch,
@@ -20,7 +23,6 @@ import {
   RotateCcw,
   Send,
   Shield,
-  Terminal,
   TrendingUp,
   Wallet,
   Workflow,
@@ -238,33 +240,7 @@ const visualExercises: Exercise[] = [
 ];
 
 function CopyableCommand({ command }: { command: string }) {
-  const [copied, setCopied] = useState(false);
-  const handleCopy = () => {
-    navigator.clipboard.writeText(command).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-  return (
-    <div className="mt-2 relative rounded-md border border-border bg-card overflow-hidden">
-      <div className="flex items-center">
-        <code className="flex-1 overflow-x-auto px-3 py-2 font-mono text-xs text-foreground">
-          {command}
-        </code>
-        <button
-          onClick={handleCopy}
-          className="shrink-0 px-2.5 py-2 border-l border-border text-muted-foreground/60 hover:text-foreground transition-colors"
-          aria-label="Copy command"
-        >
-          {copied ? (
-            <Check className="h-3 w-3 text-emerald-400" />
-          ) : (
-            <Copy className="h-3 w-3" />
-          )}
-        </button>
-      </div>
-    </div>
-  );
+  return <CopyInline code={command} />;
 }
 
 type LessonProperty = {
@@ -1494,76 +1470,42 @@ function buildPath(from: ExerciseNode, to: ExerciseNode) {
   return `M${startX} ${startY} C${startX} ${midY}, ${endX} ${midY}, ${endX} ${endY}`;
 }
 
+function sectionId(title: string) {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function DocsLearnShell({
   title,
   description,
   eyebrow,
+  href,
+  sections,
   children,
 }: {
   title: string;
   description: string;
   eyebrow?: string;
+  href: string;
+  sections?: string[];
   children: ReactNode;
 }) {
+  const { prev, next } = pagerFor(href);
   return (
-    <div className="min-h-screen bg-background text-foreground font-bricolage">
-      <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/docs"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <ArrowLeft size={16} />
-            </Link>
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Link
-                href="/docs"
-                className="transition-colors hover:text-foreground"
-              >
-                Docs
-              </Link>
-              <ChevronRight size={12} className="text-muted-foreground/40" />
-              <Link
-                href="/docs/learn"
-                className="transition-colors hover:text-foreground"
-              >
-                Learn
-              </Link>
-              {eyebrow && (
-                <>
-                  <ChevronRight
-                    size={12}
-                    className="text-muted-foreground/40"
-                  />
-                  <span className="font-medium text-foreground">{eyebrow}</span>
-                </>
-              )}
-            </div>
-          </div>
-          <Link
-            href="/"
-            className="text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            SolStudio
-          </Link>
-        </div>
-      </header>
-
-      <div className="mx-auto max-w-4xl px-6">
-        <main className="py-10 pb-24">
-          <div className="mx-auto max-w-3xl">
-            <h1 className="mb-3 text-3xl font-extrabold tracking-tight text-foreground">
-              {title}
-            </h1>
-            <p className="mb-8 text-sm leading-relaxed text-muted-foreground">
-              {description}
-            </p>
-            {children}
-          </div>
-        </main>
-      </div>
-    </div>
+    <DocsShell
+      width={sections ? "wide" : "full"}
+      toc={sections?.map((s) => ({ id: sectionId(s), text: s }))}
+    >
+      <DocsPageHead
+        eyebrow={eyebrow ? `Learn · ${eyebrow}` : undefined}
+        title={title}
+        description={description}
+      />
+      {children}
+      <DocsPager prev={prev} next={next} />
+    </DocsShell>
   );
 }
 
@@ -1579,14 +1521,19 @@ function LessonSection({
   children?: ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-border/60 bg-card p-5">
-      <div className="flex items-start gap-4">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+    <section
+      id={sectionId(title)}
+      className="scroll-mt-20 border-t border-white/[0.06] pt-8 first:border-t-0 first:pt-0"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-[3px] flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-card font-mono text-[11.5px] text-primary tabular-nums">
           {number}
         </span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+          <h2 className="text-[20px] leading-[1.3] font-semibold tracking-[-0.02em] text-foreground">
+            {title}
+          </h2>
+          <p className="mt-1.5 text-[15px] leading-[1.7] text-muted-foreground">
             {body}
           </p>
         </div>
@@ -1787,7 +1734,7 @@ function EditorLessonNode({
       type="button"
       onClick={onClick}
       style={{ left: node.x, top: node.y, borderLeft: `3px solid ${accent}` }}
-      className={`absolute min-h-[96px] w-[200px] rounded-xl border bg-card text-left text-card-foreground shadow-lg shadow-black/30 transition-all hover:border-border/80 focus-visible:ring-2 focus-visible:ring-ring ${
+      className={`absolute min-h-[96px] w-[200px] rounded-xl border bg-card text-left text-card-foreground shadow-lg shadow-black/30 transition-[border-color,box-shadow] duration-150 hover:border-white/20 focus-visible:ring-2 focus-visible:ring-primary ${
         active ? "border-primary shadow-primary/20" : "border-border"
       } ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
     >
@@ -1902,15 +1849,15 @@ function GuidedProgramBuilder({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border/50 bg-background/40 px-3 py-1.5">
+    <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_30px_60px_-30px_rgba(0,0,0,0.8)]">
+      <div className="flex items-center justify-between border-b border-white/[0.06] bg-card px-3 py-2">
         <div className="flex gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-500/40" />
-          <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/40" />
-          <span className="h-2.5 w-2.5 rounded-full bg-green-500/40" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
         </div>
-        <div className="flex items-center gap-3 text-[9px] font-mono text-muted-foreground">
-          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+        <div className="flex items-center gap-3 text-[11px] font-mono text-muted-foreground">
+          <span className="rounded-[5px] bg-primary/10 px-1.5 py-0.5 text-primary">
             canvas
           </span>
           <span>properties</span>
@@ -1920,10 +1867,10 @@ function GuidedProgramBuilder({
           <button
             type="button"
             onClick={() => switchExercise("vault")}
-            className={`h-7 rounded-md px-2.5 text-[10px] font-medium ${
+            className={`h-7 rounded-md px-2.5 text-[12px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
               exerciseId === "vault"
                 ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:text-foreground"
+                : "bg-white/[0.05] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
             }`}
           >
             Vault
@@ -1931,10 +1878,10 @@ function GuidedProgramBuilder({
           <button
             type="button"
             onClick={() => switchExercise("escrow")}
-            className={`h-7 rounded-md px-2.5 text-[10px] font-medium ${
+            className={`h-7 rounded-md px-2.5 text-[12px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
               exerciseId === "escrow"
                 ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:text-foreground"
+                : "bg-white/[0.05] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
             }`}
           >
             Escrow
@@ -1944,7 +1891,7 @@ function GuidedProgramBuilder({
 
       <div className="grid grid-cols-1 lg:grid-cols-[160px_1fr_280px]">
         <aside className="border-b border-border/40 bg-card/70 p-3 lg:border-b-0 lg:border-r">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <p className="mb-2 text-[11.5px] font-medium text-muted-foreground">
             Lesson steps
           </p>
           <div className="space-y-1">
@@ -1957,7 +1904,7 @@ function GuidedProgramBuilder({
                   setSelected(null);
                   setResult("");
                 }}
-                className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[11px] transition-colors ${
+                className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[12px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
                   stepIndex === index
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -1975,8 +1922,8 @@ function GuidedProgramBuilder({
               </button>
             ))}
           </div>
-          <div className="mt-4 rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="mt-4 rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Add now
             </p>
             <p className="mt-2 text-xs leading-relaxed text-foreground">
@@ -2039,8 +1986,8 @@ function GuidedProgramBuilder({
         </div>
 
         <aside className="border-t border-border/40 bg-card/70 p-3 lg:border-l lg:border-t-0">
-          <div className="rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Current step
             </p>
             <h3 className="mt-2 text-sm font-semibold text-foreground">
@@ -2051,8 +1998,8 @@ function GuidedProgramBuilder({
             </p>
           </div>
 
-          <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="mt-3 rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Properties panel
             </p>
             <div className="mt-2 space-y-1.5">
@@ -2076,7 +2023,7 @@ function GuidedProgramBuilder({
             <button
               type="button"
               onClick={runCheck}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+              className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-primary px-3 text-[12.5px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <Play size={14} /> Run check
             </button>
@@ -2089,7 +2036,7 @@ function GuidedProgramBuilder({
                 setCompleted(new Set());
                 setStepIndex(0);
               }}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-white/[0.08] bg-card px-3 text-[12.5px] font-medium text-foreground transition-[background-color,transform] duration-150 hover:bg-popover active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <RotateCcw size={14} /> Reset
             </button>
@@ -2097,7 +2044,7 @@ function GuidedProgramBuilder({
               <button
                 type="button"
                 onClick={nextStep}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+                className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-white/[0.08] bg-card px-3 text-[12.5px] font-medium text-foreground transition-[background-color,transform] duration-150 hover:bg-popover active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
                 Next step <ChevronRight size={14} />
               </button>
@@ -2105,14 +2052,14 @@ function GuidedProgramBuilder({
           </div>
 
           {result && (
-            <p className="mt-3 rounded-lg border border-border/50 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+            <p className="mt-3 rounded-xl border border-white/[0.07] bg-background/40 px-3 py-2 text-xs text-muted-foreground">
               {result}
             </p>
           )}
 
-          <div className="mt-3 rounded-lg border border-border/50 bg-background/40">
+          <div className="mt-3 rounded-xl border border-white/[0.07] bg-background/40">
             <div className="border-b border-border/50 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="text-[11.5px] font-medium text-muted-foreground">
                 Generated code
               </p>
               <p className="mt-1 font-mono text-[10px] text-primary">
@@ -2147,7 +2094,7 @@ function CliPractice() {
         return (
           <div
             key={task.title}
-            className="rounded-lg border border-border/50 p-4"
+            className="rounded-xl border border-white/[0.07] p-4"
           >
             <p className="text-sm font-medium text-foreground">{task.title}</p>
             <div className="mt-3 grid gap-2">
@@ -2156,12 +2103,12 @@ function CliPractice() {
                   key={option}
                   type="button"
                   onClick={() => setSelected({ ...selected, [index]: option })}
-                  className={`min-h-10 rounded-md border px-3 py-2 text-left font-mono text-[12px] transition-colors ${
+                  className={`min-h-10 rounded-[10px] border px-3 py-2 text-left font-mono text-[12.5px] transition-[background-color,border-color,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
                     picked === option
                       ? correct
                         ? "border-emerald-500/50 bg-emerald-500/10 text-foreground"
                         : "border-destructive/50 bg-destructive/10 text-foreground"
-                      : "border-border bg-background/40 text-muted-foreground hover:text-foreground"
+                      : "border-white/[0.07] bg-background/40 text-muted-foreground hover:border-white/[0.14] hover:text-foreground"
                   }`}
                 >
                   {option}
@@ -2245,7 +2192,7 @@ function CloudEditorNode({
       type="button"
       onClick={onClick}
       style={{ left: node.x, top: node.y, borderLeft: `3px solid ${accent}` }}
-      className={`absolute min-h-[116px] w-[220px] rounded-xl border bg-card text-left text-card-foreground shadow-lg shadow-black/30 transition-all duration-150 hover:border-border/80 focus-visible:ring-2 focus-visible:ring-ring ${
+      className={`absolute min-h-[116px] w-[220px] rounded-xl border bg-card text-left text-card-foreground shadow-lg shadow-black/30 transition-[border-color,box-shadow] duration-150 hover:border-white/20 focus-visible:ring-2 focus-visible:ring-primary ${
         active ? "border-primary shadow-primary/20" : "border-border"
       } ${selected ? "ring-2 ring-primary ring-offset-2 ring-offset-background" : ""}`}
     >
@@ -2439,22 +2386,22 @@ function GuidedCloudBuilder({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border/50 bg-background/40 px-3 py-1.5">
+    <div className="overflow-hidden rounded-2xl border border-white/[0.08] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_30px_60px_-30px_rgba(0,0,0,0.8)]">
+      <div className="flex items-center justify-between border-b border-white/[0.06] bg-card px-3 py-2">
         <div className="flex gap-1.5">
-          <span className="h-2.5 w-2.5 rounded-full bg-red-500/40" />
-          <span className="h-2.5 w-2.5 rounded-full bg-yellow-500/40" />
-          <span className="h-2.5 w-2.5 rounded-full bg-green-500/40" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
+          <span className="h-2.5 w-2.5 rounded-full bg-white/15" />
         </div>
-        <div className="flex items-center gap-3 text-[9px] font-mono text-muted-foreground">
-          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-primary">
+        <div className="flex items-center gap-3 text-[11px] font-mono text-muted-foreground">
+          <span className="rounded-[5px] bg-primary/10 px-1.5 py-0.5 text-primary">
             workflow
           </span>
           <span>properties</span>
           <span>execution</span>
         </div>
         {lockedExercise ? (
-          <div className="rounded bg-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
+          <div className="rounded-md bg-white/[0.05] px-2 py-1 text-[12px] font-medium text-muted-foreground">
             {exercise.title}
           </div>
         ) : (
@@ -2464,10 +2411,10 @@ function GuidedCloudBuilder({
                 key={item.id}
                 type="button"
                 onClick={() => switchExercise(item.id)}
-                className={`h-7 rounded-md px-2.5 text-[10px] font-medium ${
+                className={`h-7 rounded-md px-2.5 text-[12px] font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
                   exerciseId === item.id
                     ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:text-foreground"
+                    : "bg-white/[0.05] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
                 }`}
               >
                 {item.id === "price-monitor"
@@ -2483,7 +2430,7 @@ function GuidedCloudBuilder({
 
       <div className="grid grid-cols-1 lg:grid-cols-[170px_1fr_300px]">
         <aside className="border-b border-border/40 bg-card/70 p-3 lg:border-b-0 lg:border-r">
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <p className="mb-2 text-[11.5px] font-medium text-muted-foreground">
             Workflow steps
           </p>
           <div className="space-y-1">
@@ -2496,7 +2443,7 @@ function GuidedCloudBuilder({
                   setSelected(null);
                   setResult("");
                 }}
-                className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[11px] transition-colors ${
+                className={`flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-[12px] transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
                   stepIndex === index
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -2514,8 +2461,8 @@ function GuidedCloudBuilder({
               </button>
             ))}
           </div>
-          <div className="mt-4 rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="mt-4 rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Add now
             </p>
             <p className="mt-2 text-xs leading-relaxed text-foreground">
@@ -2585,8 +2532,8 @@ function GuidedCloudBuilder({
         </div>
 
         <aside className="border-t border-border/40 bg-card/70 p-3 lg:border-l lg:border-t-0">
-          <div className="rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Current step
             </p>
             <h3 className="mt-2 text-sm font-semibold text-foreground">
@@ -2597,8 +2544,8 @@ function GuidedCloudBuilder({
             </p>
           </div>
 
-          <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="mt-3 rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Properties
             </p>
             <div className="mt-2 space-y-1.5">
@@ -2622,7 +2569,7 @@ function GuidedCloudBuilder({
             <button
               type="button"
               onClick={runCheck}
-              className="inline-flex h-9 items-center gap-2 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+              className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-primary px-3 text-[12.5px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <Play size={14} /> Run check
             </button>
@@ -2635,7 +2582,7 @@ function GuidedCloudBuilder({
                 setCompleted(new Set());
                 setStepIndex(0);
               }}
-              className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+              className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-white/[0.08] bg-card px-3 text-[12.5px] font-medium text-foreground transition-[background-color,transform] duration-150 hover:bg-popover active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <RotateCcw size={14} /> Reset
             </button>
@@ -2649,7 +2596,7 @@ function GuidedCloudBuilder({
                   setSelected(null);
                   setResult("");
                 }}
-                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-accent"
+                className="inline-flex h-9 items-center gap-2 rounded-[10px] border border-white/[0.08] bg-card px-3 text-[12.5px] font-medium text-foreground transition-[background-color,transform] duration-150 hover:bg-popover active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
                 Next step <ChevronRight size={14} />
               </button>
@@ -2657,13 +2604,13 @@ function GuidedCloudBuilder({
           </div>
 
           {result && (
-            <p className="mt-3 rounded-lg border border-border/50 bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+            <p className="mt-3 rounded-xl border border-white/[0.07] bg-background/40 px-3 py-2 text-xs text-muted-foreground">
               {result}
             </p>
           )}
 
-          <div className="mt-3 rounded-lg border border-border/50 bg-background/40 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <div className="mt-3 rounded-xl border border-white/[0.07] bg-background/40 p-3">
+            <p className="text-[11.5px] font-medium text-muted-foreground">
               Expected input
             </p>
             <p className="mt-2 font-mono text-[11px] leading-relaxed text-muted-foreground">
@@ -2671,9 +2618,9 @@ function GuidedCloudBuilder({
             </p>
           </div>
 
-          <div className="mt-3 rounded-lg border border-border/50 bg-background/40">
+          <div className="mt-3 rounded-xl border border-white/[0.07] bg-background/40">
             <div className="border-b border-border/50 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="text-[11.5px] font-medium text-muted-foreground">
                 Expected output
               </p>
             </div>
@@ -2688,9 +2635,9 @@ function GuidedCloudBuilder({
             )}
           </div>
 
-          <div className="mt-3 rounded-lg border border-border/50 bg-background/40">
+          <div className="mt-3 rounded-xl border border-white/[0.07] bg-background/40">
             <div className="border-b border-border/50 px-3 py-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <p className="text-[11.5px] font-medium text-muted-foreground">
                 Execution log
               </p>
             </div>
@@ -2720,53 +2667,32 @@ function GuidedCloudBuilder({
 export function LearnClient() {
   return (
     <DocsLearnShell
+      href="/docs/learn"
       title="Learn by Doing"
       description="Choose one focused learning path. Each path teaches only that part of SolStudio, step by step, with practice built into the docs."
     >
-      <div className="grid gap-3">
-        {[
+      <DocsTrackCards
+        items={[
           {
             href: "/docs/learn/visual-builder",
-            icon: Workflow,
+            mini: "visual",
             title: "Visual Builder path",
             body: "Start with every node, learn what connects to what, then build Vault and Escrow graphs step by step.",
           },
           {
             href: "/docs/learn/cli",
-            icon: Terminal,
+            mini: "cli",
             title: "CLI path",
             body: "Learn the local command flow: init, view, parse, summary, IR export, and IDL import.",
           },
           {
             href: "/docs/learn/cloud",
-            icon: Cloud,
+            mini: "cloud",
             title: "Cloud path",
             body: "Learn Cloud nodes, trigger-action workflow structure, and an AI-assisted workflow from start to finish.",
           },
-        ].map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="group flex items-start gap-4 rounded-xl border border-border/60 bg-card p-5 transition-all hover:border-primary/30 hover:bg-accent/30 hover:shadow-sm"
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <item.icon size={20} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
-                {item.title}
-              </h2>
-              <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                {item.body}
-              </p>
-            </div>
-            <ChevronRight
-              size={16}
-              className="mt-1 shrink-0 text-muted-foreground/30 transition-colors group-hover:text-primary"
-            />
-          </Link>
-        ))}
-      </div>
+        ]}
+      />
     </DocsLearnShell>
   );
 }
@@ -2774,11 +2700,19 @@ export function LearnClient() {
 export function VisualBuilderLearnClient() {
   return (
     <DocsLearnShell
+      href="/docs/learn/visual-builder"
+      sections={[
+        "Learn each node before building",
+        "Learn the connection grammar",
+        "Guided build: Vault",
+        "Guided build: Escrow",
+        "What you should be able to build next",
+      ]}
       title="Visual Builder Learning Path"
       eyebrow="Visual Builder"
       description="A complete path for learning the visual editor: what each node does, when to use it, how connections work, then two guided program builds."
     >
-      <div className="space-y-5">
+      <div className="space-y-10">
         <LessonSection
           number="1"
           title="Learn each node before building"
@@ -2788,14 +2722,14 @@ export function VisualBuilderLearnClient() {
             {visualNodeLessons.map((lesson) => (
               <div
                 key={lesson.type}
-                className="grid gap-4 rounded-lg border border-border/50 bg-background/40 p-4 md:grid-cols-[220px_1fr]"
+                className="grid gap-4 rounded-xl border border-white/[0.07] bg-background/40 p-4 md:grid-cols-[220px_1fr]"
               >
                 <StaticEditorNode type={lesson.type} />
                 <div>
-                  <p className="text-sm font-medium text-foreground">
+                  <p className="text-[14px] font-medium text-foreground">
                     {lesson.use}
                   </p>
-                  <div className="mt-3 grid gap-2 text-xs leading-relaxed text-muted-foreground md:grid-cols-3">
+                  <div className="mt-3 grid gap-2 text-[13px] leading-[1.6] text-muted-foreground md:grid-cols-3">
                     <p>
                       <span className="font-semibold text-foreground">
                         Fields:
@@ -2854,12 +2788,12 @@ export function VisualBuilderLearnClient() {
             ].map(([rule, meaning]) => (
               <div
                 key={rule}
-                className="rounded-lg border border-border/50 bg-background/40 p-4"
+                className="rounded-xl border border-white/[0.07] bg-background/40 p-4"
               >
-                <p className="font-mono text-xs font-semibold text-primary">
+                <p className="font-mono text-[12.5px] text-primary">
                   {rule}
                 </p>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                <p className="mt-2 text-[13px] leading-[1.6] text-muted-foreground">
                   {meaning}
                 </p>
               </div>
@@ -2872,7 +2806,7 @@ export function VisualBuilderLearnClient() {
           title="Guided build: Vault"
           body="Build this first. It teaches the normal Solana shape: one program, multiple instructions, one state-backed account, one validation rule, and one transfer operation."
         >
-          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+          <div className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-[13.5px] leading-[1.65] text-muted-foreground">
             <p className="font-semibold text-foreground">Build order</p>
             <p className="mt-2">
               Add Program, add initialize, add deposit, add vault account, bind
@@ -2888,7 +2822,7 @@ export function VisualBuilderLearnClient() {
           title="Guided build: Escrow"
           body="Escrow is the next level because state persists between instructions and token accounts participate in the trade."
         >
-          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+          <div className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-[13.5px] leading-[1.65] text-muted-foreground">
             <p className="font-semibold text-foreground">Build order</p>
             <p className="mt-2">
               Add initialize_escrow and accept_trade, create Escrow state,
@@ -2922,10 +2856,10 @@ export function VisualBuilderLearnClient() {
             ].map(([title, body]) => (
               <div
                 key={title}
-                className="rounded-lg border border-border/50 p-4"
+                className="rounded-xl border border-white/[0.07] p-4"
               >
-                <p className="text-sm font-semibold text-foreground">{title}</p>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                <p className="text-[14px] font-medium text-foreground">{title}</p>
+                <p className="mt-2 text-[13px] leading-[1.6] text-muted-foreground">
                   {body}
                 </p>
               </div>
@@ -2940,15 +2874,22 @@ export function VisualBuilderLearnClient() {
 export function CliLearnClient() {
   return (
     <DocsLearnShell
+      href="/docs/learn/cli"
+      sections={[
+        "Install the CLI",
+        "Understand the local workflow",
+        "Practice choosing commands",
+        "Recommended first local session",
+      ]}
       title="CLI Learning Path"
       eyebrow="CLI"
       description="A focused path for using SolStudio from a terminal. The CLI path is short on purpose: learn the command, when to use it, then practice choosing it."
     >
-      <div className="space-y-5">
-        <div className="rounded-lg border border-border/50 bg-background/40 p-4">
-          <p className="text-sm font-semibold text-foreground mb-2">Install the CLI</p>
+      <div className="space-y-10">
+        <div id="install-the-cli" className="scroll-mt-20 rounded-2xl border border-white/[0.07] bg-card p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+          <p className="text-[14.5px] font-medium text-foreground">Install the CLI</p>
           <CopyableCommand command="npm install -g @solstudio/cli" />
-          <p className="mt-2 text-xs text-muted-foreground">Requires Node.js 18+ or Bun. After install the <code className="text-foreground bg-card px-1 py-0.5 rounded text-[11px]">solstudio</code> binary is available globally.</p>
+          <p className="mt-2.5 text-[13.5px] leading-[1.6] text-muted-foreground">Requires Node.js 18+ or Bun. After install the <code className="rounded-[5px] border border-white/[0.08] bg-white/[0.04] px-[5px] py-px font-mono text-[0.86em] text-foreground">solstudio</code> binary is available globally.</p>
         </div>
 
         <LessonSection
@@ -2960,13 +2901,13 @@ export function CliLearnClient() {
             {cliLessons.map((lesson) => (
               <div
                 key={lesson.step}
-                className="rounded-lg border border-border/50 bg-background/40 p-4"
+                className="rounded-xl border border-white/[0.07] bg-background/40 p-4"
               >
-                <p className="text-sm font-semibold text-foreground">
+                <p className="text-[14px] font-medium text-foreground">
                   {lesson.step}
                 </p>
                 <CopyableCommand command={lesson.command} />
-                <div className="mt-3 grid gap-2 text-xs leading-relaxed text-muted-foreground md:grid-cols-2">
+                <div className="mt-3 grid gap-2 text-[13px] leading-[1.6] text-muted-foreground md:grid-cols-2">
                   <p>{lesson.why}</p>
                   <p>
                     <span className="font-semibold text-foreground">
@@ -3010,14 +2951,14 @@ export function CliLearnClient() {
             ].map(([step, title, command]) => (
               <div
                 key={step}
-                className="flex gap-3 rounded-lg border border-border/50 p-4"
+                className="flex gap-3 rounded-xl border border-white/[0.07] p-4"
               >
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-card font-mono text-[11.5px] text-primary">
                   {step}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">{title}</p>
-                  <code className="mt-1 block overflow-x-auto font-mono text-xs text-muted-foreground">
+                  <p className="text-[14px] font-medium text-foreground">{title}</p>
+                  <code className="mt-1 block overflow-x-auto font-mono text-[12.5px] text-muted-foreground">
                     {command}
                   </code>
                 </div>
@@ -3033,11 +2974,20 @@ export function CliLearnClient() {
 export function CloudLearnClient() {
   return (
     <DocsLearnShell
+      href="/docs/learn/cloud"
+      sections={[
+        "Learn Cloud node families",
+        "Learn the Cloud connection pattern",
+        "Guided workflow: AI price monitor",
+        "Guided workflow: AI-assisted swap guard",
+        "Guided workflow: Manual payout",
+        "Activation checklist",
+      ]}
       title="Cloud Learning Path"
       eyebrow="Cloud"
       description="A focused path for SolStudio Cloud. Learn each workflow node family, how to connect them, then build AI-assisted automations step by step."
     >
-      <div className="space-y-5">
+      <div className="space-y-10">
         <LessonSection
           number="1"
           title="Learn Cloud node families"
@@ -3047,10 +2997,10 @@ export function CloudLearnClient() {
             {cloudNodeCards.map((lesson) => (
               <div
                 key={lesson.node.id}
-                className="grid gap-3 rounded-xl border border-border/50 bg-background/40 p-3 md:grid-cols-[230px_1fr]"
+                className="grid gap-3 rounded-xl border border-white/[0.07] bg-background/40 p-3 md:grid-cols-[230px_1fr]"
               >
                 <StaticCloudNode node={lesson.node} />
-                <div className="grid gap-3 py-1 text-xs leading-relaxed md:grid-cols-2">
+                <div className="grid gap-3 py-1 text-[13px] leading-[1.6] md:grid-cols-2">
                   <div>
                     <p className="font-semibold text-foreground">
                       What it does
@@ -3092,7 +3042,7 @@ export function CloudLearnClient() {
           title="Learn the Cloud connection pattern"
           body="Most workflows follow the same order: trigger, fetch or transform data, decide, act, then output. The blue handles carry normal item data; trigger nodes create the first item."
         >
-          <div className="overflow-x-auto rounded-lg border border-border/50 bg-background p-4">
+          <div className="overflow-x-auto rounded-xl border border-white/[0.07] bg-background p-4">
             <div className="flex min-w-[640px] items-center gap-3 text-center">
               {[
                 ["Trigger", "starts run"],
@@ -3102,8 +3052,8 @@ export function CloudLearnClient() {
                 ["Output", "reports result"],
               ].map(([title, body], index, arr) => (
                 <div key={title} className="flex flex-1 items-center gap-3">
-                  <div className="min-h-20 flex-1 rounded-lg border border-border bg-card p-3">
-                    <p className="text-sm font-semibold text-foreground">
+                  <div className="min-h-20 flex-1 rounded-[10px] border border-white/[0.08] bg-card p-3">
+                    <p className="text-[14px] font-medium text-foreground">
                       {title}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">{body}</p>
@@ -3122,7 +3072,7 @@ export function CloudLearnClient() {
           title="Guided workflow: AI price monitor"
           body="This teaches a real Cloud shape: scheduled trigger, market data, AI reasoning, branch, and notification output."
         >
-          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+          <div className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-[13.5px] leading-[1.65] text-muted-foreground">
             <p className="font-semibold text-foreground">Build order</p>
             <p className="mt-2">
               Cron Trigger runs every interval, Price Fetch gets market data, AI
@@ -3138,7 +3088,7 @@ export function CloudLearnClient() {
           title="Guided workflow: AI-assisted swap guard"
           body="This one teaches the safer Cloud pattern for wallet actions: receive a signal, enrich it, ask AI, branch, then swap only on the approved path."
         >
-          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+          <div className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-[13.5px] leading-[1.65] text-muted-foreground">
             <p className="font-semibold text-foreground">Build order</p>
             <p className="mt-2">
               Webhook Trigger receives a trade idea, Fetch Price adds market
@@ -3155,7 +3105,7 @@ export function CloudLearnClient() {
           title="Guided workflow: Manual payout"
           body="This teaches a short operator workflow where a human starts the run, the Cloud action sends tokens, a filter verifies success, and the output reports the result."
         >
-          <div className="mb-4 rounded-lg bg-muted/40 p-4 text-xs leading-relaxed text-muted-foreground">
+          <div className="mb-4 rounded-xl border border-primary/15 bg-primary/[0.04] p-4 text-[13.5px] leading-[1.65] text-muted-foreground">
             <p className="font-semibold text-foreground">Build order</p>
             <p className="mt-2">
               Manual Trigger starts the item, Token Transfer signs and sends the
@@ -3181,7 +3131,7 @@ export function CloudLearnClient() {
             ].map((item) => (
               <div
                 key={item}
-                className="flex items-start gap-2 text-xs text-muted-foreground"
+                className="flex items-start gap-2 text-[13.5px] leading-[1.6] text-muted-foreground"
               >
                 <CheckCircle2
                   size={14}

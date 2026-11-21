@@ -124,7 +124,7 @@ export function SDKPanel() {
 
   if (!projectId) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
         No project loaded.
       </div>
     );
@@ -135,14 +135,14 @@ export function SDKPanel() {
       {/* ── Left: file tree + IDL export ─────────────────────────── */}
       <div className="flex w-56 shrink-0 flex-col border-r border-border bg-card">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5 min-h-10">
+          <span className="text-[12px] font-semibold text-foreground">
             SDK Files
           </span>
           <button
             onClick={() => generate.mutate({ projectId })}
             disabled={generate.isPending}
-            className="rounded bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors"
+            className="inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[5px] bg-primary px-2 text-[11px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
           >
             {generate.isPending ? "Generating…" : "Generate"}
           </button>
@@ -155,10 +155,10 @@ export function SDKPanel() {
               <button
                 key={f.path}
                 onClick={() => setSelectedFile(f)}
-                className={`w-full truncate px-3 py-1 text-left text-xs transition-colors ${
+                className={`w-full truncate px-3 py-1 text-left text-[12px] transition-colors duration-150 ease-out ${
                   selectedFile?.path === f.path
                     ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    : "text-muted-foreground hover:bg-white/[0.06] hover:text-accent-foreground"
                 }`}
                 title={f.path}
               >
@@ -166,7 +166,7 @@ export function SDKPanel() {
               </button>
             ))
           ) : (
-            <div className="px-3 py-8 text-center text-[10px] text-muted-foreground/60">
+            <div className="px-3 py-8 text-center text-[11px] text-muted-foreground/60">
               Click Generate to create the TypeScript SDK.
             </div>
           )}
@@ -174,20 +174,20 @@ export function SDKPanel() {
 
         {/* IDL Export section */}
         <div className="shrink-0 border-t border-border p-2 space-y-1">
-          <p className="px-1 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+          <p className="px-1 text-[11px] font-semibold text-muted-foreground/60">
             Export IDL
           </p>
           <button
             onClick={handleExportAnchorIDL}
             disabled={!irJson}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[10px] text-foreground hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left"
+            className="w-full rounded-md border border-white/[0.08] bg-background px-2 py-1 text-[11px] text-foreground hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 ease-out text-left"
           >
             Anchor IDL (.json)
           </button>
           <button
             onClick={handleExportCodamaIDL}
             disabled={!irJson}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[10px] text-foreground hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left"
+            className="w-full rounded-md border border-white/[0.08] bg-background px-2 py-1 text-[11px] text-foreground hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 ease-out text-left"
           >
             Codama IDL (.json)
           </button>
@@ -196,7 +196,7 @@ export function SDKPanel() {
             <button
               onClick={handleDownload}
               disabled={download.isFetching}
-              className="w-full rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors"
+              className="w-full rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20 disabled:opacity-50 transition-colors duration-150 ease-out"
             >
               {download.isFetching ? "Zipping…" : "Download SDK ZIP"}
             </button>
@@ -209,35 +209,35 @@ export function SDKPanel() {
         {selectedFile ? (
           <>
             {/* File header */}
-            <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-4 py-2">
-              <span className="font-mono text-xs text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-3 py-1.5 min-h-10">
+              <span className="font-mono text-[12px] text-muted-foreground">
                 {selectedFile.path}
               </span>
               <button
                 onClick={() => handleCopy(selectedFile.content)}
-                className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+                className="rounded-md border border-white/[0.08] px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-white/[0.06] hover:text-accent-foreground transition-colors duration-150 ease-out"
               >
                 {copied ? "Copied!" : "Copy"}
               </button>
             </div>
             {/* File content */}
-            <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed text-foreground/90">
+            <pre className="min-h-0 flex-1 overflow-auto bg-[#0c0d10] p-3 font-mono text-[12px] leading-[1.6] text-foreground/90">
               {selectedFile.content}
             </pre>
           </>
         ) : result ? (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
             Select a file to view its contents.
           </div>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+          <div className="flex h-full flex-col items-center justify-center gap-3 text-[13px] text-muted-foreground">
             <div className="text-3xl text-muted-foreground/30">{"{ }"}</div>
             <p>Generate a TypeScript SDK compatible with Solana Kit.</p>
-            <p className="text-xs text-muted-foreground/60">
+            <p className="text-[12px] text-muted-foreground/60">
               Uses Codama to produce type-safe instruction builders and
               decoders.
             </p>
-            <p className="text-xs text-muted-foreground/60">
+            <p className="text-[12px] text-muted-foreground/60">
               Or export the Anchor / Codama IDL directly from the left panel.
             </p>
           </div>

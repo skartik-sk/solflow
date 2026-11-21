@@ -68,14 +68,14 @@ export function PaymentButton({
           fork.mutate({ listingId });
         }}
         disabled={isPending}
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        className="flex h-9 w-full items-center justify-center gap-2 rounded-[10px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-[filter,transform] duration-150 ease-out hover:brightness-110 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
         {isPending ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <GitFork className="h-4 w-4" />
         )}
-        {isPending ? "Opening editor…" : "Open in Editor"}
+        {isPending ? "Opening editor…" : "Open in editor"}
       </button>
     );
   }
@@ -84,10 +84,10 @@ export function PaymentButton({
     return (
       <button
         onClick={() => setVisible(true)}
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+        className="flex h-9 w-full items-center justify-center gap-2 rounded-[10px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-[filter,transform] duration-150 ease-out hover:brightness-110 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
         <Wallet className="h-4 w-4" />
-        Connect Wallet to Purchase
+        Connect wallet to buy
       </button>
     );
   }
@@ -139,7 +139,7 @@ export function PaymentButton({
   };
 
   const stepLabels: Record<typeof step, string> = {
-    idle: `Pay ${priceSOL} SOL & Fork`,
+    idle: `Pay ${priceSOL} SOL and fork`,
     sending: "Sending transaction…",
     verifying: "Verifying on-chain…",
     forking: "Forking template…",
@@ -149,7 +149,7 @@ export function PaymentButton({
     <button
       onClick={handlePurchase}
       disabled={isPending}
-      className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+      className="flex h-9 w-full items-center justify-center gap-2 rounded-[10px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-[filter,transform] duration-150 ease-out hover:brightness-110 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       {isPending ? (
         <Loader2 className="h-4 w-4 animate-spin" />

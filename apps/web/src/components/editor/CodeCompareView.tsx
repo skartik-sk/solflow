@@ -22,7 +22,7 @@ if (typeof window !== "undefined") {
 const MonacoEditor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+    <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
       Loading editor…
     </div>
   ),
@@ -33,7 +33,7 @@ const DiffEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
         Loading diff editor…
       </div>
     ),
@@ -86,13 +86,13 @@ function Pane({
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-border last:border-r-0">
       {/* Pane header */}
       <div
-        className={`flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5 ${color}`}
+        className={`flex h-8 shrink-0 items-center gap-2 border-b border-border px-3 ${color}`}
       >
-        <span className="text-xs font-semibold text-foreground">{label}</span>
+        <span className="text-[12px] font-semibold text-foreground">{label}</span>
       </div>
 
       {/* File tabs */}
-      <div className="flex shrink-0 overflow-x-auto border-b border-border bg-card">
+      <div className="flex h-8 shrink-0 items-stretch overflow-x-auto border-b border-border bg-card [scrollbar-width:none]">
         {files.map((f) => {
           const isActive = f.path === (activeFile ?? files[0]?.path);
           return (
@@ -100,10 +100,10 @@ function Pane({
               key={f.path}
               onClick={() => onSelectFile(f.path)}
               title={f.path}
-              className={`flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1 text-xs transition-colors hover:bg-accent ${
+              className={`flex shrink-0 items-center gap-1.5 border-r border-white/[0.06] px-3 font-mono text-[12px] outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary ${
                 isActive
-                  ? "border-b-2 border-b-primary bg-background text-foreground"
-                  : "text-muted-foreground"
+                  ? "bg-background text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                  : "text-muted-foreground hover:bg-white/[0.03] hover:text-foreground"
               }`}
             >
               {shortName(f.path)}
@@ -140,7 +140,7 @@ function Pane({
             }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
             No file selected.
           </div>
         )}
@@ -259,7 +259,7 @@ export function CodeCompareView() {
 
   if (!irJson || !generated) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center px-4 text-center text-[13px] text-muted-foreground">
         Add nodes to the canvas to compare generated framework output.
       </div>
     );
@@ -267,7 +267,7 @@ export function CodeCompareView() {
 
   if ("error" in generated) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-destructive">
+      <div className="flex h-full items-center justify-center px-4 text-center font-mono text-[12px] text-red-400">
         {generated.error}
       </div>
     );
@@ -276,28 +276,30 @@ export function CodeCompareView() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Toolbar with mode toggle */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-1.5">
+      <div className="flex h-9 shrink-0 items-center gap-2 overflow-x-auto border-b border-border bg-card px-3 [scrollbar-width:none]">
+        <div role="group" aria-label="View mode" className="flex h-6 shrink-0 items-center gap-0.5 rounded-md bg-white/[0.03] p-0.5 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
         <button
           onClick={() => setViewMode("diff")}
-          className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+          className={`h-5 rounded-[4px] px-2 text-[11px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-primary ${
             viewMode === "diff"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07)]"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Diff
         </button>
         <button
           onClick={() => setViewMode("side-by-side")}
-          className={`rounded px-2 py-0.5 text-xs font-medium transition-colors ${
+          className={`h-5 rounded-[4px] px-2 text-[11px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-primary ${
             viewMode === "side-by-side"
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07)]"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Side by Side
         </button>
-        <div className="ml-2 flex overflow-hidden rounded border border-border">
+        </div>
+        <div role="group" aria-label="Compare against" className="ml-1 flex h-6 shrink-0 items-center gap-0.5 rounded-md bg-white/[0.03] p-0.5 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
           {compareOptions.map((option) => (
             <button
               key={option.value}
@@ -307,10 +309,10 @@ export function CodeCompareView() {
                   setCompareFile(generated[option.value][0]?.path ?? null);
                 }
               }}
-              className={`px-2 py-0.5 text-xs font-medium transition-colors ${
+              className={`h-5 rounded-[4px] px-2 text-[11px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-primary ${
                 compareFramework === option.value
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                  ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07)]"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {option.label}
@@ -319,7 +321,7 @@ export function CodeCompareView() {
         </div>
 
         {viewMode === "diff" && (
-          <span className="ml-auto text-[10px] text-muted-foreground">
+          <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">
             Red = Anchor only, Green = {compareMeta.label} only
           </span>
         )}
@@ -360,7 +362,7 @@ export function CodeCompareView() {
               }}
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
               Select files to compare.
             </div>
           )}

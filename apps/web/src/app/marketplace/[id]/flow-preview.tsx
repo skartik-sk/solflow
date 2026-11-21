@@ -14,8 +14,8 @@ const FlowPreviewInner = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Loading preview…
+      <div className="mk-dots flex h-full items-center justify-center text-[12.5px] text-muted-foreground">
+        Loading graph…
       </div>
     ),
   },

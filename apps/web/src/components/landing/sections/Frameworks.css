@@ -1,0 +1,529 @@
+/* One graph, three frameworks. Everything nests under .sl-frameworks. */
+
+.sl-frameworks {
+  /* Syntax ink: node colours, so a macro reads in the constraint's colour */
+  --tk-key: var(--n-instruction);
+  --tk-type: var(--n-program);
+  --tk-str: var(--n-account);
+  --tk-num: var(--n-state);
+  --tk-mac: var(--n-constraint);
+  --tk-fn: var(--text);
+  --fw-ease: cubic-bezier(0.23, 1, 0.32, 1);
+
+  & .fw-inline {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    color: var(--text);
+  }
+
+  & .fw-host {
+    position: relative;
+  }
+
+  & .fw-stage .ss-stage {
+    --ss-font: var(--font);
+    --ss-mono: var(--mono);
+    background: transparent;
+    color: var(--text);
+    overflow: hidden;
+    border-radius: var(--r-card);
+  }
+
+  & .fw-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: var(--s1);
+    border-radius: var(--r-card);
+    box-shadow: var(--hi), inset 0 0 0 1px var(--line);
+    overflow: hidden;
+  }
+  & .fw-panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: var(--hi), inset 0 0 0 1px var(--line-2);
+    pointer-events: none;
+  }
+
+  & .fw-body {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* ---------- Canvas ---------- */
+
+  & .fw-canvas {
+    position: relative;
+    background-color: var(--bg);
+    border-right: 1px solid var(--line);
+    overflow: hidden;
+  }
+  & .fw-panel[data-layout="compact"] .fw-canvas {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  & .fw-grid {
+    position: absolute;
+    inset: 0;
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.07) 1px, transparent 1.4px);
+    background-size: 18px 18px;
+    background-position: 9px 9px;
+  }
+  & .fw-crumb {
+    position: absolute;
+    left: 28px;
+    top: 22px;
+    display: flex;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--text-3);
+  }
+  & .fw-panel[data-layout="compact"] .fw-crumb {
+    left: 16px;
+    top: 16px;
+  }
+  & .fw-crumb__sep {
+    color: var(--s4);
+  }
+  & .fw-crumb__on {
+    color: var(--text-2);
+  }
+
+  & .fw-edges {
+    position: absolute;
+    inset: 0;
+    overflow: visible;
+  }
+  & .fw-edge {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.16);
+    stroke-width: 1.25;
+  }
+  & .fw-edge[data-kind="constraint"] {
+    stroke: color-mix(in srgb, var(--n-constraint) 55%, transparent);
+  }
+  & .fw-port {
+    fill: var(--bg);
+    stroke-width: 1.5;
+  }
+  & .fw-port[data-kind="account"] {
+    stroke: var(--n-account);
+  }
+  & .fw-port[data-kind="instruction"] {
+    stroke: var(--n-instruction);
+  }
+  & .fw-port[data-kind="constraint"] {
+    stroke: var(--n-constraint);
+  }
+
+  & .fw-node {
+    --c: var(--n-instruction);
+    position: absolute;
+    border-radius: 12px;
+    background: var(--s2);
+    box-shadow: var(--hi), 0 0 0 1px var(--line-2), 0 12px 28px -14px rgba(0, 0, 0, 0.8);
+  }
+  & .fw-node[data-kind="account"] {
+    --c: var(--n-account);
+  }
+  & .fw-node[data-kind="constraint"] {
+    --c: var(--n-constraint);
+  }
+  & .fw-node__head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 12px;
+  }
+  & .fw-node__icon {
+    display: inline-flex;
+    flex: none;
+    color: var(--c);
+  }
+  & .fw-node__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 16px;
+    color: var(--text);
+  }
+  & .fw-node__tag {
+    flex: none;
+    font-size: 11.5px;
+    line-height: 16px;
+    color: color-mix(in srgb, var(--c) 80%, var(--text-3));
+  }
+  & .fw-node__rows {
+    padding: 6px 0 7px;
+    border-top: 1px solid var(--line);
+  }
+  & .fw-node__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 26px;
+    padding: 0 12px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-3);
+  }
+  & .fw-node__row code {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+    white-space: nowrap;
+  }
+  & .fw-panel[data-layout="compact"] .fw-node__tag {
+    display: none;
+  }
+
+  /* ---------- Code pane ---------- */
+
+  & .fw-pane {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--s1);
+  }
+  & .fw-pane__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 16px 0 12px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  & .fw-tabs {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 92px);
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  & .fw-tabs__thumb {
+    position: absolute;
+    left: 3px;
+    top: 3px;
+    width: 92px;
+    height: calc(100% - 6px);
+    border-radius: 7px;
+    background: var(--s3);
+    box-shadow: var(--hi), 0 0 0 1px var(--line-2);
+    transition: transform 260ms var(--fw-ease);
+  }
+  & .fw-tab {
+    position: relative;
+    height: 30px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-3);
+    cursor: pointer;
+    overflow: hidden;
+    transition: color 160ms ease-out;
+  }
+  & .fw-tab:hover {
+    color: var(--text-2);
+  }
+  & .fw-tab[data-on] {
+    color: var(--text);
+  }
+  & .fw-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  & .fw-tab__progress {
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: 3px;
+    height: 1px;
+    background: var(--accent);
+    opacity: 0.7;
+    transform-origin: 0 50%;
+    transform: scaleX(0);
+    animation: fw-progress 5200ms linear forwards;
+  }
+  & .fw-tab__progress[data-paused] {
+    animation-play-state: paused;
+  }
+  & .ss-stage[data-still] .fw-tab__progress {
+    display: none;
+  }
+
+  & .fw-file {
+    display: grid;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-3);
+    text-align: right;
+  }
+  & .fw-file > span {
+    will-change: transform;
+    grid-area: 1 / 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 200ms ease-out, transform 260ms var(--fw-ease);
+  }
+  & .fw-file > span[data-on] {
+    opacity: 1;
+    transform: none;
+    transition-delay: 60ms;
+  }
+
+  & .fw-codebox {
+    position: relative;
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    padding: 22px 0;
+    overflow: hidden;
+  }
+  & .fw-panel[data-layout="compact"] .fw-codebox {
+    padding: 16px 0;
+  }
+
+  & .fw-code {
+    grid-area: 1 / 1;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: var(--lh);
+    color: var(--text-2);
+    white-space: pre;
+    pointer-events: none;
+  }
+  & .fw-panel[data-layout="compact"] .fw-code {
+    font-size: 11.5px;
+  }
+  & .fw-line {
+    display: flex;
+    will-change: transform;
+    height: var(--lh);
+    padding-right: 16px;
+    opacity: 0;
+    transform: translateY(-6px);
+    filter: blur(2px);
+    transition: opacity 160ms ease-out, transform 200ms ease-out, filter 160ms ease-out;
+  }
+  & .fw-code[data-on] {
+    pointer-events: auto;
+  }
+  & .fw-code[data-on] .fw-line {
+    opacity: 1;
+    transform: none;
+    filter: none;
+    transition: opacity 320ms var(--fw-ease), transform 420ms var(--fw-ease), filter 320ms var(--fw-ease);
+    transition-delay: calc(120ms + var(--i) * 14ms);
+  }
+  & .fw-code:not([data-on]) .fw-line {
+    transform: translateY(-6px);
+  }
+  & .ss-stage:not([data-still]) .fw-code:not([data-on]) .fw-line {
+    transform: translateY(-6px);
+  }
+  & .fw-line__num {
+    flex: none;
+    width: 52px;
+    padding-right: 18px;
+    text-align: right;
+    color: var(--s4);
+    color: color-mix(in srgb, var(--text-3) 55%, transparent);
+    font-variant-numeric: tabular-nums;
+  }
+  & .fw-panel[data-layout="compact"] .fw-line__num {
+    width: 40px;
+    padding-right: 12px;
+  }
+  & .fw-line__text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
+  }
+  & .fw-line[data-mark] {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--n-constraint) 11%, transparent), transparent 85%);
+    box-shadow: inset 2px 0 0 var(--n-constraint);
+  }
+  & .fw-line[data-mark] .fw-line__num {
+    color: var(--n-constraint);
+  }
+
+  & .tk-key { color: var(--tk-key); }
+  & .tk-type { color: var(--tk-type); }
+  & .tk-str { color: var(--tk-str); }
+  & .tk-num { color: var(--tk-num); }
+  & .tk-mac { color: var(--tk-mac); }
+  & .tk-fn { color: var(--tk-fn); }
+  & .tk-com,
+  & .tk-attr { color: var(--text-3); }
+  & .tk-punct { color: color-mix(in srgb, var(--text-2) 70%, var(--text-3)); }
+
+  /* ---------- Footer: what each framework builds to ---------- */
+
+  & .fw-foot {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    flex: none;
+    box-shadow: inset 0 1px 0 var(--line);
+    background: var(--s1);
+  }
+  & .fw-foot__cell {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    align-content: center;
+    column-gap: 12px;
+    row-gap: 4px;
+    padding: 0 28px;
+    height: 72px;
+    transition: background-color 260ms ease-out;
+  }
+  & .fw-foot__cell + .fw-foot__cell {
+    border-left: 1px solid var(--line);
+  }
+  & .fw-foot__cell::before {
+    content: "";
+    position: absolute;
+    left: 28px;
+    right: 28px;
+    top: 0;
+    height: 1px;
+    background: var(--text-2);
+    opacity: 0;
+    transform: scaleX(0.6);
+    transition: opacity 260ms ease-out, transform 320ms var(--fw-ease);
+  }
+  & .fw-foot__cell[data-on] {
+    background: var(--s2);
+  }
+  & .fw-foot__cell[data-on]::before {
+    opacity: 1;
+    transform: none;
+  }
+  & .fw-foot__name {
+    font-size: 14px;
+    line-height: 18px;
+    font-weight: 550;
+    color: var(--text-2);
+    transition: color 200ms ease-out;
+  }
+  & .fw-foot__cell[data-on] .fw-foot__name {
+    color: var(--text);
+  }
+  & .fw-foot__value {
+    grid-row: 1 / 3;
+    grid-column: 2;
+    align-self: center;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 18px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+  & .fw-foot__value b {
+    font-weight: 500;
+    font-size: 15px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  & .fw-foot__value--server {
+    font-family: var(--font);
+    font-size: 13px;
+  }
+  & .fw-foot__where {
+    grid-column: 1;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--text-3);
+  }
+
+  & .fw-panel[data-layout="compact"] {
+    & .fw-pane__head {
+      padding: 0 12px;
+    }
+    & .fw-file {
+      display: none;
+    }
+    & .fw-tabs {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      width: 100%;
+    }
+    & .fw-tabs__thumb {
+      width: calc((100% - 6px) / 3);
+    }
+    & .fw-foot__cell {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto auto auto;
+      row-gap: 2px;
+      height: 84px;
+      padding: 0 16px;
+    }
+    & .fw-foot__cell::before {
+      left: 16px;
+      right: 16px;
+    }
+    & .fw-foot__value {
+      grid-row: auto;
+      grid-column: 1;
+      font-size: 11.5px;
+    }
+    & .fw-foot__value b {
+      font-size: 13px;
+    }
+    & .fw-foot__value--server {
+      font-size: 12px;
+    }
+    & .fw-foot__where {
+      font-size: 11.5px;
+      line-height: 15px;
+    }
+    & .fw-foot__name {
+      font-size: 13px;
+    }
+  }
+}
+
+@keyframes fw-progress {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* On a phone the panel runs edge to edge: the page gutter would only squeeze the code */
+@media (max-width: 599px) {
+  .sl-frameworks .fw-host {
+    margin-inline: calc(-1 * var(--gutter));
+  }
+}
+.sl-frameworks .fw-panel[data-bleed],
+.sl-frameworks .fw-panel[data-bleed]::after,
+.sl-frameworks .ss-stage:has(.fw-panel[data-bleed]) {
+  border-radius: 0;
+}
+.sl-frameworks .fw-panel[data-bleed]::after {
+  box-shadow: inset 0 1px 0 var(--line-2), inset 0 -1px 0 var(--line-2);
+}

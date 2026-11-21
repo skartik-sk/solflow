@@ -214,7 +214,7 @@ export function TestResultsPanel() {
   // ─── empty IR ───────────────────────────────────────────────────
   if (instructions.length === 0 && testResults.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
         Generate code first — test forms will appear per instruction.
       </div>
     );
@@ -223,12 +223,12 @@ export function TestResultsPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Tab bar ── */}
-      <div className="flex shrink-0 items-center gap-0 border-b border-border bg-card px-2">
+      <div className="flex h-9 shrink-0 items-stretch gap-1 overflow-x-auto border-b border-border bg-card px-2 [scrollbar-width:none]">
         <button
           onClick={() => setView("form")}
-          className={`px-3 py-1.5 text-xs transition-colors ${
+          className={`shrink-0 px-2 text-[12px] font-medium transition-colors duration-150 ease-out ${
             view === "form"
-              ? "border-b-2 border-primary text-foreground"
+              ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -236,16 +236,16 @@ export function TestResultsPanel() {
         </button>
         <button
           onClick={() => setView("results")}
-          className={`px-3 py-1.5 text-xs transition-colors ${
+          className={`shrink-0 px-2 text-[12px] font-medium transition-colors duration-150 ease-out ${
             view === "results"
-              ? "border-b-2 border-primary text-foreground"
+              ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Results
           {total > 0 && (
             <span
-              className={`ml-1.5 rounded px-1 text-[10px] font-semibold ${
+              className={`ml-1.5 rounded px-1 text-[11px] font-semibold ${
                 allPassed
                   ? "bg-green-500/20 text-green-400"
                   : "bg-red-500/20 text-red-400"
@@ -258,15 +258,15 @@ export function TestResultsPanel() {
 
         {instructions.length > 0 && (
           <>
-            <div className="ml-auto flex overflow-hidden rounded border border-border bg-muted/30 p-0.5">
+            <div role="group" aria-label="Test runtime" className="ml-auto flex h-6 shrink-0 items-center gap-0.5 self-center rounded-md bg-white/[0.03] p-0.5 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
               {(["cargo-smoke", "surfpool-simnet"] as const).map((mode) => (
                 <button
                   key={mode}
                   onClick={() => setRuntime(mode)}
                   disabled={testStatus === "running"}
-                  className={`px-2 py-0.5 text-[10px] font-medium transition-colors disabled:opacity-50 ${
+                  className={`h-5 rounded-[4px] px-2 text-[11px] font-medium transition-colors duration-150 ease-out disabled:opacity-50 ${
                     runtime === mode
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07)]"
                       : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
@@ -277,7 +277,7 @@ export function TestResultsPanel() {
             <button
               onClick={runAll}
               disabled={testStatus === "running"}
-              className="rounded bg-primary px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              className="inline-flex h-7 shrink-0 self-center items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
             >
               {testStatus === "running" ? "Running…" : "Run All"}
             </button>
@@ -285,7 +285,8 @@ export function TestResultsPanel() {
               <button
                 onClick={copyResults}
                 title="Copy results to clipboard"
-                className="rounded border border-border px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                aria-label="Copy results"
+                className="flex h-7 w-7 shrink-0 items-center justify-center self-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground"
               >
                 <Copy size={12} />
               </button>
@@ -296,7 +297,7 @@ export function TestResultsPanel() {
 
       {/* ── Test Builder ── */}
       {view === "form" && (
-        <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-border/40">
+        <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-white/[0.05]">
           {instructions.map((ix) => {
             const card = cards[ix.name] ?? makeDefaultCard(ix);
             const isExpanded = expanded[ix.name] ?? false;
@@ -311,19 +312,19 @@ export function TestResultsPanel() {
                   }
                 >
                   <span
-                    className={`text-[10px] transition-transform ${isExpanded ? "rotate-90" : ""}`}
+                    className={`text-[11px] transition-transform ${isExpanded ? "rotate-90" : ""}`}
                   >
                     ▶
                   </span>
-                  <span className="font-mono text-xs font-semibold">
+                  <span className="font-mono text-[12px] font-semibold">
                     {ix.name}
                   </span>
                   {ix.description && (
-                    <span className="text-[10px] text-muted-foreground truncate">
+                    <span className="text-[11px] text-muted-foreground truncate">
                       {ix.description}
                     </span>
                   )}
-                  <span className="ml-auto text-[10px] text-muted-foreground">
+                  <span className="ml-auto text-[11px] text-muted-foreground">
                     {ix.accounts.length} accts · {(ix.args ?? []).length} args
                   </span>
                 </button>
@@ -334,7 +335,7 @@ export function TestResultsPanel() {
                     {/* Accounts */}
                     {ix.accounts.length > 0 && (
                       <div>
-                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <p className="mb-1 text-[11px] font-semibold text-muted-foreground">
                           Accounts
                         </p>
                         <div className="space-y-1">
@@ -355,12 +356,12 @@ export function TestResultsPanel() {
                                 </span>
                                 <span className="flex gap-1">
                                   {isSigner && (
-                                    <span className="rounded bg-yellow-500/10 px-1 py-0.5 text-[9px] text-yellow-400">
+                                    <span className="rounded bg-yellow-500/10 px-1 py-0.5 text-[11px] text-yellow-400">
                                       signer
                                     </span>
                                   )}
                                   {isMut && (
-                                    <span className="rounded bg-blue-500/10 px-1 py-0.5 text-[9px] text-blue-400">
+                                    <span className="rounded bg-blue-500/10 px-1 py-0.5 text-[11px] text-blue-400">
                                       mut
                                     </span>
                                   )}
@@ -376,7 +377,7 @@ export function TestResultsPanel() {
                                       e.target.value,
                                     )
                                   }
-                                  className="flex-1 rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                                  className="flex-1 rounded-md border border-white/[0.08] bg-background/60 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
                                 />
                               </div>
                             );
@@ -388,7 +389,7 @@ export function TestResultsPanel() {
                     {/* Args */}
                     {(ix.args ?? []).length > 0 && (
                       <div>
-                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                        <p className="mb-1 text-[11px] font-semibold text-muted-foreground">
                           Arguments
                         </p>
                         <div className="space-y-1">
@@ -400,7 +401,7 @@ export function TestResultsPanel() {
                               <span className="w-32 shrink-0 truncate font-mono text-[11px]">
                                 {arg.name}
                               </span>
-                              <span className="shrink-0 rounded bg-muted/50 px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+                              <span className="shrink-0 rounded bg-muted/50 px-1 py-0.5 font-mono text-[11px] text-muted-foreground">
                                 {typeLabel(arg.type)}
                               </span>
                               <input
@@ -412,7 +413,7 @@ export function TestResultsPanel() {
                                 onChange={(e) =>
                                   setArgVal(ix.name, arg.name, e.target.value)
                                 }
-                                className="flex-1 rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                                className="flex-1 rounded-md border border-white/[0.08] bg-background/60 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
                               />
                             </div>
                           ))}
@@ -422,7 +423,7 @@ export function TestResultsPanel() {
 
                     {/* Expected result */}
                     <div className="flex items-center gap-3">
-                      <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                      <p className="text-[11px] font-semibold text-muted-foreground">
                         Expect
                       </p>
                       <label className="flex items-center gap-1 text-[11px]">
@@ -475,7 +476,7 @@ export function TestResultsPanel() {
                               },
                             }))
                           }
-                          className="w-36 rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-primary"
+                          className="w-36 rounded-md border border-white/[0.08] bg-background/60 px-2 py-0.5 font-mono text-[11px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
                         />
                       )}
                     </div>
@@ -484,7 +485,7 @@ export function TestResultsPanel() {
                     <button
                       onClick={() => runSingle(ix)}
                       disabled={testStatus === "running" || !projectId}
-                      className="rounded bg-primary/90 px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary disabled:opacity-50"
+                      className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
                     >
                       Run {ix.name}
                     </button>
@@ -501,7 +502,7 @@ export function TestResultsPanel() {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {/* Summary bar */}
           {(testStatus !== "idle" || testResults.length > 0) && (
-            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-4 py-2 text-xs">
+            <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border px-3 py-1.5 min-h-10 text-[12px]">
               <span
                 className={
                   allPassed
@@ -527,12 +528,12 @@ export function TestResultsPanel() {
                 </>
               )}
               {testRunner && (
-                <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                <span className="rounded-md border border-white/[0.08] px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                   runner: {testRunner}
                 </span>
               )}
               {testRuntime && (
-                <span className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                <span className="rounded-md border border-white/[0.08] px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
                   runtime: {testRuntime}
                 </span>
               )}
@@ -544,7 +545,7 @@ export function TestResultsPanel() {
               {(testCommand || testSetupCommand) && (
                 <button
                   onClick={copyRepro}
-                  className="ml-auto rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="ml-auto rounded-md border border-white/[0.08] px-2 py-1 text-[11px] text-muted-foreground hover:bg-white/[0.06] hover:text-foreground"
                 >
                   Copy Repro
                 </button>
@@ -559,17 +560,17 @@ export function TestResultsPanel() {
           )}
 
           {(testCommand || testSetupCommand) && (
-            <div className="shrink-0 space-y-1 border-b border-border/40 bg-background/40 px-4 py-2 font-mono text-[10px] text-muted-foreground">
+            <div className="shrink-0 space-y-1 border-b border-border/40 bg-background/40 px-4 py-2 font-mono text-[11px] text-muted-foreground">
               {testSetupCommand && <div>setup: {testSetupCommand}</div>}
               {testCommand && <div>command: {testCommand}</div>}
             </div>
           )}
 
-          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-border/40">
+          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-white/[0.05]">
             {testResults.map((result, i) => (
               <div key={i} className="flex items-start gap-3 px-4 py-2.5">
                 <span
-                  className={`mt-0.5 text-xs font-bold shrink-0 ${
+                  className={`mt-0.5 text-[12px] font-bold shrink-0 ${
                     result.status === "passed"
                       ? "text-green-400"
                       : "text-red-400"
@@ -579,9 +580,9 @@ export function TestResultsPanel() {
                 </span>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium">{result.name}</span>
+                    <span className="text-[12px] font-medium">{result.name}</span>
                     {result.duration > 0 && (
-                      <span className="text-[10px] text-muted-foreground/60">
+                      <span className="text-[11px] text-muted-foreground/60">
                         {result.duration}ms
                       </span>
                     )}
@@ -596,13 +597,13 @@ export function TestResultsPanel() {
             ))}
 
             {testStatus === "running" && testResults.length === 0 && (
-              <div className="flex h-24 items-center justify-center text-xs text-muted-foreground animate-pulse">
+              <div className="flex h-24 items-center justify-center text-[12px] text-muted-foreground animate-pulse">
                 Waiting for test results…
               </div>
             )}
 
             {testStatus === "idle" && testResults.length === 0 && (
-              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
                 Run tests from the Test Builder tab to see results here.
               </div>
             )}

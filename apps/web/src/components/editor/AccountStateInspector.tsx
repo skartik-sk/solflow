@@ -468,20 +468,20 @@ export function AccountStateInspector() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Controls ── */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 min-h-10">
         <input
           type="text"
           placeholder="Account pubkey…"
           value={pubkey}
           onChange={(e) => setPubkey(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && fetchAccount()}
-          className="w-72 rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          className="w-72 rounded-md border border-white/[0.08] bg-background/60 px-2 py-1 font-mono text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
         />
 
         <select
           value={selectedNetwork}
           onChange={(e) => setSelectedNetwork(e.target.value as Network)}
-          className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          className="rounded-md border border-white/[0.08] bg-card px-2 py-1 text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
         >
           <option value="devnet">Devnet</option>
           <option value="mainnet">Mainnet</option>
@@ -499,7 +499,7 @@ export function AccountStateInspector() {
           <select
             value={selectedState}
             onChange={(e) => setSelectedState(e.target.value)}
-            className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+            className="rounded-md border border-white/[0.08] bg-card px-2 py-1 text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
           >
             <option value="">— select state —</option>
             {states.map((s) => (
@@ -513,7 +513,7 @@ export function AccountStateInspector() {
         <button
           onClick={fetchAccount}
           disabled={loading || !pubkey.trim()}
-          className="rounded bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
         >
           {loading ? "Fetching…" : "Fetch"}
         </button>
@@ -521,7 +521,7 @@ export function AccountStateInspector() {
         {accountInfo && selectedState && (
           <button
             onClick={deserialize}
-            className="rounded border border-border px-3 py-1 text-xs hover:bg-accent"
+            className="rounded-md border border-white/[0.08] px-3 py-1 text-[12px] hover:bg-white/[0.06]"
           >
             Deserialize
           </button>
@@ -531,25 +531,25 @@ export function AccountStateInspector() {
       {/* ── Content ── */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {error && (
-          <div className="px-4 py-3 text-xs text-red-400 font-mono">
+          <div className="px-4 py-3 text-[12px] text-red-400 font-mono">
             {error}
           </div>
         )}
 
         {!accountInfo && !error && !loading && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
             Enter a pubkey and click Fetch to inspect an on-chain account.
           </div>
         )}
 
         {accountInfo && (
-          <div className="divide-y divide-border/40">
+          <div className="divide-y divide-white/[0.05]">
             {/* Raw account info */}
             <div className="px-4 py-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
                 Account Info
               </p>
-              <table className="w-full text-xs">
+              <table className="w-full text-[12px]">
                 <tbody>
                   <tr>
                     <td className="pr-4 py-0.5 text-muted-foreground">
@@ -588,10 +588,10 @@ export function AccountStateInspector() {
             {/* Deserialized fields */}
             {parsedFields && (
               <div className="px-4 py-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
                   Fields ({selectedState})
                 </p>
-                <table className="w-full text-xs">
+                <table className="w-full text-[12px]">
                   <thead>
                     <tr className="text-muted-foreground">
                       <th className="pb-1 pr-4 text-left font-medium">Field</th>
@@ -602,7 +602,7 @@ export function AccountStateInspector() {
                       <th className="pb-1 text-left font-medium">Value</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border/20">
+                  <tbody className="divide-y divide-white/[0.05]">
                     {parsedFields.map((f) => (
                       <tr key={f.name}>
                         <td className="py-0.5 pr-4 font-mono font-medium">
@@ -626,10 +626,10 @@ export function AccountStateInspector() {
 
             {/* Raw data hex dump (first 128 bytes) */}
             <div className="px-4 py-3">
-              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
                 Raw Data (first 128 bytes)
               </p>
-              <pre className="font-mono text-[10px] text-muted-foreground break-all whitespace-pre-wrap">
+              <pre className="font-mono text-[11px] text-muted-foreground break-all whitespace-pre-wrap">
                 {(() => {
                   const bytes = b64ToBytes(accountInfo.data).slice(0, 128);
                   return Array.from(bytes)

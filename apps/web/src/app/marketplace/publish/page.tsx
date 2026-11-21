@@ -8,7 +8,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@solflow/auth";
 import { prisma } from "@solflow/db";
-import { Layers, ArrowLeft } from "lucide-react";
+import { MarketHeader, btnGhost } from "@/components/marketplace/parts";
 import { PublishForm } from "./publish-form";
 
 export const metadata = { title: "Publish Template | SolStudio Marketplace" };
@@ -48,32 +48,20 @@ export default async function PublishPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Header */}
-      <header className="border-b border-border bg-card">
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <Link href="/" className="flex items-center gap-2">
-            <Layers className="h-5 w-5 text-primary" />
-            <span className="font-semibold">SolStudio</span>
-          </Link>
-          <Link
-            href="/marketplace"
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Marketplace
-          </Link>
-        </div>
-      </header>
+      <MarketHeader
+        max="max-w-[1040px]"
+        crumbs={[{ label: "Marketplace", href: "/marketplace" }, { label: "Publish" }]}
+      >
+        <Link href="/marketplace/my-listings" className={btnGhost}>
+          My listings
+        </Link>
+      </MarketHeader>
 
-      <main className="mx-auto max-w-3xl px-6 py-10">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight">
-            Publish a Template
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Share your Solana program flow with the community. Your flow data
-            will be sanitized before publishing — programIds and personal wallet
-            addresses are removed automatically.
+      <main className="mx-auto max-w-[1040px] px-4 pb-20 pt-8 sm:px-6 sm:pt-10">
+        <div className="mb-6">
+          <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.03em]">Publish a template</h1>
+          <p className="mt-1 max-w-xl text-[13.5px] text-muted-foreground">
+            Program IDs and personal wallet addresses are removed from the flow before it goes public.
           </p>
         </div>
 

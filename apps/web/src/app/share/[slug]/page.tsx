@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@solflow/db";
 import type { Node, Edge } from "@xyflow/react";
-import { FlowPreview } from "@/app/marketplace/[id]/flow-preview";
+import { SharedGraphView } from "@/components/marketplace/SharedGraph";
 import {
   DEFAULT_OG_IMAGE_TYPE,
   absoluteUrl,
@@ -79,64 +78,13 @@ export default async function SharedGraphPage({ params }: PageProps) {
     | null;
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-card/60 px-5 py-4">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
-          <Link href="/" className="font-semibold">
-            SolStudio
-          </Link>
-          <span className="text-xs text-muted-foreground">
-            Read-only shared graph
-          </span>
-        </div>
-      </header>
-
-      <section className="mx-auto grid max-w-6xl gap-5 px-5 py-6 lg:grid-cols-[1fr_320px]">
-        <div className="min-h-[620px] overflow-hidden rounded-xl border border-border bg-card">
-          <FlowPreview nodes={nodes} edges={edges} />
-        </div>
-
-        <aside className="space-y-4">
-          <div className="rounded-xl border border-border bg-card p-4">
-            <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
-              Shared graph
-            </p>
-            <h1 className="mt-2 text-xl font-semibold">{share.title}</h1>
-            {share.description && (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {share.description}
-              </p>
-            )}
-            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <dt className="text-xs text-muted-foreground">Nodes</dt>
-                <dd className="font-semibold">{nodes.length}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Edges</dt>
-                <dd className="font-semibold">{edges.length}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Audit score</dt>
-                <dd className="font-semibold">
-                  {typeof audit?.score === "number" ? `${audit.score}/100` : "Not run"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-muted-foreground">Shared</dt>
-                <dd className="font-semibold">
-                  {share.createdAt.toISOString().slice(0, 10)}
-                </dd>
-              </div>
-            </dl>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
-            This public view strips private keys, custom wallet pubkeys, and
-            credential-like values before sharing.
-          </div>
-        </aside>
-      </section>
-    </main>
+    <SharedGraphView
+      title={share.title}
+      description={share.description}
+      createdAt={share.createdAt}
+      nodes={nodes}
+      edges={edges}
+      audit={audit}
+    />
   );
 }

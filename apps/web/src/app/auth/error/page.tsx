@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { AlertTriangle, Workflow } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
+import { SolMark } from "@/components/ui-kit/dashboard-mark";
 
 const errorMessages: Record<string, string> = {
   Configuration: "There is a server configuration error. Please contact support.",
@@ -17,25 +18,43 @@ export default async function AuthErrorPage({
   const message = errorMessages[error ?? "Default"] ?? errorMessages.Default;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm text-center">
-        <Link href="/" className="mb-8 inline-flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary">
-            <Workflow className="h-4 w-4 text-primary-foreground" />
-          </div>
-          <span className="text-lg font-bold tracking-tight">SolStudio</span>
-        </Link>
+    <div className="flex min-h-screen flex-col bg-background px-5 py-5 text-foreground sm:px-8">
+      <Link
+        href="/"
+        className="inline-flex items-center gap-2 self-start rounded-md text-[14px] font-semibold tracking-[-0.01em] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      >
+        <SolMark size={22} />
+        SolStudio
+      </Link>
 
-        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-8">
-          <AlertTriangle className="mx-auto mb-4 h-10 w-10 text-destructive" />
-          <h1 className="mb-2 text-lg font-semibold">Authentication Error</h1>
-          <p className="mb-6 text-sm text-muted-foreground">{message}</p>
-          <Link
-            href="/auth/signin"
-            className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
-          >
-            Try again
-          </Link>
+      <div className="mx-auto flex w-full max-w-[360px] flex-1 flex-col justify-center py-10">
+        <div className="rounded-[16px] border border-white/[0.07] bg-card p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <div className="flex items-start gap-3">
+            <span className="flex h-8 w-8 flex-none items-center justify-center rounded-[9px] bg-destructive/12 text-destructive">
+              <AlertTriangle className="h-4 w-4" aria-hidden />
+            </span>
+            <div className="min-w-0">
+              <h1 className="text-[15px] font-semibold leading-tight tracking-[-0.01em]">Sign-in failed</h1>
+              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{message}</p>
+              {error && (
+                <p className="mt-2 font-mono text-[11px] text-muted-foreground/80">Code: {error}</p>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 flex gap-2 border-t border-white/[0.07] pt-4">
+            <Link
+              href="/auth/signin"
+              className="inline-flex h-9 items-center justify-center rounded-[10px] bg-primary px-3.5 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97]"
+            >
+              Try again
+            </Link>
+            <Link
+              href="/"
+              className="inline-flex h-9 items-center justify-center rounded-[10px] border border-white/[0.08] px-3.5 text-[13px] font-medium transition-[background-color,transform] duration-150 ease-out hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97]"
+            >
+              Back to home
+            </Link>
+          </div>
         </div>
       </div>
     </div>

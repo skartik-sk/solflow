@@ -1,0 +1,291 @@
+/* #10 Community. Everything scoped under .sl-community; the stage under .cm.
+   Local tokens: one colour per person (pink, plus the editor's constraint
+   orange and event violet). They mark people only, never node types. */
+
+.sl-community__head {
+  display: grid;
+  gap: 16px;
+  max-width: 640px;
+  margin-bottom: 48px;
+}
+
+.sl-community__figure {
+  margin: 0;
+}
+
+.sl-community__caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 20px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+.sl-community__caption > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sl-community__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* ── The stage: the editor's dark look mapped onto the kit's tokens ── */
+.sl-community .cm .ss-stage {
+  --ss-canvas: var(--s1);
+  --ss-surface: var(--s2);
+  --ss-chrome: var(--s1);
+  --ss-raised: var(--s3);
+  --ss-well: var(--bg);
+  --ss-line: var(--line);
+  --ss-text-strong: var(--text);
+  --ss-text: var(--text-2);
+  --ss-text-faint: var(--text-3);
+  --ss-font: var(--font);
+  --ss-mono: var(--mono);
+  --ss-fill: var(--s4);
+  overflow: hidden;
+  border-radius: var(--r-card);
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--line);
+}
+
+/* One window, inset at the top, off the bottom */
+.sl-community .cm-win {
+  position: absolute;
+  top: 40px;
+  left: 48px;
+  width: 1056px;
+  box-shadow: var(--ss-shadow-hero);
+}
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-win {
+  top: 16px;
+  left: 16px;
+  width: 326px;
+}
+
+.sl-community .cm-pile .ss-facepile__face:nth-child(1) .ss-avatar { background: #f472b6 !important; color: #0b0c0e !important; }
+.sl-community .cm-pile .ss-facepile__face:nth-child(2) .ss-avatar { background: #fb7a4a !important; color: #0b0c0e !important; }
+.sl-community .cm-pile .ss-facepile__face:nth-child(3) .ss-avatar { background: #c084fc !important; color: #0b0c0e !important; }
+
+/* The editor's canvas: a dotted grid */
+.sl-community .cm-canvas {
+  position: relative;
+  height: 540px;
+  background-color: var(--s1);
+}
+.sl-community .cm-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.09) 1px, transparent 1.2px);
+  background-size: 20px 20px;
+  background-position: 10px 10px;
+}
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-canvas {
+  height: 100%;
+}
+
+.sl-community .cm-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.sl-community .cm-edges path {
+  fill: none;
+  stroke-width: 1.5;
+  opacity: 0.55;
+}
+
+/* ── Nodes: a dark card, a coloured left edge, a header badge in the type's colour ── */
+.sl-community .cm-node {
+  position: absolute;
+  will-change: transform;
+  --kind: var(--n-program);
+  border-radius: 12px;
+  background: var(--s2);
+  box-shadow: inset 3px 0 0 var(--kind), 0 0 0 1px var(--line-2), 0 10px 24px -10px rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  line-height: 1.3;
+}
+.sl-community .cm-node[data-kind="instruction"] { --kind: var(--n-instruction); }
+.sl-community .cm-node[data-kind="state"] { --kind: var(--n-state); }
+
+.sl-community .cm-node__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px 8px 14px;
+}
+.sl-community .cm-node__body + * {
+  margin: 0;
+}
+.sl-community .cm-node__icon {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 5px;
+  color: var(--kind);
+  background: color-mix(in srgb, var(--kind) 15%, transparent);
+}
+.sl-community .cm-node__label {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text);
+}
+.sl-community .cm-node__body {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px 12px 14px;
+  border-top: 1px solid var(--line);
+}
+.sl-community .cm-node__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-3);
+}
+.sl-community .cm-node__row span:last-child {
+  font-family: var(--mono);
+  color: var(--text-2);
+}
+
+/* Wide positions, in canvas pixels */
+.sl-community .cm-node--prog { left: 32px; top: 44px; width: 200px; }
+.sl-community .cm-node--dep { left: 384px; top: 112px; width: 208px; }
+.sl-community .cm-node--state { left: 736px; top: 44px; width: 200px; }
+
+/* Compact: each node collapses to its header, stacked down the column */
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-node { width: auto; }
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-node--prog { left: 16px; top: 24px; }
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-node--dep { left: 56px; top: 240px; }
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-node--state { left: 32px; top: 460px; }
+
+/* The pin's square corner sits on the node's bottom edge */
+.sl-community .cm-pin {
+  position: absolute;
+  z-index: 3;
+  will-change: transform;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.93);
+  transform-origin: 0 0;
+  transition: opacity 220ms cubic-bezier(0.23, 1, 0.32, 1), transform 320ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sl-community .cm-pin[data-on] {
+  opacity: 1;
+  transform: none;
+}
+.sl-community .cm-pin .ss-pin {
+  display: grid;
+  background: var(--s2);
+}
+.sl-community .cm-pin .ss-pin__face {
+  color: #0b0c0e;
+  font-size: 11px;
+}
+
+/* ── Threads: under their node, a pin's height below it ── */
+.sl-community .cm-thread {
+  position: absolute;
+  width: 288px;
+  z-index: 2;
+  opacity: 0;
+  transform: translateY(-8px) scale(0.96);
+  transform-origin: 24px 0;
+  will-change: transform;
+  transition: opacity 260ms ease-out, transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sl-community .cm-thread[data-on] {
+  opacity: 1;
+  transform: none;
+}
+.sl-community .cm-thread[data-who="jk"] { left: 32px; top: 176px; }
+.sl-community .cm-thread[data-who="gui"] { left: 384px; top: 244px; }
+.sl-community .cm-thread[data-who="vb"] { left: 736px; top: 196px; }
+
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-thread { width: 326px; left: 16px; }
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-thread[data-who="jk"] { top: 92px; width: 272px; }
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-thread[data-who="gui"] { top: 308px; left: 70px; width: 272px; }
+.sl-community .cm .ss-stage[data-layout="compact"] .cm-thread[data-who="vb"] { top: 528px; }
+
+.sl-community .cm-card {
+  background: var(--s3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px var(--line-2), 0 16px 32px -12px rgba(0, 0, 0, 0.7);
+}
+.sl-community .cm-card__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sl-community .cm-avatar {
+  color: #0b0c0e;
+  font-family: var(--font);
+}
+.sl-community .cm-card__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.sl-community .cm-card__role {
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sl-community .cm-card__quote {
+  margin: 0 0 0 32px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  text-wrap: pretty;
+}
+
+/* A teammate's cursor: their colour, their name riding below the tip */
+.sl-community .cm-peer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  pointer-events: none;
+  will-change: transform;
+  transition: transform 0.95s cubic-bezier(0.45, 0, 0.25, 1), opacity 600ms ease-out;
+  opacity: 0;
+}
+.sl-community .cm-peer[data-on] {
+  opacity: 1;
+}
+.sl-community .cm-peer svg {
+  display: block;
+  margin: -1.5px 0 0 -1.5px;
+  filter: drop-shadow(0 1px 1.5px rgb(0 0 0 / 0.4));
+}
+.sl-community .cm-flag {
+  position: absolute;
+  top: 16px;
+  left: 11px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--who);
+  color: #0b0c0e;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Below 900px the compact design shows, centred in the column */
+.sl-community .cm.ss-fit {
+  margin-inline: auto;
+}

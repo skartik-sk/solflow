@@ -177,13 +177,13 @@ export function FloatingBrowser() {
     return (
       <button
         onClick={restore}
-        className="fixed bottom-4 right-4 z-[60] flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 shadow-2xl shadow-black/40 hover:bg-accent transition-colors"
+        className="fixed bottom-4 right-4 z-[60] flex h-10 items-center gap-2 rounded-[10px] border border-white/[0.08] bg-popover px-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_16px_40px_-16px_rgba(0,0,0,0.85)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#1b1e23] active:scale-[0.97] outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
       >
-        <Globe size={14} className="text-primary" />
-        <span className="text-xs font-medium max-w-[200px] truncate">
+        <Globe size={13} className="text-primary" />
+        <span className="max-w-[200px] truncate text-[12px] font-medium">
           {title || "Browser"}
         </span>
-        <span className="text-[10px] text-muted-foreground">click to restore</span>
+        <span className="text-[11px] text-muted-foreground">click to restore</span>
       </button>
     );
   }
@@ -191,7 +191,7 @@ export function FloatingBrowser() {
   // ─── Full window ──────────────────────────────────────────────────────
   return (
     <div
-      className="fixed z-[60] flex flex-col rounded-xl border border-border bg-card shadow-2xl shadow-black/50 overflow-hidden"
+      className="fixed z-[60] flex flex-col overflow-hidden rounded-[14px] border border-white/[0.08] bg-popover shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_32px_80px_-24px_rgba(0,0,0,0.85)]"
       style={{
         left: pos.x,
         top: pos.y,
@@ -202,31 +202,34 @@ export function FloatingBrowser() {
       {/* ── Title bar / drag handle ────────────────────────────────── */}
       <div
         onMouseDown={onDragDown}
-        className="flex shrink-0 items-center gap-2 border-b border-border bg-card px-3 py-2 cursor-grab active:cursor-grabbing select-none"
+        className="flex h-9 shrink-0 cursor-grab select-none items-center gap-2 border-b border-white/[0.06] pl-3 pr-1.5 active:cursor-grabbing"
       >
         <Globe size={13} className="text-primary shrink-0" />
-        <span className="text-[11px] font-medium text-muted-foreground truncate flex-1">
+        <span className="flex-1 truncate text-[12px] font-medium text-foreground/85">
           {title || "Browser"}
         </span>
         <div className="flex items-center gap-0.5 shrink-0">
           <button
             onClick={minimize}
             title="Minimize"
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            aria-label="Minimize browser"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
           >
             <Minus size={12} />
           </button>
           <button
             onClick={openExternal}
             title="Open in new tab"
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            aria-label="Open in new tab"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
           >
             <ExternalLink size={12} />
           </button>
           <button
             onClick={close}
             title="Close (Esc)"
-            className="flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-red-500/10 hover:text-red-400 transition-colors"
+            aria-label="Close browser"
+            className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-red-500/10 hover:text-red-400 outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
           >
             <X size={12} />
           </button>
@@ -236,13 +239,14 @@ export function FloatingBrowser() {
       {/* ── URL bar ────────────────────────────────────────────────── */}
       <form
         onSubmit={handleUrlSubmit}
-        className="flex shrink-0 items-center gap-1 border-b border-border bg-background px-2 py-1.5"
+        className="flex h-9 shrink-0 items-center gap-1 border-b border-white/[0.06] bg-card px-1.5"
       >
         <button
           type="button"
           onClick={() => refresh()}
           title="Refresh"
-          className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          aria-label="Refresh"
+          className="shrink-0 flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
         >
           <RefreshCw size={11} />
         </button>
@@ -251,18 +255,19 @@ export function FloatingBrowser() {
           value={inputUrl}
           onChange={(e) => setInputUrl(e.target.value)}
           placeholder="Enter URL..."
-          className="flex-1 rounded-md border border-border bg-card px-2 py-1 text-[11px] font-mono text-foreground outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/40"
+          aria-label="URL"
+          className="h-6 flex-1 rounded-md border border-white/[0.08] bg-background/60 px-2 font-mono text-[12px] text-foreground outline-none transition-[border-color,box-shadow] duration-150 ease-out placeholder:text-muted-foreground/50 hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
         />
       </form>
 
       {/* ── Quick links ────────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-1 border-b border-border bg-card px-2 py-1 overflow-x-auto scrollbar-hide">
+      <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-b border-white/[0.06] bg-card px-1.5 scrollbar-hide [scrollbar-width:none]">
         {QUICK_LINKS.map((link) => (
           <button
             key={link.label}
             onClick={() => navigate(link.url)}
             title={link.label}
-            className="flex shrink-0 items-center gap-1 rounded-md px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className="flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-muted-foreground transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
           >
             {link.icon}
             {link.label}
@@ -274,18 +279,18 @@ export function FloatingBrowser() {
       <div className="relative flex-1 overflow-hidden bg-background">
         {!currentUrl ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
-            <Globe size={32} className="text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">Enter a URL to browse</p>
+            <Globe size={20} className="text-muted-foreground/50" />
+            <p className="text-[13px] text-muted-foreground">Enter a URL to browse</p>
           </div>
         ) : blocked ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center px-6">
-            <Globe size={32} className="text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">
+            <Globe size={20} className="text-muted-foreground/50" />
+            <p className="text-[13px] text-muted-foreground">
               This page can&apos;t be shown inside SolStudio
             </p>
             <button
               onClick={openExternal}
-              className="inline-flex min-h-10 items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
             >
               <ExternalLink size={12} />
               Open in new tab
@@ -308,7 +313,7 @@ export function FloatingBrowser() {
             />
             {isFrameLoading ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                   <RefreshCw size={13} className="animate-spin" />
                   Loading
                 </div>
@@ -323,8 +328,8 @@ export function FloatingBrowser() {
         onMouseDown={onResizeDown}
         className="absolute right-0 bottom-0 h-4 w-4 cursor-nwse-resize"
         style={{
-          background: "linear-gradient(135deg, transparent 50%, oklch(0.4 0.02 240) 50%)",
-          borderRadius: "0 0 0.75rem 0",
+          background: "linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.14) 50%)",
+          borderRadius: "0 0 14px 0",
         }}
       />
     </div>

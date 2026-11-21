@@ -38,18 +38,18 @@ export function DownloadButtons({ listingId }: { listingId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-wrap gap-1.5">
       {FRAMEWORKS.map((fw) => (
         <button
           key={fw.id}
           onClick={() => handleDownload(fw.id)}
           disabled={loading !== null}
-          className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-foreground hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex h-8 min-w-[88px] flex-1 items-center justify-center gap-1.5 rounded-[9px] border border-white/[0.08] bg-background/60 px-2 text-[12px] font-medium text-foreground transition-[background-color,border-color,transform] duration-150 ease-out hover:border-white/[0.14] hover:bg-secondary active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
           {loading === fw.id ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            <Loader2 className="h-3 w-3 animate-spin" />
           ) : (
-            <Download className="h-3.5 w-3.5" />
+            <Download className="h-3 w-3 text-muted-foreground" />
           )}
           {fw.label}
         </button>

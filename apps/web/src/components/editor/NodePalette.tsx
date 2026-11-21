@@ -22,6 +22,7 @@ import { useUIStore } from "@/store/ui-store";
 import { usePluginStore } from "@/store/plugin-store";
 import { pluginRegistry } from "@solflow/plugin-sdk";
 import { registerBuiltInPlugins } from "@/lib/plugins/built-ins";
+import { edKbd, edPanelHeader, edPanelTitle } from "@/components/ui-kit/editor-ui";
 
 registerBuiltInPlugins();
 
@@ -186,29 +187,32 @@ export function NodePalette() {
   };
 
   return (
-    <div className="flex h-full w-[200px] flex-col border-r border-border bg-card">
+    <div className="flex h-full w-[216px] shrink-0 flex-col border-r border-border bg-card">
       {/* Header */}
-      <div className="border-b border-border px-3 py-2.5">
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Nodes
-        </p>
+      <div className={edPanelHeader}>
+        <p className={edPanelTitle}>Nodes</p>
+        <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
+          {filtered.length}
+        </span>
       </div>
 
       {/* Search */}
-      <div className="px-2 py-2">
+      <div className="px-2 pt-2 pb-1.5">
         <div className="relative">
-          <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
             type="text"
             value={paletteSearch}
             onChange={(e) => setPaletteSearch(e.target.value)}
             placeholder="Search nodes…"
-            className="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-6 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+            aria-label="Search nodes"
+            className="h-7 w-full rounded-md border border-white/[0.08] bg-background/60 pl-7 pr-6 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out placeholder:text-muted-foreground/60 hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
           />
           {paletteSearch && (
             <button
               onClick={() => setPaletteSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              aria-label="Clear search"
+              className="absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground outline-none hover:bg-white/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary"
             >
               <X size={10} />
             </button>
@@ -218,13 +222,13 @@ export function NodePalette() {
 
       {/* Category filter pills */}
       {!paletteSearch && (
-        <div className="flex flex-wrap gap-1 px-2 pb-2">
+        <div className="flex flex-wrap gap-1 border-b border-border px-2 pb-2">
           <button
             onClick={() => setPaletteCategory(null)}
-            className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+            className={`h-[22px] rounded-[5px] px-1.5 text-[11px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary ${
               !paletteCategory
-                ? "bg-primary text-primary-foreground"
-                : "bg-muted text-muted-foreground hover:bg-muted/80"
+                ? "bg-primary/15 text-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
             }`}
           >
             All
@@ -235,10 +239,10 @@ export function NodePalette() {
               onClick={() =>
                 setPaletteCategory(cat === paletteCategory ? null : cat)
               }
-              className={`rounded px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+              className={`h-[22px] rounded-[5px] px-1.5 text-[11px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary ${
                 paletteCategory === cat
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+                  ? "bg-primary/15 text-primary shadow-[0_0_0_1px_color-mix(in_oklab,var(--primary)_35%,transparent)]"
+                  : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
               }`}
             >
               {cat.length > 14 ? cat.split("&")[0].trim() : cat}
@@ -248,10 +252,10 @@ export function NodePalette() {
       )}
 
       {/* Node list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto pb-2">
         {filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 px-3 pt-8 text-center">
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               {paletteSearch.trim()
                 ? <>No nodes match &ldquo;{paletteSearch}&rdquo;</>
                 : "No nodes in this category"}
@@ -259,7 +263,7 @@ export function NodePalette() {
             {paletteSearch.trim() && (
               <button
                 onClick={() => setPaletteSearch("")}
-                className="text-[10px] text-primary hover:underline"
+                className="rounded text-[12px] text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 Clear search
               </button>
@@ -271,8 +275,8 @@ export function NodePalette() {
           <div key={category}>
             {/* Category header — only show when not filtered to one cat */}
             {!paletteCategory && (
-              <div className="sticky top-0 bg-card px-3 pb-1 pt-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+              <div className="sticky top-0 z-[1] bg-card px-3 pb-1 pt-2.5">
+                <p className="text-[11px] font-medium text-muted-foreground/80">
                   {category}
                 </p>
               </div>
@@ -283,21 +287,27 @@ export function NodePalette() {
                 key={def.type}
                 draggable
                 onDragStart={(e) => onDragStart(e, def.type)}
-                className="mx-2 mb-1 flex cursor-grab items-center gap-2 rounded-lg border border-transparent px-2 py-2 transition-colors hover:border-border hover:bg-accent active:cursor-grabbing"
+                className="group mx-1.5 flex h-8 cursor-grab items-center gap-2 rounded-md px-1.5 transition-[background-color,transform] duration-150 ease-out hover:bg-white/[0.05] active:scale-[0.98] active:cursor-grabbing"
                 title={def.description}
               >
                 <span
-                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded"
+                  className="flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[6px]"
                   style={{
-                    background: `${def.color}22`,
+                    background: `${def.color}24`,
+                    boxShadow: `inset 0 0 0 1px ${def.color}33`,
                     color: def.color,
                   }}
                 >
                   {def.icon}
                 </span>
-                <div className="min-w-0">
-                  <p className="truncate text-xs font-medium">{def.label}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[12.5px] font-medium text-foreground/90 group-hover:text-foreground">{def.label}</p>
                 </div>
+                <span aria-hidden className="grid grid-cols-2 gap-[2px] opacity-0 transition-opacity duration-150 group-hover:opacity-40">
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <i key={i} className="h-[2px] w-[2px] rounded-full bg-foreground" />
+                  ))}
+                </span>
               </div>
             ))}
           </div>
@@ -305,11 +315,11 @@ export function NodePalette() {
       </div>
 
       {/* Keyboard shortcuts hint */}
-      <div className="shrink-0 border-t border-border px-3 py-2 space-y-1">
-        <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground/40">
+      <div className="shrink-0 space-y-1.5 border-t border-border px-3 py-2.5">
+        <p className="text-[11px] font-medium text-muted-foreground/80">
           Shortcuts
         </p>
-        <div className="space-y-0.5">
+        <div className="space-y-1">
           <HintRow keys="Ctrl+F" label="Find node" />
           <HintRow keys="Ctrl+C/V" label="Copy/paste" />
           <HintRow keys="Ctrl+S" label="Save" />
@@ -322,9 +332,9 @@ export function NodePalette() {
 
 function HintRow({ keys, label }: { keys: string; label: string }) {
   return (
-    <div className="flex items-center justify-between text-[10px]">
-      <span className="text-muted-foreground/40">{label}</span>
-      <kbd className="rounded border border-border/40 bg-muted/50 px-1 py-0 font-mono text-[9px] text-muted-foreground/50">
+    <div className="flex items-center justify-between text-[11px]">
+      <span className="text-muted-foreground">{label}</span>
+      <kbd className={edKbd}>
         {keys}
       </kbd>
     </div>

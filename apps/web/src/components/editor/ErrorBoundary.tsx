@@ -102,25 +102,25 @@ function ErrorFallback({
   onReset: () => void;
 }) {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-4 bg-background p-8 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
-        <AlertTriangle className="h-6 w-6 text-destructive" />
+    <div className="flex h-full w-full flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+      <div className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-red-500/20 bg-red-500/10">
+        <AlertTriangle className="h-4 w-4 text-red-400" />
       </div>
       <div className="space-y-1">
-        <p className="font-semibold text-foreground">
+        <p className="text-[13px] font-semibold text-foreground">
           {label ? `${label} crashed` : "Something went wrong"}
         </p>
         {error && (
-          <p className="max-w-sm text-xs text-muted-foreground font-mono break-all">
+          <p className="max-w-sm text-[12px] text-muted-foreground font-mono break-all">
             {error.message}
           </p>
         )}
       </div>
       <button
         onClick={onReset}
-        className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent transition-colors"
+        className="inline-flex h-8 items-center gap-1.5 rounded-md bg-white/[0.03] px-3 text-[12px] font-medium text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_0_0_1px_rgba(255,255,255,0.08)] transition-[background-color,transform] duration-150 ease-out hover:bg-white/[0.07] active:scale-[0.97]"
       >
-        <RotateCcw className="h-4 w-4" />
+        <RotateCcw className="h-3.5 w-3.5" />
         Try again
       </button>
     </div>

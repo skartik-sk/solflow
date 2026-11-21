@@ -50,10 +50,10 @@ export function ForkButton({
     return (
       <button
         onClick={() => router.push("/auth/signin")}
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+        className="flex h-9 w-full items-center justify-center gap-2 rounded-[10px] border border-white/[0.1] bg-secondary px-4 text-[13px] font-semibold text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-[background-color,border-color,transform] duration-150 ease-out hover:border-white/[0.16] hover:bg-accent active:scale-[0.97] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
         <LogIn className="h-4 w-4" />
-        Sign in to Fork
+        Sign in to fork
       </button>
     );
   }
@@ -74,10 +74,10 @@ export function ForkButton({
     <button
       onClick={() => fork.mutate({ listingId })}
       disabled={fork.isPending}
-      className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+      className="flex h-9 w-full items-center justify-center gap-2 rounded-[10px] bg-primary px-4 text-[13px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] transition-[filter,transform] duration-150 ease-out hover:brightness-110 active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       <GitFork className="h-4 w-4" />
-      {fork.isPending ? "Forking…" : "Fork Template"}
+      {fork.isPending ? "Forking…" : "Fork template"}
     </button>
   );
 }

@@ -11,6 +11,7 @@ import { idlToFlow, detectFormat } from "@solflow/idl-import";
 import type { IdlFormat } from "@solflow/idl-import";
 import { useFlowStore } from "@/store/flow-store";
 import { useProjectStore } from "@/store/project-store";
+import { edBtn, edPrimaryBtn, edx } from "@/components/ui-kit/editor-ui";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 
@@ -172,24 +173,25 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
         onClick={onClose}
       />
 
       {/* Dialog */}
-      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl shadow-black/40">
-        <h2 className="mb-1 text-lg font-semibold">Import Contract</h2>
-        <p className="mb-4 text-sm text-muted-foreground">
-          Paste an IDL JSON or drop a <code className="text-xs">.json</code>{" "}
+      <div role="dialog" aria-modal="true" aria-labelledby="import-dialog-title" className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-white/[0.08] bg-popover shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_32px_80px_-24px_rgba(0,0,0,0.85)]">
+        <div className="px-4 pb-4 pt-4">
+        <h2 id="import-dialog-title" className="text-[14px] font-semibold tracking-[-0.01em]">Import Contract</h2>
+        <p className="mb-3 mt-1 text-[13px] text-muted-foreground">
+          Paste an IDL JSON or drop a <code className="rounded-[4px] bg-white/[0.06] px-1 font-mono text-[12px] text-foreground/85">.json</code>{" "}
           file to visualize the contract as flow nodes.
         </p>
 
         {/* Dropzone / Textarea */}
         <div
-          className={`relative rounded-lg border-2 border-dashed transition-colors ${
+          className={`relative rounded-[10px] border border-dashed bg-[#0c0d10] transition-colors duration-150 ease-out ${
             isDragOver
               ? "border-primary bg-primary/5"
-              : "border-border hover:border-border/80"
+              : "border-white/[0.12] hover:border-white/[0.2]"
           }`}
           onDragOver={(e) => {
             e.preventDefault();
@@ -202,7 +204,8 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             value={jsonText}
             onChange={handleTextChange}
             placeholder='Paste IDL JSON here, or drag & drop a .json file...\n\nExample: { "version": "0.1.0", "name": "my_program", "instructions": [...] }'
-            className="w-full min-h-[180px] resize-none rounded-lg bg-transparent px-4 py-3 font-mono text-xs outline-none placeholder:text-muted-foreground/50"
+            aria-label="IDL JSON"
+            className="min-h-[180px] w-full resize-none rounded-[10px] bg-transparent px-3 py-2.5 pr-24 font-mono text-[12px] leading-[1.6] outline-none placeholder:text-muted-foreground/50 focus-visible:ring-2 focus-visible:ring-primary/25"
             spellCheck={false}
           />
 
@@ -210,7 +213,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="absolute right-2 top-2 flex items-center gap-1.5 rounded-md border border-border bg-card/80 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+            className={edx(edBtn, "absolute right-2 top-2")}
           >
             <Upload size={11} />
             Browse
@@ -226,7 +229,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
         {/* Parsing indicator */}
         {isParsing && (
-          <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <div className="mt-3 flex items-center gap-2 text-[12px] text-muted-foreground">
             <Loader2 size={12} className="animate-spin" />
             Detecting format...
           </div>
@@ -253,7 +256,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
                 Format not recognized but parsed successfully as Anchor IDL.
               </p>
             )}
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               {preview.stats.instructions} instruction
               {preview.stats.instructions !== 1 ? "s" : ""} &middot;{" "}
               {preview.stats.accounts} account
@@ -268,7 +271,7 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
         {/* Error */}
         {error && (
-          <div className="mt-3 flex items-start gap-2 text-xs text-destructive">
+          <div className="mt-3 flex items-start gap-2 text-[12px] text-red-400">
             <AlertCircle size={14} className="mt-0.5 shrink-0" />
             <span>{error}</span>
           </div>
@@ -276,18 +279,20 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
 
         {/* Existing flow warning */}
         {hasExistingNodes && preview && (
-          <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-400">
+          <div className="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[12px] text-amber-300">
             This will replace your current flow ({nodes.length} node
             {nodes.length !== 1 ? "s" : ""}). Save first if you want to keep it.
           </div>
         )}
 
+        </div>
+
         {/* Footer */}
-        <div className="mt-5 flex justify-end gap-3">
+        <div className="flex h-12 items-center justify-end gap-2 border-t border-white/[0.06] bg-card/60 px-3">
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-accent transition-colors"
+            className={edBtn}
           >
             Cancel
           </button>
@@ -295,9 +300,9 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
             type="button"
             onClick={handleImport}
             disabled={!preview || isParsing}
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className={edPrimaryBtn}
           >
-            <Upload size={13} />
+            <Upload size={12} />
             Import
           </button>
         </div>

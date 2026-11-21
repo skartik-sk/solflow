@@ -3,9 +3,11 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { Github, Workflow } from "lucide-react";
+import { Github } from "lucide-react";
 import Link from "next/link";
 import { WalletSignIn } from "@/components/auth/WalletSignIn";
+import { SolMark } from "@/components/ui-kit/dashboard-mark";
+import { GraphToCode } from "@/components/ui-kit/dashboard-graph-to-code";
 
 export default function SignInPage() {
   return (
@@ -24,37 +26,30 @@ function SignInContent() {
 
 function SignInShell({ callbackUrl }: { callbackUrl: string }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      {/* Background glow */}
-      <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
-        <div className="h-[500px] w-[500px] rounded-full bg-primary/5 blur-3xl" />
-      </div>
+    <div className="grid min-h-screen bg-background text-foreground lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)]">
+      {/* Form side */}
+      <div className="flex min-h-screen flex-col px-5 py-5 sm:px-8">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 self-start rounded-md text-[14px] font-semibold tracking-[-0.01em] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+        >
+          <SolMark size={22} />
+          SolStudio
+        </Link>
 
-      <div className="relative w-full max-w-sm">
-        {/* Logo */}
-        <div className="mb-8 text-center">
-          <Link href="/" className="inline-flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary">
-              <Workflow className="h-5 w-5 text-primary-foreground" />
-            </div>
-            <span className="text-xl font-bold tracking-tight">SolStudio</span>
-          </Link>
-          <p className="mt-3 text-sm text-muted-foreground">
-            Sign in to start building Solana contracts
-          </p>
-        </div>
-
-        {/* Card */}
-        <div className="rounded-2xl border border-border bg-card p-8 shadow-xl shadow-black/30">
-          <h1 className="mb-6 text-center text-lg font-semibold">
-            Sign in to your account
+        <div className="mx-auto flex w-full max-w-[340px] flex-1 flex-col justify-center py-10">
+          <h1 className="text-[20px] font-semibold leading-tight tracking-[-0.025em]">
+            Sign in to SolStudio
           </h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Draw a Solana program. Ship it to devnet.
+          </p>
 
-          <div className="flex flex-col gap-3">
+          <div className="mt-6 flex flex-col gap-2">
             {/* GitHub */}
             <button
               onClick={() => signIn("github", { callbackUrl })}
-              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              className={providerButton}
             >
               <Github className="h-4 w-4" />
               Continue with GitHub
@@ -63,38 +58,58 @@ function SignInShell({ callbackUrl }: { callbackUrl: string }) {
             {/* Google */}
             <button
               onClick={() => signIn("google", { callbackUrl })}
-              className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-border bg-card text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              className={providerButton}
             >
               <GoogleIcon />
               Continue with Google
             </button>
           </div>
 
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs text-muted-foreground">or</span>
-            <div className="h-px flex-1 bg-border" />
+          <div className="my-4 flex items-center gap-3">
+            <div className="h-px flex-1 bg-white/[0.07]" />
+            <span className="text-[11px] text-muted-foreground">or</span>
+            <div className="h-px flex-1 bg-white/[0.07]" />
           </div>
 
           {/* Wallet */}
           <WalletSignIn callbackUrl={callbackUrl} />
-        </div>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          By signing in you agree to our{" "}
-          <Link href="/terms" className="text-primary hover:underline">
-            Terms
-          </Link>{" "}
-          and{" "}
-          <Link href="/privacy" className="text-primary hover:underline">
-            Privacy Policy
-          </Link>
-          .
-        </p>
+          <p className="mt-6 text-[11.5px] leading-relaxed text-muted-foreground">
+            By signing in you agree to our{" "}
+            <Link href="/terms" className="text-foreground/90 underline decoration-white/20 underline-offset-2 transition-colors hover:decoration-primary">
+              Terms
+            </Link>{" "}
+            and{" "}
+            <Link href="/privacy" className="text-foreground/90 underline decoration-white/20 underline-offset-2 transition-colors hover:decoration-primary">
+              Privacy Policy
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
+
+      {/* Product side: the editor, running off the panel's right and bottom edges */}
+      <div className="relative hidden overflow-hidden border-l border-white/[0.07] bg-card lg:block">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(rgba(255,255,255,0.05)_1px,transparent_1.2px)] bg-[length:22px_22px]"
+        />
+        <div className="relative px-12 pt-14">
+          <p className="max-w-[24ch] text-[20px] font-semibold leading-snug tracking-[-0.025em]">
+            Every node writes its own Rust.{" "}
+            <span className="text-muted-foreground">Anchor, Pinocchio and Quasar from the same graph.</span>
+          </p>
+        </div>
+        <div className="absolute bottom-0 left-12 top-[180px] w-[max(860px,100%)]">
+          <GraphToCode tall />
+        </div>
       </div>
     </div>
   );
 }
+
+const providerButton =
+  "flex h-10 w-full items-center justify-center gap-2.5 rounded-[10px] border border-white/[0.08] bg-card text-[13px] font-medium text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] transition-[background-color,transform] duration-150 ease-out hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98]";
 
 // ─── Google SVG Icon ─────────────────────────────────────────────────
 function GoogleIcon() {

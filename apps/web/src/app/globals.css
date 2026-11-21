@@ -48,10 +48,9 @@
   --color-node-integration: oklch(0.55 0.18 95);
 
   /* ─── Typography ───────────────────────────────────────────────── */
-  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
-  --font-mono:
-    "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
-  --font-bricolage: "Bricolage Grotesque", Inter, system-ui, sans-serif;
+  --font-sans: var(--font-geist), "Geist", Inter, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
+  --font-bricolage: var(--font-geist), "Geist", Inter, system-ui, sans-serif;
 
   /* ─── Radius ───────────────────────────────────────────────────── */
   --radius: 0.5rem;
@@ -161,8 +160,8 @@
 }
 
 @theme inline {
-  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-sans: var(--font-geist), "Geist", Inter, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
   --font-serif: Georgia, serif;
   --radius: 0.5rem;
   --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
@@ -262,9 +261,9 @@
   --sidebar-accent-foreground: oklch(0.3171 0 0);
   --sidebar-border: oklch(0.9271 0.0101 238.5177);
   --sidebar-ring: oklch(0.8012 0.1089 201.1736);
-  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
+  --font-sans: var(--font-geist), "Geist", Inter, system-ui, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
   --shadow-color: rgba(29, 161, 242, 0.15);
   --shadow-opacity: 0;
   --shadow-blur: 0px;
@@ -291,28 +290,29 @@
     0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0),
     0px 8px 10px -1px hsl(202.8169 89.1213% 53.1373% / 0);
   --shadow-2xl: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
-  --tracking-normal: 0.025em;
+  --tracking-normal: 0em;
 }
 
 .dark {
-  --background: oklch(0.1822 0 0);
-  --foreground: oklch(0.9328 0.0025 228.7857);
-  --card: oklch(0.2097 0.008 274.5332);
-  --card-foreground: oklch(0.9328 0.0025 228.7857);
-  --popover: oklch(0.1822 0 0);
-  --popover-foreground: oklch(0.9328 0.0025 228.7857);
+  /* Shared with the landing (components/landing/landing.css): near-black surfaces, brand cyan #58d3db */
+  --background: oklch(0.145 0.003 265);
+  --foreground: oklch(0.94 0.004 265);
+  --card: oklch(0.172 0.005 265);
+  --card-foreground: oklch(0.94 0.004 265);
+  --popover: oklch(0.19 0.006 265);
+  --popover-foreground: oklch(0.94 0.004 265);
   --primary: oklch(0.8012 0.1089 201.1736);
-  --primary-foreground: oklch(0 0 0);
-  --secondary: oklch(0.9328 0.0025 228.7857);
-  --secondary-foreground: oklch(0.2435 0 0);
-  --muted: oklch(0.228 0.0049 219.6859);
-  --muted-foreground: oklch(0.6736 0.0244 248.1893);
-  --accent: oklch(0.3152 0.0427 202.4332);
-  --accent-foreground: oklch(0.9328 0.0025 228.7857);
+  --primary-foreground: oklch(0.18 0.03 205);
+  --secondary: oklch(0.22 0.006 265);
+  --secondary-foreground: oklch(0.94 0.004 265);
+  --muted: oklch(0.2 0.006 265);
+  --muted-foreground: oklch(0.7 0.012 265);
+  --accent: oklch(0.235 0.007 265);
+  --accent-foreground: oklch(0.94 0.004 265);
   --destructive: oklch(0.6188 0.2376 25.7658);
   --destructive-foreground: oklch(1 0 0);
-  --border: oklch(0.3184 0.0077 240.0771);
-  --input: oklch(0.2086 0.0085 264.373);
+  --border: oklch(0.255 0.006 265);
+  --input: oklch(0.255 0.006 265);
   --ring: oklch(0.8012 0.1089 201.1736);
   --chart-1: oklch(0.8012 0.1089 201.1736);
   --chart-2: oklch(0.6907 0.1554 160.3454);
@@ -320,17 +320,17 @@
   --chart-4: oklch(0.7064 0.1822 151.7125);
   --chart-5: oklch(0.5919 0.2186 10.5826);
   --radius: 0.5rem;
-  --sidebar: oklch(0.2097 0.008 274.5332);
+  --sidebar: oklch(0.165 0.004 265);
   --sidebar-foreground: oklch(0.9328 0.0025 228.7857);
   --sidebar-primary: oklch(0.8012 0.1089 201.1736);
   --sidebar-primary-foreground: oklch(0 0 0);
-  --sidebar-accent: oklch(0.3152 0.0427 202.4332);
+  --sidebar-accent: oklch(0.235 0.007 265);
   --sidebar-accent-foreground: oklch(0.9328 0.0025 228.7857);
-  --sidebar-border: oklch(0.3184 0.0077 240.0771);
+  --sidebar-border: oklch(0.255 0.006 265);
   --sidebar-ring: oklch(0.8012 0.1089 201.1736);
-  --font-sans: "Bricolage Grotesque", Inter, system-ui, sans-serif;
+  --font-sans: var(--font-geist), "Geist", Inter, system-ui, sans-serif;
   --font-serif: Georgia, serif;
-  --font-mono: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace;
+  --font-mono: var(--font-geist-mono), "Geist Mono", ui-monospace, monospace;
   --shadow-color: rgba(0, 0, 0, 0.5);
   --shadow-opacity: 0;
   --shadow-blur: 0px;

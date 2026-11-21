@@ -25,6 +25,9 @@ import { PluginsPanel } from "@/components/editor/PluginsPanel";
 import { AccountStateInspector } from "@/components/editor/AccountStateInspector";
 import { TransactionBuilderPanel } from "@/components/editor/TransactionBuilderPanel";
 import { ErrorBoundary } from "@/components/editor/ErrorBoundary";
+import { edChipBtn, edIconBtn, edKbd, edPrimaryBtn, edBtn, edx } from "@/components/ui-kit/editor-ui";
+import { PanelLeftOpen, PanelRightOpen, X as XIcon, ChevronUp, ShieldCheck } from "lucide-react";
+import "@/components/editor/editor.css";
 import type { Node, Edge } from "@xyflow/react";
 import {
   EditorAiAssistant,
@@ -316,7 +319,7 @@ export function EditorShell({
   }, [openBottomPanelTab]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+    <div className="ss-editor flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
       {/* ─── Top bar ─────────────────────────────────────────────── */}
       <EditorTopBar />
 
@@ -331,10 +334,11 @@ export function EditorShell({
           {!paletteOpen && (
             <button
               onClick={togglePalette}
-              className="absolute left-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-xs text-muted-foreground hover:bg-accent"
+              className={edx(edIconBtn, "absolute left-3 top-3 z-10 border border-white/[0.08] bg-popover shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]")}
               title="Show node palette"
+              aria-label="Show node palette"
             >
-              ›
+              <PanelLeftOpen size={14} />
             </button>
           )}
 
@@ -342,10 +346,11 @@ export function EditorShell({
           {!propertiesOpen && (
             <button
               onClick={toggleProperties}
-              className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-xs text-muted-foreground hover:bg-accent"
+              className={edx(edIconBtn, "absolute right-3 top-3 z-10 border border-white/[0.08] bg-popover shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]")}
               title="Show properties panel"
+              aria-label="Show properties panel"
             >
-              ‹
+              <PanelRightOpen size={14} />
             </button>
           )}
 
@@ -358,18 +363,18 @@ export function EditorShell({
 
       {/* ─── Bottom panel ────────────────────────────────────────── */}
       {bottomPanelOpen && (
-        <div className="flex shrink-0 flex-col border-t border-border bg-background" style={{ height: bottomPanelHeight }}>
+        <div className="relative flex shrink-0 flex-col border-t border-border bg-card" style={{ height: bottomPanelHeight }}>
           {/* Drag handle */}
           <div
             onMouseDown={onDragStart}
             onTouchStart={onDragStart}
-            className="group relative flex shrink-0 h-2 cursor-ns-resize items-center justify-center bg-card hover:bg-accent/50 transition-colors"
+            className="group absolute inset-x-0 -top-1 z-10 flex h-2 cursor-ns-resize items-center justify-center"
             title="Drag to resize"
           >
-            <div className="h-0.5 w-8 rounded-full bg-border group-hover:bg-primary/50 transition-colors" />
+            <div className="h-px w-full bg-transparent transition-colors duration-150 ease-out group-hover:bg-primary/60" />
           </div>
           {/* Tab bar */}
-          <div className="flex shrink-0 items-center gap-0 border-b border-border bg-card overflow-x-auto whitespace-nowrap scrollbar-hide [&::-webkit-scrollbar]:hidden">
+          <div role="tablist" aria-label="Bottom panel" className="flex h-9 shrink-0 items-stretch gap-0 overflow-x-auto whitespace-nowrap border-b border-border bg-card px-1 scrollbar-hide [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {(
               [
                 "code",
@@ -388,42 +393,34 @@ export function EditorShell({
               <button
                 key={tab}
                 onClick={() => setBottomPanelTab(tab)}
-                className={`shrink-0 px-4 py-1.5 text-xs capitalize transition-colors ${
+                role="tab"
+                aria-selected={bottomPanelTab === tab}
+                data-active={bottomPanelTab === tab}
+                className={`ss-ed-tab relative shrink-0 rounded-md px-2.5 text-[12px] font-medium capitalize outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary ${
                   bottomPanelTab === tab
-                    ? "border-b-2 border-primary bg-background text-foreground font-medium"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground border-b-2 border-transparent"
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {tab === "txbuilder" ? "Tx Builder" : tab}
+                {tab === "txbuilder" ? "Tx Builder" : tab === "idl" ? "IDL" : tab === "sdk" ? "SDK" : tab}
               </button>
             ))}
             {/* Close button */}
-            <div className="sticky right-0 ml-auto flex shrink-0 items-center bg-card pl-2 pr-1 shadow-[-8px_0_8px_-4px_rgba(0,0,0,0.3)]">
+            <div className="sticky right-0 ml-auto flex shrink-0 items-center gap-1.5 bg-card pl-3 pr-1 shadow-[-12px_0_12px_-6px_rgba(0,0,0,0.5)]">
+              <kbd className={edx(edKbd, "hidden md:inline-flex")}>Ctrl B</kbd>
               <button
                 onClick={toggleBottomPanel}
-                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                className={edIconBtn}
                 title="Close panel (Ctrl+B)"
+                aria-label="Close panel"
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M18 6 6 18" />
-                  <path d="m6 6 12 12" />
-                </svg>
+                <XIcon size={14} />
               </button>
             </div>
           </div>
 
           {/* Tab content */}
-          <div className="min-h-0 flex-1 overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-hidden bg-background">
             <ErrorBoundary label="Code panel">
               {bottomPanelTab === "code" && <CodePreview />}
               {bottomPanelTab === "console" && <BuildConsole />}
@@ -513,15 +510,16 @@ export function EditorShell({
 
       {/* Open bottom panel toggle (when closed) */}
       {!bottomPanelOpen && (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border bg-card px-3 py-1">
+        <div className="flex h-8 shrink-0 items-center gap-2 border-t border-border bg-card px-1.5">
           <button
             onClick={toggleBottomPanel}
-            className="text-xs text-muted-foreground hover:text-foreground"
+            className="inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary"
             title="Open code panel (Ctrl+B)"
           >
+            <ChevronUp size={13} />
             Code
           </button>
-          <span className="text-muted-foreground/40 text-xs">Ctrl+B</span>
+          <kbd className={edKbd}>Ctrl B</kbd>
         </div>
       )}
 
@@ -681,22 +679,25 @@ function AuditPanel({
 
   if (!report) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-        <p>
+      <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
+        <span className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-white/[0.08] bg-white/[0.03] text-primary shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+          <ShieldCheck size={16} />
+        </span>
+        <p className="text-[13px] text-muted-foreground">
           Click below to run a security audit on your program.
         </p>
         <div className="flex gap-2">
           <button
             onClick={handleInstantAudit}
             disabled={instantAuditLoading}
-            className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className={edPrimaryBtn}
           >
             {instantAuditLoading ? "Running…" : "Run Instant Audit"}
           </button>
           <button
             onClick={runFullAudit}
             disabled={fullAuditLoading}
-            className="rounded border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+            className={edBtn}
           >
             {fullAuditLoading ? "Running…" : "Run Full Audit"}
           </button>
@@ -710,10 +711,12 @@ function AuditPanel({
 
   if (report.findings.length === 0 && stressTests.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-sm">
-        <div className="text-2xl">✓</div>
+      <div className="flex h-full flex-col items-center justify-center gap-1.5 text-[13px]">
+        <span className="mb-1 flex h-9 w-9 items-center justify-center rounded-[10px] border border-green-500/20 bg-green-500/10 text-green-400">
+          <ShieldCheck size={16} />
+        </span>
         <p className="font-medium text-green-400">No issues found</p>
-        <p className="text-muted-foreground">Score: {report.score}/100</p>
+        <p className="font-mono text-[12px] text-muted-foreground">Score: {report.score}/100</p>
       </div>
     );
   }
@@ -728,11 +731,11 @@ function AuditPanel({
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header bar */}
-      <div className="flex shrink-0 items-center gap-4 border-b border-border px-4 py-2">
-        <span className={`text-sm font-semibold ${scoreColor}`}>
+      <div className="flex h-10 shrink-0 items-center gap-3 overflow-x-auto border-b border-border px-3 [scrollbar-width:none]">
+        <span className={`shrink-0 font-mono text-[12px] font-semibold tabular-nums ${scoreColor}`}>
           Score: {report.score}/100
         </span>
-        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-3 text-[12px] tabular-nums text-muted-foreground">
           {report.summary.critical > 0 && (
             <span className="text-red-400">
               {report.summary.critical} critical
@@ -763,25 +766,25 @@ function AuditPanel({
         <button
           onClick={runFullAudit}
           disabled={fullAuditLoading}
-          className="ml-auto rounded bg-primary/90 px-3 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary disabled:opacity-50"
+          className={edx(edPrimaryBtn, "ml-auto h-6 px-2.5 text-[11px]")}
         >
           {fullAuditLoading ? "Running…" : "Run Full Audit"}
         </button>
         <button
           onClick={generateTests}
-          className="rounded border border-cyan-500/40 px-2 py-1 text-[11px] font-medium text-cyan-300 hover:bg-cyan-500/10"
+          className={edChipBtn}
         >
           Download Tests
         </button>
         <button
           onClick={() => exportReport("markdown")}
-          className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          className={edChipBtn}
         >
           Export MD
         </button>
         <button
           onClick={() => exportReport("sarif")}
-          className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+          className={edChipBtn}
         >
           SARIF
         </button>
@@ -791,10 +794,10 @@ function AuditPanel({
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="divide-y divide-border">
           {stressTests.length > 0 && (
-            <div className="px-4 py-3">
+            <div className="px-3 py-3">
               <div className="mb-2 flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-sm font-medium">Deterministic Stress</div>
+                  <div className="text-[12px] font-semibold">Deterministic Stress</div>
                   <div className="text-[11px] text-muted-foreground">
                     {stressTests.length} generated edge-case probes
                   </div>
@@ -812,7 +815,7 @@ function AuditPanel({
                       .then(() => toast.success("Stress cases copied"))
                       .catch(() => toast.error("Copy failed"));
                   }}
-                  className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className={edChipBtn}
                 >
                   Copy JSON
                 </button>
@@ -824,11 +827,11 @@ function AuditPanel({
                   return (
                     <div
                       key={test.id}
-                      className="rounded border border-border bg-background/40 p-2"
+                      className="rounded-lg border border-white/[0.07] bg-card p-2.5"
                     >
                       <div className="flex items-center gap-2">
                         <span
-                          className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${colors.badge}`}
+                          className={`inline-flex h-[18px] items-center rounded-[4px] border px-1.5 text-[10px] font-semibold tracking-[0.02em] ${colors.badge}`}
                         >
                           {colors.label}
                         </span>
@@ -847,7 +850,7 @@ function AuditPanel({
                       {test.nodeId && onGoToNode && (
                         <button
                           onClick={() => onGoToNode(test.nodeId!)}
-                          className="mt-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                          className={edx(edChipBtn, "mt-1.5")}
                         >
                           Go to Node
                         </button>
@@ -860,7 +863,7 @@ function AuditPanel({
                               token: test.instructionName,
                             })
                           }
-                          className="mt-1 ml-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                          className={edx(edChipBtn, "mt-1.5 ml-1")}
                         >
                           Go to Code
                         </button>
@@ -877,7 +880,7 @@ function AuditPanel({
             </div>
           )}
           {report.findings.length === 0 && (
-            <div className="px-4 py-3 text-xs text-green-400">
+            <div className="px-3 py-3 text-[12px] text-green-400">
               No static findings.
             </div>
           )}
@@ -885,7 +888,7 @@ function AuditPanel({
             const colors =
               SEVERITY_COLORS[finding.severity] ?? SEVERITY_COLORS.info;
             return (
-              <div key={`${finding.ruleId}-${idx}`} className="px-4 py-3">
+              <div key={`${finding.ruleId}-${idx}`} className="px-3 py-2.5 transition-colors duration-150 hover:bg-white/[0.02]">
                 <div className="flex items-start gap-3">
                   <div
                     className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${colors.dot}`}
@@ -893,21 +896,21 @@ function AuditPanel({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold ${colors.badge}`}
+                        className={`inline-flex h-[18px] items-center rounded-[4px] border px-1.5 text-[10px] font-semibold tracking-[0.02em] ${colors.badge}`}
                       >
                         {colors.label}
                       </span>
-                      <span className="text-xs text-muted-foreground font-mono">
+                      <span className="font-mono text-[11px] text-muted-foreground">
                         {finding.ruleId}
                       </span>
-                      <span className="text-sm font-medium">
+                      <span className="text-[13px] font-medium">
                         {finding.title}
                       </span>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-[12px] leading-[1.5] text-muted-foreground">
                       {finding.description}
                     </p>
-                    <p className="mt-1 text-xs text-foreground/80">
+                    <p className="mt-1 text-[12px] leading-[1.5] text-foreground/80">
                       <span className="font-medium">Fix: </span>
                       {finding.recommendation}
                     </p>
@@ -921,7 +924,7 @@ function AuditPanel({
                     {finding.location.nodeId && onGoToNode && (
                       <button
                         onClick={() => onGoToNode(finding.location.nodeId!)}
-                        className="mt-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                        className={edx(edChipBtn, "mt-1.5")}
                       >
                         Go to Node
                       </button>
@@ -937,7 +940,7 @@ function AuditPanel({
                               finding.title,
                           })
                         }
-                        className="mt-1 ml-1 rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                        className={edx(edChipBtn, "mt-1.5 ml-1")}
                       >
                         Go to Code
                       </button>
@@ -945,7 +948,7 @@ function AuditPanel({
                     {onFix && (
                       <button
                         onClick={() => onFix(finding)}
-                        className="mt-1 ml-1 rounded border border-green-500/40 px-2 py-0.5 text-[10px] text-green-400 hover:bg-green-500/10"
+                        className={edx(edChipBtn, "mt-1.5 ml-1 text-green-400 shadow-[0_0_0_1px_rgba(74,222,128,0.3)] hover:text-green-300")}
                       >
                         Apply Fix
                       </button>
@@ -978,10 +981,10 @@ function AuditPanel({
 
 function CanvasPlaceholder() {
   return (
-    <div className="flex h-full w-full items-center justify-center">
+    <div className="flex h-full w-full items-center justify-center bg-[#0b0c0f]">
       <div className="flex flex-col items-center gap-3 text-muted-foreground">
-        <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-primary" />
-        <p className="text-sm">Loading canvas…</p>
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/10 border-t-primary motion-reduce:animate-none" />
+        <p className="text-[12px]">Loading canvas…</p>
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import "@/app/globals.css";
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import { TRPCProvider } from "@/components/providers/TRPCProvider";
 import { ClientWalletProvider } from "@/components/providers/ClientWalletProvider";
@@ -18,6 +19,9 @@ import {
   SITE_URL,
   SOCIAL_DESCRIPTION,
 } from "@/lib/social-metadata";
+
+const geist = Geist({ subsets: ["latin"], variable: "--font-geist", display: "swap" });
+const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_ORIGIN),
@@ -80,7 +84,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className="dark"
+      className={`dark ${geist.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <body className="font-bricolage min-h-screen antialiased bg-background text-foreground">
@@ -93,9 +97,9 @@ export default function RootLayout({
                 position="bottom-right"
                 toastOptions={{
                   style: {
-                    background: "oklch(0.12 0.012 240)",
-                    border: "1px solid oklch(0.22 0.015 240)",
-                    color: "oklch(0.96 0.005 240)",
+                    background: "oklch(0.19 0.006 265)",
+                    border: "1px solid oklch(0.255 0.006 265)",
+                    color: "oklch(0.94 0.004 265)",
                   },
                 }}
               />

@@ -1,0 +1,212 @@
+/* #11 Questions: a docs search beside an open list. Scoped under .sl-questions. */
+
+.sl-questions {
+  border-top: 1px solid var(--line);
+}
+
+.sl-questions__grid {
+  display: grid;
+  gap: 48px;
+}
+@media (min-width: 960px) {
+  .sl-questions__grid {
+    grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+    gap: 96px;
+    align-items: start;
+  }
+  .sl-questions__side {
+    position: sticky;
+    top: 112px;
+  }
+}
+
+.sl-questions__intro {
+  margin-top: 16px;
+  max-width: 340px;
+}
+
+/* The search box: a docs search, not a form */
+.sl-questions__search {
+  position: relative;
+  margin-top: 32px;
+}
+.sl-questions__search input {
+  width: 100%;
+  height: 48px;
+  padding: 0 48px 0 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--s1);
+  box-shadow: var(--hi), 0 0 0 1px var(--line-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  outline: none;
+  transition: box-shadow 160ms ease-out, background-color 160ms ease-out;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.sl-questions__search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+.sl-questions__search input::placeholder {
+  color: var(--text-3);
+}
+.sl-questions__search input:hover {
+  background: var(--s2);
+}
+.sl-questions__search input:focus-visible {
+  box-shadow: var(--hi), 0 0 0 1px var(--accent), 0 0 0 4px var(--accent-soft);
+}
+.sl-questions__icon {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.sl-questions__kbd {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: 6px;
+  background: var(--s3);
+  box-shadow: 0 0 0 1px var(--line-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  pointer-events: none;
+}
+.sl-questions__clear {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 140ms ease-out, color 140ms ease-out;
+}
+.sl-questions__clear:hover {
+  background: var(--s3);
+  color: var(--text);
+}
+.sl-questions__clear:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.sl-questions__count {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.sl-questions__more {
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.sl-questions a,
+.sl-questions__empty button {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 140ms ease-out;
+}
+.sl-questions a:hover,
+.sl-questions__empty button:hover {
+  text-decoration-color: var(--text-2);
+}
+.sl-questions a:focus-visible,
+.sl-questions__empty button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.sl-questions__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The open list: two columns of question and answer, ruled */
+.sl-questions__list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  column-gap: 48px;
+}
+@media (min-width: 700px) {
+  .sl-questions__list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.sl-questions__item {
+  padding: 28px 0 32px;
+  border-top: 1px solid var(--line);
+  animation: sl-questions-in 240ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sl-questions__topic {
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+.sl-questions__item .sl-h3 {
+  margin: 0 0 10px;
+  color: var(--text);
+}
+.sl-questions__item .sl-body {
+  margin: 0;
+  text-wrap: pretty;
+}
+.sl-questions__code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--s2);
+  box-shadow: 0 0 0 1px var(--line);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.86em;
+  white-space: nowrap;
+}
+.sl-questions mark {
+  padding: 0 1px;
+  border-radius: 3px;
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.sl-questions__empty {
+  grid-column: 1 / -1;
+  padding: 28px 0;
+  border-top: 1px solid var(--line);
+}
+.sl-questions__empty .sl-h3 {
+  margin: 0 0 8px;
+}
+.sl-questions__empty button {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+@keyframes sl-questions-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}

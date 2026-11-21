@@ -7,7 +7,6 @@
 import React, { useState, useTransition } from "react";
 import Link from "next/link";
 import {
-  Workflow,
   ChevronLeft,
   Save,
   Loader2,
@@ -26,6 +25,7 @@ import {
   Globe,
   Share2,
   X,
+  ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -38,6 +38,15 @@ import type { Framework, Network } from "@/store/project-store";
 import { ImportDialog } from "./ImportDialog";
 import { SettingsDialog } from "./SettingsDialog";
 import { openFloatingBrowser } from "@/store/floating-browser-store";
+import {
+  EditorMark,
+  EdDivider,
+  edBtn,
+  edGhostBtn,
+  edIconBtn,
+  edPrimaryBtn,
+  edx,
+} from "@/components/ui-kit/editor-ui";
 
 export function EditorTopBar() {
   const projectId = useProjectStore((s) => s.projectId);
@@ -240,22 +249,23 @@ export function EditorTopBar() {
     <Rocket size={12} />
   );
 
+  const compileDone = compileStatus === "success";
+
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-card px-3">
+    <header className="flex h-11 shrink-0 items-center justify-between gap-3 overflow-x-auto border-b border-border bg-card px-2.5 shadow-[inset_0_-1px_0_rgba(255,255,255,0.02)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {/* ─── Left ──────────────────────────────────────────────── */}
-      <div className="flex min-w-0 shrink items-center gap-2">
+      <div className="flex min-w-0 shrink-0 items-center gap-1">
         <Link
           href="/dashboard"
-          className="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+          className="group flex h-7 items-center gap-0.5 rounded-md pl-0.5 pr-1 text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-white/[0.06] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
           title="Back to dashboard"
+          aria-label="Back to dashboard"
         >
-          <ChevronLeft size={15} />
-          <div className="flex h-6 w-6 items-center justify-center rounded bg-primary">
-            <Workflow size={13} className="text-primary-foreground" />
-          </div>
+          <ChevronLeft size={14} className="transition-transform duration-150 ease-out group-hover:-translate-x-0.5" />
+          <EditorMark size={22} />
         </Link>
 
-        <span className="text-muted-foreground">/</span>
+        <span className="px-0.5 text-[13px] text-white/15" aria-hidden>/</span>
 
         {/* Editable project name */}
         {editingName ? (
@@ -271,7 +281,8 @@ export function EditorTopBar() {
                 setEditingName(false);
               }
             }}
-            className="h-7 rounded border border-primary bg-background px-2 text-sm font-medium outline-none focus:ring-1 focus:ring-primary"
+            aria-label="Project name"
+            className="h-7 rounded-md border border-primary/70 bg-background px-2 text-[13px] font-medium outline-none ring-2 ring-primary/20"
             style={{ width: `${Math.max(nameInput.length + 2, 10)}ch` }}
           />
         ) : (
@@ -280,7 +291,7 @@ export function EditorTopBar() {
               setNameInput(projectName);
               setEditingName(true);
             }}
-            className="max-w-[60px] truncate rounded px-1 py-0.5 text-sm font-medium hover:bg-accent transition-colors"
+            className="h-7 max-w-[180px] truncate rounded-md px-1.5 text-[13px] font-semibold tracking-[-0.01em] text-foreground outline-none transition-colors duration-150 ease-out hover:bg-white/[0.06] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
             title={projectName}
           >
             {projectName}
@@ -291,27 +302,28 @@ export function EditorTopBar() {
         <button
           onClick={handleSettings}
           title="Project settings"
-          className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          aria-label="Project settings"
+          className={edIconBtn}
         >
-          <Settings size={12} />
+          <Settings size={13} />
         </button>
 
         {/* Dirty indicator */}
         {isDirty && !isSaving && (
           <span
-            className="h-1.5 w-1.5 rounded-full bg-amber-400"
+            className="ml-0.5 h-1.5 w-1.5 rounded-full bg-amber-400"
             title="Unsaved changes"
           />
         )}
 
         {/* Deployed program ID chip */}
         {deployedProgramId && deployStatus === "success" && (
-          <span className="ml-1 flex items-center gap-1 rounded-full bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 text-[10px] text-green-400">
-            <CheckCircle size={9} />
+          <span className="ml-1.5 inline-flex h-6 items-center gap-1 rounded-full border border-green-500/20 bg-green-500/10 px-2 font-mono text-[11px] text-green-400">
+            <CheckCircle size={10} />
             {deployExplorerUrl ? (
               <button
                 onClick={() => openFloatingBrowser(deployExplorerUrl, `Program: ${deployedProgramId.slice(0, 6)}…`)}
-                className="hover:underline cursor-pointer"
+                className="cursor-pointer rounded-sm outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 {deployedProgramId.slice(0, 6)}…
               </button>
@@ -323,13 +335,14 @@ export function EditorTopBar() {
       </div>
 
       {/* ─── Center ────────────────────────────────────────────── */}
-      <div className="flex shrink items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1">
         {/* Undo / Redo */}
         <button
           onClick={() => undo()}
           disabled={!canUndo}
           title="Undo (Ctrl+Z)"
-          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 transition-colors"
+          aria-label="Undo"
+          className={edIconBtn}
         >
           <RotateCcw size={13} />
         </button>
@@ -337,29 +350,29 @@ export function EditorTopBar() {
           onClick={() => redo()}
           disabled={!canRedo}
           title="Redo (Ctrl+Shift+Z)"
-          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30 transition-colors"
+          aria-label="Redo"
+          className={edIconBtn}
         >
           <RotateCw size={13} />
         </button>
 
-        <div className="mx-1 h-4 w-px bg-border" />
-
-        <div className="mx-1 h-4 w-px bg-border" />
+        <EdDivider />
 
         {/* Framework toggle */}
-        <div className="flex rounded-lg border border-border overflow-hidden">
+        <div
+          role="group"
+          aria-label="Framework"
+          className="flex h-7 items-center gap-0.5 rounded-lg bg-white/[0.035] p-0.5 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]"
+        >
           {(["anchor", "pinocchio", "quasar"] as Framework[]).map((fw) => (
             <button
               key={fw}
               onClick={() => setFramework(fw)}
-              className={`px-3 py-1 text-xs font-medium transition-colors capitalize ${
+              aria-pressed={framework === fw}
+              className={`h-6 rounded-md px-2.5 text-[12px] font-medium capitalize outline-none transition-[color,background-color,box-shadow] duration-150 ease-out focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary ${
                 framework === fw
-                  ? fw === "anchor"
-                    ? "bg-blue-500/20 text-blue-400"
-                    : fw === "pinocchio"
-                      ? "bg-violet-500/20 text-violet-400"
-                      : "bg-emerald-500/20 text-emerald-400"
-                  : "text-muted-foreground hover:bg-accent"
+                  ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07),0_1px_2px_rgba(0,0,0,0.4)]"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {fw}
@@ -368,37 +381,51 @@ export function EditorTopBar() {
         </div>
 
         {/* Network selector */}
-        <div className="flex items-center gap-1">
-          <select
-            value={network}
-            onChange={(e) => {
-              const val = e.target.value;
-              if (val === "__add_custom__") {
-                const name = prompt("Endpoint name (e.g. My Devnet):");
-                if (!name?.trim()) return;
-                const url = prompt("RPC URL (e.g. https://my-rpc.example.com):");
-                if (!url?.trim()) return;
-                const id = `custom-${Date.now()}`;
-                addCustomEndpoint({ id, name: name.trim(), url: url.trim() });
-                setNetwork(id);
-                return;
-              }
-              setNetwork(val as Network);
-            }}
-            className="h-7 rounded-lg border border-border bg-card px-2 text-xs text-muted-foreground outline-none hover:border-border/80 focus:border-primary"
-          >
-            <option value="devnet">Devnet</option>
-            <option value="mainnet">Mainnet</option>
-            <option value="localnet">Localnet</option>
-            {customEndpoints.length > 0 && (
-              <optgroup label="Custom">
-                {customEndpoints.map((ep) => (
-                  <option key={ep.id} value={ep.id}>{ep.name}</option>
-                ))}
-              </optgroup>
-            )}
-            <option disabled value="__add_custom__">+ Custom</option>
-          </select>
+        <div className="ml-1 flex items-center gap-1">
+          <div className="relative">
+            <span
+              aria-hidden
+              className={`pointer-events-none absolute left-2 top-1/2 h-1.5 w-1.5 -translate-y-1/2 rounded-full ${
+                network === "mainnet" ? "bg-amber-400" : network === "localnet" ? "bg-muted-foreground" : "bg-primary"
+              }`}
+            />
+            <select
+              value={network}
+              aria-label="Network"
+              onChange={(e) => {
+                const val = e.target.value;
+                if (val === "__add_custom__") {
+                  const name = prompt("Endpoint name (e.g. My Devnet):");
+                  if (!name?.trim()) return;
+                  const url = prompt("RPC URL (e.g. https://my-rpc.example.com):");
+                  if (!url?.trim()) return;
+                  const id = `custom-${Date.now()}`;
+                  addCustomEndpoint({ id, name: name.trim(), url: url.trim() });
+                  setNetwork(id);
+                  return;
+                }
+                setNetwork(val as Network);
+              }}
+              className="h-7 cursor-pointer appearance-none rounded-md bg-white/[0.03] pl-5 pr-6 text-[12px] font-medium text-foreground/85 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] outline-none transition-colors duration-150 ease-out hover:bg-white/[0.07] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
+            >
+              <option value="devnet">Devnet</option>
+              <option value="mainnet">Mainnet</option>
+              <option value="localnet">Localnet</option>
+              {customEndpoints.length > 0 && (
+                <optgroup label="Custom">
+                  {customEndpoints.map((ep) => (
+                    <option key={ep.id} value={ep.id}>{ep.name}</option>
+                  ))}
+                </optgroup>
+              )}
+              <option disabled value="__add_custom__">+ Custom</option>
+            </select>
+            <ChevronDown
+              size={12}
+              aria-hidden
+              className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+          </div>
           {customEndpoints.find((e) => e.id === network) && (
             <button
               onClick={() => {
@@ -406,7 +433,8 @@ export function EditorTopBar() {
                 setNetwork("devnet");
               }}
               title="Remove this custom endpoint"
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
+              aria-label="Remove this custom endpoint"
+              className={edx(edIconBtn, "text-red-400 hover:bg-red-500/10 hover:text-red-300")}
             >
               <X size={12} />
             </button>
@@ -415,14 +443,25 @@ export function EditorTopBar() {
       </div>
 
       {/* ─── Right ─────────────────────────────────────────────── */}
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1">
         {/* Version history */}
         <button
           onClick={() => openBottomPanelTab("history")}
           title="Version history"
-          className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          aria-label="Version history"
+          className={edIconBtn}
         >
           <History size={13} />
+        </button>
+
+        {/* Floating browser */}
+        <button
+          onClick={() => openFloatingBrowser("/docs", "SolStudio Docs")}
+          title="Open browser (docs, explorer, references)"
+          aria-label="Open browser"
+          className={edIconBtn}
+        >
+          <Globe size={13} />
         </button>
 
         {/* Export zip */}
@@ -430,14 +469,14 @@ export function EditorTopBar() {
           onClick={handleExport}
           disabled={isExporting || !projectId}
           title="Export program, SDK, IDLs, tests, and IR as .zip"
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={edGhostBtn}
         >
           {isExporting ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
             <Upload size={12} />
           )}
-          Export
+          <span className="hidden lg:inline">Export</span>
         </button>
 
         {/* Public read-only share */}
@@ -445,24 +484,24 @@ export function EditorTopBar() {
           onClick={handleShare}
           disabled={isSharing || !projectId}
           title="Create read-only public share link"
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={edGhostBtn}
         >
           {isSharing ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
             <Share2 size={12} />
           )}
-          Share
+          <span className="hidden lg:inline">Share</span>
         </button>
 
         {/* Import IDL */}
         <button
           onClick={() => setShowImport(true)}
           title="Import IDL"
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={edGhostBtn}
         >
           <Download size={12} />
-          Import
+          <span className="hidden lg:inline">Import</span>
         </button>
 
         {showImport && (
@@ -474,17 +513,17 @@ export function EditorTopBar() {
           onClick={handleSave}
           disabled={isSaving || !isDirty}
           title="Save (Ctrl+S)"
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={edGhostBtn}
         >
           {isSaving ? (
             <Loader2 size={12} className="animate-spin" />
           ) : (
             <Save size={12} />
           )}
-          {isSaving ? "Saving…" : "Save"}
+          <span className="hidden lg:inline">{isSaving ? "Saving…" : "Save"}</span>
         </button>
 
-        <div className="mx-0.5 h-4 w-px bg-border" />
+        <EdDivider />
 
         {/* Wallet connect */}
         <button
@@ -500,11 +539,11 @@ export function EditorTopBar() {
               ? `Connected: ${wallet.publicKey.toBase58()} — click to disconnect`
               : "Connect wallet to deploy"
           }
-          className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+          className={
             wallet.connected
-              ? "border-green-500/30 bg-green-500/10 text-green-400 hover:bg-green-500/20"
-              : "border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-          }`}
+              ? edx(edBtn, "font-mono text-green-400 shadow-[0_0_0_1px_rgba(74,222,128,0.25)] hover:text-green-300")
+              : edBtn
+          }
         >
           <Wallet size={12} />
           {wallet.connected && wallet.publicKey
@@ -512,20 +551,29 @@ export function EditorTopBar() {
             : "Connect"}
         </button>
 
-        <div className="mx-0.5 h-4 w-px bg-border" />
-
         {/* Test */}
         <button
           onClick={handleTest}
           disabled={isTesting || !projectId}
           title="Run tests"
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={edBtn}
         >
           {testIcon}
           {isTesting ? "Testing…" : "Test"}
         </button>
 
-        {/* Deploy */}
+        {/* Compile: the primary action until the program has compiled */}
+        <button
+          onClick={handleCompile}
+          disabled={isCompiling || !projectId}
+          title="Compile program"
+          className={compileDone ? edBtn : edPrimaryBtn}
+        >
+          {compileIcon}
+          {isCompiling ? "Compiling…" : "Compile"}
+        </button>
+
+        {/* Deploy: becomes the primary action once compiled */}
         <button
           onClick={handleDeploy}
           disabled={isDeploying || !projectId || compileStatus !== "success"}
@@ -534,30 +582,10 @@ export function EditorTopBar() {
               ? "Compile first before deploying"
               : "Deploy to network"
           }
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={compileDone ? edPrimaryBtn : edBtn}
         >
           {deployIcon}
           {isDeploying ? "Deploying…" : "Deploy"}
-        </button>
-
-        {/* Floating browser */}
-        <button
-          onClick={() => openFloatingBrowser("/docs", "SolStudio Docs")}
-          title="Open browser (docs, explorer, references)"
-          className="flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-        >
-          <Globe size={12} />
-        </button>
-
-        {/* Compile */}
-        <button
-          onClick={handleCompile}
-          disabled={isCompiling || !projectId}
-          title="Compile program"
-          className="inline-flex h-7 items-center gap-1.5 rounded-lg bg-primary px-3 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-40 transition-colors"
-        >
-          {compileIcon}
-          {isCompiling ? "Compiling…" : "Compile"}
         </button>
       </div>
 

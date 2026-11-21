@@ -1,0 +1,621 @@
+/* #1 Hero. Everything scoped under .sl-hero; the stage's parts under .sl-hs. */
+
+.sl .sl-hero {
+  position: relative;
+  padding: 72px 0 76px;
+  isolation: isolate;
+}
+
+.sl .sl-hero__grid {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 720px;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.sl .sl-hero__copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.sl .sl-hero__title {
+  margin: 0;
+}
+.sl .sl-hero__news {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 12px 0 4px;
+  margin-bottom: 24px;
+  white-space: nowrap;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--text-2);
+  background: var(--s1);
+  box-shadow: var(--hi), 0 0 0 1px var(--line-2);
+  transition: color 150ms ease-out, background-color 150ms ease-out, transform 150ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sl .sl-hero__news:hover {
+  color: var(--text);
+  background: var(--s2);
+}
+.sl .sl-hero__news:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.sl .sl-hero__news svg {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 150ms cubic-bezier(0.23, 1, 0.32, 1), color 150ms ease-out;
+}
+.sl .sl-hero__news:hover svg {
+  color: var(--text);
+  transform: translateX(2px);
+}
+.sl .sl-hero__news:active {
+  transform: scale(0.98);
+}
+.sl .sl-hero__news-short {
+  display: none;
+}
+.sl .sl-hero__news-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  background: var(--accent);
+}
+@media (min-width: 768px) {
+  .sl .sl-hero__line {
+    display: block;
+  }
+}
+.sl .sl-hero__dim {
+  color: var(--text-2);
+}
+
+.sl .sl-hero__sub {
+  margin: 18px 0 0;
+  max-width: 540px;
+  text-wrap: balance;
+}
+
+.sl .sl-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.sl .sl-hero__note {
+  margin: 16px 0 0;
+}
+
+.sl .sl-hero__shot {
+  margin-top: 56px;
+}
+
+.sl .sl-hero__bezel {
+  border-radius: 24px;
+}
+/* Below the wide design's width the editor is the phone-column design:
+   the bezel hugs it rather than boxing it in empty frame */
+@media (max-width: 943px) {
+  .sl .sl-hero__bezel {
+    max-width: 362px;
+    margin: 0 auto;
+  }
+}
+
+/* Orchestrated load: copy rises in, then the editor */
+@keyframes sl-hero-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+}
+.sl .sl-hero__news,
+.sl .sl-hero__title,
+.sl .sl-hero__sub,
+.sl .sl-hero__actions,
+.sl .sl-hero__note,
+.sl .sl-hero__shot {
+  animation: sl-hero-rise 700ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.sl .sl-hero__title {
+  animation-delay: 40ms;
+}
+.sl .sl-hero__sub {
+  animation-delay: 90ms;
+}
+.sl .sl-hero__actions {
+  animation-delay: 140ms;
+}
+.sl .sl-hero__note {
+  animation-delay: 200ms;
+}
+.sl .sl-hero__shot {
+  animation-delay: 260ms;
+  animation-duration: 900ms;
+}
+
+@media (max-width: 767px) {
+  .sl .sl-hero {
+    padding: 40px 0 48px;
+  }
+  /* Two set lines on a phone too: each half of the promise on its own line */
+  .sl .sl-hero__title {
+    font-size: 31px;
+    line-height: 1.12;
+  }
+  .sl .sl-hero__line {
+    display: block;
+  }
+  .sl .sl-hero__news {
+    margin-bottom: 20px;
+  }
+  .sl .sl-hero__news-long {
+    display: none;
+  }
+  .sl .sl-hero__news-short {
+    display: inline;
+  }
+  .sl .sl-hero__sub {
+    font-size: 15.5px;
+    line-height: 1.55;
+    margin-top: 14px;
+  }
+  .sl .sl-hero__actions {
+    margin-top: 28px;
+  }
+  .sl .sl-hero__shot {
+    margin-top: 40px;
+  }
+  .sl .sl-hero__bezel {
+    padding: 6px;
+    border-radius: 20px;
+  }
+}
+
+/* ---------- The stage: SolStudio's editor ---------- */
+
+.sl-hs .ss-stage[data-theme="dark"] {
+  --ss-canvas: #0b0c0f;
+  --ss-surface: var(--s1);
+  --ss-chrome: var(--s2);
+  --ss-raised: var(--s4);
+  --ss-well: var(--bg);
+  --ss-line: var(--line);
+  --ss-line-faint: rgba(255, 255, 255, 0.045);
+  --ss-text: var(--text-2);
+  --ss-text-strong: var(--text);
+  --ss-text-faint: var(--text-3);
+  --ss-icon: var(--text-2);
+  --ss-accent: var(--accent);
+  --ss-font: var(--font);
+  --ss-mono: var(--mono);
+  --ss-radius-window: 16px;
+  --ss-radius-md: 8px;
+  --ss-radius-sm: 6px;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--s1);
+}
+
+.sl-hs .sl-hs__win {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.sl-hs .sl-hs__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sl-hs .sl-hs__fw {
+  margin-right: 8px;
+  will-change: transform;
+}
+.sl-hs .sl-hs__fw .ss-seg__thumb {
+  background: var(--s4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px var(--line);
+}
+.sl-hs .ss-stage[data-layout="compact"] .sl-hs__fw {
+  margin-right: 0;
+}
+
+.sl-hs .sl-hs__deploy {
+  color: var(--accent-ink);
+}
+.sl-hs .sl-hs__fwname {
+  margin-left: 1ch;
+}
+.sl-hs .sl-hs__done {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sl-hs .sl-hs__deploy[data-hover] {
+  background: #7fe0e6;
+}
+
+/* Body: canvas | code over the console */
+.sl-hs .sl-hs__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 448px;
+  grid-template-rows: minmax(0, 1fr) 108px;
+  height: 602px;
+  background: var(--s1);
+}
+.sl-hs .ss-stage[data-layout="compact"] .sl-hs__body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 233px 181px 116px;
+  height: 530px;
+}
+
+/* Canvas: dotted grid, nodes */
+.sl-hs .sl-hs__canvas {
+  position: relative;
+  overflow: hidden;
+  background-color: #0b0c0f;
+}
+/* The canvas background, its own layer as in the editor */
+.sl-hs .sl-hs__dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.09) 1px, transparent 1.2px);
+  background-size: 20px 20px;
+  background-position: 10px 10px;
+}
+
+.sl-hs .sl-hs__node {
+  position: absolute;
+  box-sizing: border-box;
+  border-radius: 12px;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--c);
+  box-shadow: 0 10px 24px -12px rgba(0, 0, 0, 0.7);
+}
+.sl-hs .sl-hs__node[data-kind="program"] {
+  --c: var(--n-program);
+}
+.sl-hs .sl-hs__node[data-kind="instruction"] {
+  --c: var(--n-instruction);
+}
+.sl-hs .sl-hs__node[data-kind="account"] {
+  --c: var(--n-account);
+}
+.sl-hs .sl-hs__node[data-kind="constraint"] {
+  --c: var(--n-constraint);
+}
+
+.sl-hs .sl-hs__nhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px 0 9px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-hs .sl-hs__badge {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+}
+.sl-hs .sl-hs__name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+}
+.sl-hs .sl-hs__tag {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--c);
+  line-height: 1.3;
+}
+
+.sl-hs .sl-hs__nbody {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px 10px;
+}
+.sl-hs .sl-hs__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 18px;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.sl-hs .sl-hs__val {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+}
+
+/* Handles: small rings centred on the node edge, in the node's colour */
+.sl-hs .sl-hs__handle {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 50%;
+  background: var(--s1);
+  border: 1.5px solid var(--c);
+  transition: background-color 180ms ease-out, transform 180ms ease-out;
+}
+.sl-hs .sl-hs__handle[data-kind="program"] { --c: var(--n-program); }
+.sl-hs .sl-hs__handle[data-kind="instruction"] { --c: var(--n-instruction); }
+.sl-hs .sl-hs__handle[data-kind="account"] { --c: var(--n-account); }
+.sl-hs .sl-hs__handle[data-kind="constraint"] { --c: var(--n-constraint); }
+.sl-hs .sl-hs__handle[data-hover],
+.sl-hs .sl-hs__handle[data-pressed] {
+  transform: scale(1.3);
+}
+.sl-hs .sl-hs__handle[data-grab],
+.sl-hs .sl-hs__handle[data-lit] {
+  border-color: var(--n-constraint);
+  background: var(--n-constraint);
+}
+
+/* Edges, over the canvas */
+.sl-hs .sl-hs__edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.sl-hs .sl-hs__edge {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.16);
+  stroke-width: 1.5;
+}
+.sl-hs .sl-hs__edge--acct {
+  stroke: color-mix(in srgb, var(--n-account) 55%, transparent);
+}
+.sl-hs .sl-hs__edge--con {
+  stroke: var(--n-constraint);
+  opacity: 0;
+  transition: opacity 260ms ease-out;
+}
+.sl-hs .sl-hs__edge--con[data-on] {
+  opacity: 1;
+}
+.sl-hs .sl-hs__edge--con[data-live] {
+  stroke-dasharray: 5 4;
+  transition: none;
+}
+
+/* Code pane */
+.sl-hs .sl-hs__code {
+  position: relative;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: var(--s1);
+}
+.sl-hs .ss-stage[data-layout="compact"] .sl-hs__code {
+  border-left: 0;
+  border-top: 1px solid var(--line);
+}
+.sl-hs .sl-hs__tabs {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-hs .sl-hs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.3;
+}
+.sl-hs .sl-hs__tab svg {
+  color: var(--text-3);
+}
+
+.sl-hs .sl-hs__versions {
+  display: grid;
+  overflow: hidden;
+}
+.sl-hs .sl-hs__file {
+  grid-area: 1 / 1;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 6px;
+  padding: 12px 0 0 12px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 20px;
+  color: var(--text-2);
+  opacity: 0;
+  filter: blur(2px);
+  will-change: transform;
+  transition: opacity 280ms cubic-bezier(0.23, 1, 0.32, 1), filter 280ms ease-out;
+}
+.sl-hs .sl-hs__file[data-on] {
+  opacity: 1;
+  filter: none;
+}
+.sl-hs .sl-hs__rows .ss-collapse {
+  will-change: transform;
+}
+.sl-hs .sl-hs__gutter {
+  display: grid;
+  align-content: start;
+  text-align: right;
+  color: rgba(255, 255, 255, 0.2);
+}
+.sl-hs .sl-hs__rows {
+  min-width: 0;
+}
+.sl-hs .sl-hs__row {
+  position: relative;
+  height: 20px;
+  padding-left: 8px;
+  white-space: pre;
+  overflow: hidden;
+}
+.sl-hs .sl-hs__row[data-hl]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--n-constraint) 11%, transparent);
+  box-shadow: inset 2px 0 0 var(--n-constraint);
+}
+.sl-hs .sl-hs__src {
+  position: relative;
+  display: block;
+  height: 20px;
+}
+.sl-hs .sl-hs__src > .ss-bar {
+  vertical-align: middle;
+}
+.sl-hs .sl-hs__row[data-hl] .sl-hs__src {
+  color: var(--text);
+}
+.sl-hs .sl-hs__tk-c {
+  color: var(--text-3);
+}
+.sl-hs .sl-hs__tk-s {
+  color: #b5d99c;
+}
+.sl-hs .sl-hs__tk-a {
+  color: #9aa6c8;
+}
+.sl-hs .sl-hs__tk-k {
+  color: #f2a98a;
+}
+.sl-hs .sl-hs__tk-t {
+  color: #8fd1e8;
+}
+.sl-hs .sl-hs__tk-l {
+  color: #d6b98a;
+}
+
+/* Console */
+.sl-hs .sl-hs__console {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  background: #0c0d10;
+  overflow: hidden;
+}
+.sl-hs .sl-hs__chead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-hs .sl-hs__ctab {
+  margin-right: auto;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text);
+  line-height: 1.3;
+}
+.sl-hs .ss-stage[data-layout="compact"] .sl-hs__chead {
+  height: 44px;
+}
+.sl-hs .sl-hs__lines {
+  padding: 10px 12px 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+}
+.sl-hs .sl-hs__ln {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  white-space: nowrap;
+}
+.sl-hs .sl-hs__ln--dim {
+  color: var(--text-3);
+}
+.sl-hs .sl-hs__mark {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+.sl-hs .sl-hs__mark > * {
+  grid-area: 1 / 1;
+  transition: opacity 200ms ease-out;
+}
+.sl-hs .sl-hs__mark .ss-spinner {
+  color: var(--text-2);
+}
+.sl-hs .sl-hs__mark > svg:last-child {
+  color: var(--ok);
+  opacity: 0;
+}
+.sl-hs .sl-hs__mark[data-done] .ss-spinner {
+  opacity: 0;
+}
+.sl-hs .sl-hs__mark[data-done] > svg:last-child {
+  opacity: 1;
+}
+.sl-hs .sl-hs__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+/* Phone column: a panel with the editor's top bar */
+.sl-hs .sl-hs__panel {
+  position: absolute;
+  inset: 0;
+  background: var(--s1);
+}
+.sl-hs .sl-hs__pbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-sizing: border-box;
+  height: 56px;
+  padding: 0 12px;
+  background: var(--s2);
+  border-bottom: 1px solid var(--line);
+}
+.sl-hs .sl-hs__ptitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}

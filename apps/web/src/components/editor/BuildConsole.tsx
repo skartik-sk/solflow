@@ -9,11 +9,18 @@ import { Search, X, Trash2, Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
 import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { toast } from "sonner";
+import { edIconBtnSm, edx } from "@/components/ui-kit/editor-ui";
 
 const LEVEL_COLORS: Record<string, string> = {
-  info: "text-foreground/80",
-  warn: "text-yellow-400",
+  info: "text-foreground/85",
+  warn: "text-amber-300",
   error: "text-red-400",
+};
+
+const LEVEL_DOT: Record<string, string> = {
+  info: "bg-white/20",
+  warn: "bg-amber-400",
+  error: "bg-red-400",
 };
 
 type LogLevel = "all" | "info" | "warn" | "error";
@@ -75,25 +82,35 @@ export function BuildConsole() {
 
   if (isIdle && compileLogs.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-        Console output will appear here during compile/deploy.
+      <div className="flex h-full flex-col bg-[#0c0d10] px-3 py-2.5 font-mono text-[12px]">
+        <div className="flex h-[22px] items-center gap-2.5 text-muted-foreground/70">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/20" />
+          Console output will appear here during compile/deploy.
+        </div>
+        <div className="flex h-[22px] items-center gap-2.5 text-muted-foreground/45">
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/10" />
+          <span>
+            Press <span className="text-primary/80">Compile</span> in the top bar to start a build
+          </span>
+          <span aria-hidden className="h-3.5 w-[7px] animate-pulse bg-white/30 motion-reduce:animate-none" />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0d0d0d] font-mono text-xs">
+    <div className="flex h-full flex-col overflow-hidden bg-[#0c0d10] font-mono text-[12px]">
       {/* Status bar */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-border/40 bg-card/50 px-3 py-1.5 text-[11px]">
+      <div className="flex h-8 shrink-0 items-center gap-4 overflow-x-auto border-b border-white/[0.06] px-3 text-[11.5px] [scrollbar-width:none]">
         {compileStatus !== "idle" && (
-          <span className="flex items-center gap-1.5">
+          <span className="flex shrink-0 items-center gap-1.5">
             <StatusDot status={compileStatus} />
             <span className="text-muted-foreground">Compile:</span>
             <span className={statusColor(compileStatus)}>{compileStatus}</span>
           </span>
         )}
         {deployStatus !== "idle" && (
-          <span className="flex items-center gap-1.5">
+          <span className="flex shrink-0 items-center gap-1.5">
             <StatusDot status={deployStatus} />
             <span className="text-muted-foreground">Deploy:</span>
             <span className={statusColor(deployStatus)}>
@@ -104,9 +121,9 @@ export function BuildConsole() {
                 <span className="text-muted-foreground/60">
                   {deployProgress.current}/{deployProgress.total}
                 </span>
-                <span className="inline-flex h-1.5 w-16 overflow-hidden rounded-full bg-muted-foreground/20">
+                <span className="inline-flex h-1 w-16 overflow-hidden rounded-full bg-white/10">
                   <span
-                    className="rounded-full bg-yellow-400 transition-all duration-300"
+                    className="rounded-full bg-primary transition-[width] duration-300 ease-out"
                     style={{
                       width: `${Math.round((deployProgress.current / deployProgress.total) * 100)}%`,
                     }}
@@ -120,13 +137,13 @@ export function BuildConsole() {
           </span>
         )}
         {deployedProgramId && (
-          <span className="ml-auto flex items-center gap-3 text-muted-foreground/60">
+          <span className="ml-auto flex shrink-0 items-center gap-3 text-muted-foreground">
             <span>
               Program:{" "}
               {deployExplorerUrl ? (
                 <button
                   onClick={() => openFloatingBrowser(deployExplorerUrl, `Program: ${deployedProgramId.slice(0, 8)}…`)}
-                  className="text-blue-400 underline hover:text-blue-300 cursor-pointer"
+                  className="cursor-pointer rounded-sm text-primary underline decoration-primary/30 underline-offset-2 outline-none hover:decoration-primary focus-visible:outline-2 focus-visible:outline-primary"
                 >
                   {deployedProgramId.slice(0, 8)}…
                 </button>
@@ -142,7 +159,7 @@ export function BuildConsole() {
                 {deployTxExplorerUrl ? (
                   <button
                     onClick={() => openFloatingBrowser(deployTxExplorerUrl, `TX: ${deployTxSignature.slice(0, 8)}…`)}
-                    className="text-blue-400 underline hover:text-blue-300 cursor-pointer"
+                    className="cursor-pointer rounded-sm text-primary underline decoration-primary/30 underline-offset-2 outline-none hover:decoration-primary focus-visible:outline-2 focus-visible:outline-primary"
                   >
                     {deployTxSignature.slice(0, 8)}…
                   </button>
@@ -158,21 +175,23 @@ export function BuildConsole() {
       </div>
 
       {/* Filter bar */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/30 px-3 py-1">
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-white/[0.06] px-2">
         {/* Search */}
         <div className="relative flex-1">
-          <Search className="absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground/50" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Filter logs…"
-            className="w-full rounded border border-border/40 bg-background/50 py-0.5 pl-6 pr-5 text-[11px] outline-none focus:border-primary/50"
+            aria-label="Filter logs"
+            className="h-6 w-full rounded-md border border-white/[0.07] bg-white/[0.02] pl-6 pr-6 font-sans text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out placeholder:text-muted-foreground/60 hover:border-white/[0.12] focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
           />
           {search && (
             <button
               onClick={() => setSearch("")}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground"
+              aria-label="Clear filter"
+              className="absolute right-1 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded text-muted-foreground outline-none hover:text-foreground focus-visible:outline-2 focus-visible:outline-primary"
             >
               <X size={10} />
             </button>
@@ -180,15 +199,16 @@ export function BuildConsole() {
         </div>
 
         {/* Level filter pills */}
-        <div className="flex rounded border border-border/40 overflow-hidden">
+        <div role="group" aria-label="Log level" className="flex h-6 items-center gap-0.5 rounded-md bg-white/[0.03] p-0.5 font-sans shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
           {(["all", "info", "warn", "error"] as LogLevel[]).map((lv) => (
             <button
               key={lv}
               onClick={() => setLevelFilter(lv)}
-              className={`px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+              aria-pressed={levelFilter === lv}
+              className={`h-5 rounded-[4px] px-1.5 text-[11px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:outline-primary ${
                 levelFilter === lv
-                  ? "bg-primary/20 text-primary"
-                  : "text-muted-foreground hover:bg-accent/50"
+                  ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {lv === "all" ? "All" : lv.charAt(0).toUpperCase() + lv.slice(1)}
@@ -197,7 +217,7 @@ export function BuildConsole() {
         </div>
 
         {/* Log count */}
-        <span className="text-[10px] text-muted-foreground/50 shrink-0">
+        <span className="shrink-0 px-1 text-[11px] tabular-nums text-muted-foreground">
           {filteredLogs.length}/{compileLogs.length}
         </span>
 
@@ -207,14 +227,16 @@ export function BuildConsole() {
             <button
               onClick={handleCopy}
               title="Copy logs to clipboard"
-              className="shrink-0 text-muted-foreground/40 hover:text-foreground transition-colors"
+              aria-label="Copy logs"
+              className={``}
             >
               <Copy size={12} />
             </button>
             <button
               onClick={clearLogs}
               title="Clear logs"
-              className="shrink-0 text-muted-foreground/40 hover:text-red-400 transition-colors"
+              aria-label="Clear logs"
+              className={edx(edIconBtnSm, "hover:text-red-400")}
             >
               <Trash2 size={12} />
             </button>
@@ -223,19 +245,23 @@ export function BuildConsole() {
       </div>
 
       {/* Log lines */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2" role="log">
         {filteredLogs.length === 0 && compileLogs.length > 0 && (
-          <p className="text-muted-foreground/40 py-2">
+          <p className="py-1 text-muted-foreground/70">
             No logs match &ldquo;{search}&rdquo;
             {levelFilter !== "all" ? ` (${levelFilter})` : ""}
           </p>
         )}
         {filteredLogs.map((log, i) => (
-          <div key={i} className="flex gap-2 leading-5">
-            <span className="shrink-0 text-muted-foreground/40">
+          <div key={i} className="-mx-1.5 flex min-h-[22px] items-start gap-2.5 rounded px-1.5 py-[3px] leading-4 hover:bg-white/[0.025]">
+            <span className="shrink-0 tabular-nums text-muted-foreground/50">
               {formatTime(log.timestamp)}
             </span>
-            <span className={LEVEL_COLORS[log.level] ?? LEVEL_COLORS.info}>
+            <span
+              aria-hidden
+              className={`mt-[5px] h-1.5 w-1.5 shrink-0 rounded-full ${LEVEL_DOT[log.level] ?? LEVEL_DOT.info}`}
+            />
+            <span className={`min-w-0 break-words ${LEVEL_COLORS[log.level] ?? LEVEL_COLORS.info}`}>
               <LogLine text={log.line} highlight={search} />
             </span>
           </div>
@@ -265,7 +291,7 @@ function LogLine({ text, highlight }: { text: string; highlight?: string }) {
             <button
               key={i}
               onClick={() => openFloatingBrowser(part)}
-              className="text-blue-400 underline hover:text-blue-300 cursor-pointer"
+              className="cursor-pointer rounded-sm text-primary underline decoration-primary/30 underline-offset-2 outline-none hover:decoration-primary focus-visible:outline-2 focus-visible:outline-primary"
             >
               {part}
             </button>
@@ -337,5 +363,5 @@ function StatusDot({ status }: { status: string }) {
       queued: "bg-muted-foreground animate-pulse",
     }[status] ?? "bg-muted-foreground";
 
-  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color}`} />;
+  return <span className={`h-1.5 w-1.5 shrink-0 rounded-full motion-reduce:animate-none ${color}`} />;
 }

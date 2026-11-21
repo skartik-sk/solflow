@@ -11,6 +11,7 @@ import { getRFInstance } from "@/lib/rf-instance";
 import { useUIStore } from "@/store/ui-store";
 import { useFlowGraph } from "@/hooks/use-flow-graph";
 import { TypeEditor } from "./TypeEditor";
+import { edIconBtn, edIconBtnSm, edPanelHeader, edx } from "@/components/ui-kit/editor-ui";
 import type { ProgramNodeData } from "@solflow/flow-nodes";
 import type { InstructionNodeData } from "@solflow/flow-nodes";
 import type { AccountNodeData, AccountType, SeedDefinition } from "@solflow/flow-nodes";
@@ -36,13 +37,16 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 }
 
 const inputClass =
-  "w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50";
+  "h-7 w-full rounded-md border border-white/[0.08] bg-background/60 px-2 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50";
+
+const textareaClass =
+  "w-full rounded-md border border-white/[0.08] bg-background/60 px-2 py-1.5 text-[12px] leading-[1.5] outline-none transition-[border-color,box-shadow] duration-150 ease-out hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50";
 
 const inputInvalidClass =
-  "w-full rounded-md border border-red-500/50 bg-input px-2.5 py-1.5 text-xs outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500 placeholder:text-muted-foreground/50";
+  "h-7 w-full rounded-md border border-red-500/50 bg-background/60 px-2 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out focus:border-red-500 focus:ring-2 focus:ring-red-500/20 placeholder:text-muted-foreground/50";
 
 const selectClass =
-  "w-full rounded-md border border-border bg-input px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+  "h-7 w-full rounded-md border border-white/[0.08] bg-background/60 px-1.5 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20";
 
 /** Validate a snake_case identifier (not empty, matches pattern, not a Rust keyword). */
 function isValidIdentifier(value: string): boolean {
@@ -79,7 +83,7 @@ function isDuplicateName(names: string[], index: number): boolean {
 
 function ValidationHint({ show, message }: { show: boolean; message: string }) {
   if (!show) return null;
-  return <p className="text-[10px] text-red-400 mt-0.5">{message}</p>;
+  return <p className="mt-0.5 text-[11px] text-red-400">{message}</p>;
 }
 
 // ─── Account Type Rules ───────────────────────────────────────────────────────
@@ -147,7 +151,7 @@ function AccountSelect({
         />
         <button
           onClick={() => { setIsCustom(false); }}
-          className="text-[9px] text-primary hover:underline shrink-0"
+          className="shrink-0 rounded text-[11px] text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary"
         >
           list
         </button>
@@ -166,7 +170,7 @@ function AccountSelect({
       {allowCustom && (
         <button
           onClick={() => setIsCustom(true)}
-          className="text-[9px] text-primary hover:underline shrink-0"
+          className="shrink-0 rounded text-[11px] text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary"
         >
           custom
         </button>
@@ -255,12 +259,12 @@ function SeedEditor({
               placeholder="DRpbCBMxVnDK7ma..."
             />
           )}
-          <button onClick={() => removeSeed(i)} className="shrink-0 text-muted-foreground/60 hover:text-destructive">
+          <button onClick={() => removeSeed(i)} className={edx(edIconBtnSm, "hover:bg-red-500/10 hover:text-red-400")}>
             <X size={12} />
           </button>
         </div>
       ))}
-      <button onClick={addSeed} className="text-[10px] text-primary hover:underline">+ Add Seed</button>
+      <button onClick={addSeed} className="rounded text-[11px] font-medium text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary">+ Add Seed</button>
     </div>
   );
 }
@@ -294,7 +298,7 @@ function ProgramForm({
       </FieldRow>
       <FieldRow label="Description">
         <textarea
-          className={`${inputClass} resize-none`}
+          className={`${textareaClass} resize-none`}
           rows={2}
           value={data.description ?? ""}
           onChange={(e) => set({ description: e.target.value })}
@@ -379,7 +383,7 @@ function InstructionForm({
       </FieldRow>
       <FieldRow label="Description">
         <textarea
-          className={`${inputClass} resize-none`}
+          className={`${textareaClass} resize-none`}
           rows={2}
           value={data.description ?? ""}
           onChange={(e) => set({ description: e.target.value })}
@@ -406,7 +410,7 @@ function InstructionForm({
           <span className="text-[11px] font-medium text-muted-foreground">
             Arguments ({args.length})
           </span>
-          <button onClick={addArg} className="text-[10px] text-primary hover:underline">
+          <button onClick={addArg} className="rounded text-[11px] font-medium text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary">
             + Add
           </button>
         </div>
@@ -415,7 +419,7 @@ function InstructionForm({
             const argNameInvalid = arg.name ? !isValidIdentifier(arg.name) : false;
             const argDuplicate = isDuplicateName(args.map((a) => a.name), i);
             return (
-            <div key={arg.name || i} className="space-y-1 rounded border border-border p-1.5">
+            <div key={arg.name || i} className="space-y-1 rounded-lg border border-white/[0.07] bg-background/30 p-1.5">
               <div className="flex items-center gap-1.5">
                 <input
                   className={`${(argNameInvalid || argDuplicate) ? inputInvalidClass : inputClass} flex-1 font-mono`}
@@ -425,7 +429,7 @@ function InstructionForm({
                 />
                 <button
                   onClick={() => removeArg(i)}
-                  className="shrink-0 text-muted-foreground/60 hover:text-destructive"
+                  className={edx(edIconBtnSm, "hover:bg-red-500/10 hover:text-red-400")}
                 >
                   <X size={12} />
                 </button>
@@ -530,43 +534,43 @@ function AccountForm({
         <div className="space-y-1.5">
           <span className="text-[11px] font-medium text-muted-foreground">Flags</span>
           {rules.mut && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" checked={!!data.isMut} onChange={(e) => set({ isMut: e.target.checked })} className="rounded" />
-              <span className="text-xs">Mutable (#[account(mut)])</span>
+            <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+              <input type="checkbox" checked={!!data.isMut} onChange={(e) => set({ isMut: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+              <span className="text-[12px]">Mutable (#[account(mut)])</span>
             </label>
           )}
           {rules.signer && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" checked={!!data.isSigner} onChange={(e) => set({ isSigner: e.target.checked })} className="rounded" />
-              <span className="text-xs">Signer</span>
+            <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+              <input type="checkbox" checked={!!data.isSigner} onChange={(e) => set({ isSigner: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+              <span className="text-[12px]">Signer</span>
             </label>
           )}
           {data.accountType === "signer" && (
-            <p className="text-[10px] text-muted-foreground/60">Signer is implied by account type</p>
+            <p className="text-[11px] text-muted-foreground/70">Signer is implied by account type</p>
           )}
           {rules.init && (
             <>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={!!data.isInit} onChange={(e) => set({ isInit: e.target.checked, isInitIfNeeded: e.target.checked ? false : data.isInitIfNeeded })} className="rounded" />
-                <span className="text-xs">Init (#[account(init)])</span>
+              <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+                <input type="checkbox" checked={!!data.isInit} onChange={(e) => set({ isInit: e.target.checked, isInitIfNeeded: e.target.checked ? false : data.isInitIfNeeded })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+                <span className="text-[12px]">Init (#[account(init)])</span>
               </label>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input type="checkbox" checked={!!data.isInitIfNeeded} onChange={(e) => set({ isInitIfNeeded: e.target.checked, isInit: e.target.checked ? false : data.isInit })} className="rounded" />
-                <span className="text-xs">Init if needed (#[account(init_if_needed)])</span>
+              <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+                <input type="checkbox" checked={!!data.isInitIfNeeded} onChange={(e) => set({ isInitIfNeeded: e.target.checked, isInit: e.target.checked ? false : data.isInit })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+                <span className="text-[12px]">Init if needed (#[account(init_if_needed)])</span>
               </label>
             </>
           )}
           {rules.close && (
-            <label className="flex cursor-pointer items-center gap-2">
-              <input type="checkbox" checked={!!data.isClose} onChange={(e) => set({ isClose: e.target.checked })} className="rounded" />
-              <span className="text-xs">Close</span>
+            <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+              <input type="checkbox" checked={!!data.isClose} onChange={(e) => set({ isClose: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+              <span className="text-[12px]">Close</span>
             </label>
           )}
         </div>
       )}
 
       {!showFlags && (
-        <p className="text-[10px] text-muted-foreground/60">This account type has no configurable flags</p>
+        <p className="text-[11px] text-muted-foreground/70">This account type has no configurable flags</p>
       )}
 
       {/* Init-related fields */}
@@ -704,7 +708,7 @@ function AccountForm({
       {rules.specialFields.includes("safetyComment") && (
         <FieldRow label="Safety Comment">
           <textarea
-            className={`${inputClass} resize-none font-mono`}
+            className={`${textareaClass} resize-none font-mono`}
             rows={2}
             value={data.safetyComment ?? ""}
             onChange={(e) => set({ safetyComment: e.target.value })}
@@ -715,7 +719,7 @@ function AccountForm({
 
       <FieldRow label="Description">
         <textarea
-          className={`${inputClass} resize-none`}
+          className={`${textareaClass} resize-none`}
           rows={2}
           value={data.description ?? ""}
           onChange={(e) => set({ description: e.target.value })}
@@ -770,14 +774,14 @@ function StateForm({
       </FieldRow>
       <ValidationHint show={!!data.name && !isValidPascalIdentifier(data.name)} message="Must be PascalCase, not a Rust keyword" />
 
-      <label className="flex cursor-pointer items-center gap-2">
+      <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
         <input
           type="checkbox"
           checked={!!data.isZeroCopy}
           onChange={(e) => set({ isZeroCopy: e.target.checked })}
           className="rounded"
         />
-        <span className="text-xs">Zero-copy (#[account(zero_copy)])</span>
+        <span className="text-[12px]">Zero-copy (#[account(zero_copy)])</span>
       </label>
 
       {/* Fields */}
@@ -786,7 +790,7 @@ function StateForm({
           <span className="text-[11px] font-medium text-muted-foreground">
             Fields ({fields.length})
           </span>
-          <button onClick={addField} className="text-[10px] text-primary hover:underline">
+          <button onClick={addField} className="rounded text-[11px] font-medium text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary">
             + Add field
           </button>
         </div>
@@ -795,7 +799,7 @@ function StateForm({
             const fieldNameInvalid = f.name ? !isValidIdentifier(f.name) : false;
             const fieldDuplicate = isDuplicateName(fields.map((fd) => fd.name), i);
             return (
-            <div key={f.name || i} className="space-y-1 rounded border border-border p-1.5">
+            <div key={f.name || i} className="space-y-1 rounded-lg border border-white/[0.07] bg-background/30 p-1.5">
               <div className="flex items-center gap-1.5">
                 <input
                   className={`${(fieldNameInvalid || fieldDuplicate) ? inputInvalidClass : inputClass} flex-1 font-mono`}
@@ -805,7 +809,7 @@ function StateForm({
                 />
                 <button
                   onClick={() => removeField(i)}
-                  className="shrink-0 text-muted-foreground/60 hover:text-destructive"
+                  className={edx(edIconBtnSm, "hover:bg-red-500/10 hover:text-red-400")}
                 >
                   <X size={12} />
                 </button>
@@ -950,9 +954,9 @@ function ConstraintForm({ nodeId, data }: { nodeId: string; data: ConstraintNode
           <FieldRow label="Payer account">
             <AccountSelect value={data.reallocPayer ?? ""} onChange={(v) => set({ reallocPayer: v })} accounts={siblings} placeholder="Select payer..." />
           </FieldRow>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={!!data.reallocZeroInit} onChange={(e) => set({ reallocZeroInit: e.target.checked })} className="rounded" />
-            <span className="text-xs">Zero-init new bytes</span>
+          <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+            <input type="checkbox" checked={!!data.reallocZeroInit} onChange={(e) => set({ reallocZeroInit: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+            <span className="text-[12px]">Zero-init new bytes</span>
           </label>
         </>
       )}
@@ -988,7 +992,7 @@ function ConstraintForm({ nodeId, data }: { nodeId: string; data: ConstraintNode
       )}
       {ct === "safety-comment" && (
         <FieldRow label="Safety comment">
-          <textarea className={`${inputClass} resize-none font-mono`} rows={2} value={data.safetyComment ?? ""} onChange={(e) => set({ safetyComment: e.target.value })} placeholder="Reason this account is safe to use unchecked" />
+          <textarea className={`${textareaClass} resize-none font-mono`} rows={2} value={data.safetyComment ?? ""} onChange={(e) => set({ safetyComment: e.target.value })} placeholder="Reason this account is safe to use unchecked" />
         </FieldRow>
       )}
     </div>
@@ -1042,22 +1046,22 @@ function EventForm({ nodeId, data }: { nodeId: string; data: EventNodeData }) {
       </FieldRow>
       <ValidationHint show={!!data.name && !isValidPascalIdentifier(data.name)} message="Must be PascalCase, not a Rust keyword" />
       <FieldRow label="Description">
-        <textarea className={`${inputClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="Emitted when..." />
+        <textarea className={`${textareaClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="Emitted when..." />
       </FieldRow>
       <div>
         <div className="mb-1.5 flex items-center justify-between">
           <span className="text-[11px] font-medium text-muted-foreground">Fields ({fields.length})</span>
-          <button onClick={addField} className="text-[10px] text-primary hover:underline">+ Add</button>
+          <button onClick={addField} className="rounded text-[11px] font-medium text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary">+ Add</button>
         </div>
         <div className="space-y-1.5">
           {fields.map((f, i) => {
             const fieldNameInvalid = f.name ? !isValidIdentifier(f.name) : false;
             const fieldDuplicate = isDuplicateName(fields.map((fd) => fd.name), i);
             return (
-            <div key={f.name || i} className="space-y-1 rounded border border-border p-1.5">
+            <div key={f.name || i} className="space-y-1 rounded-lg border border-white/[0.07] bg-background/30 p-1.5">
               <div className="flex items-center gap-1.5">
                 <input className={`${(fieldNameInvalid || fieldDuplicate) ? inputInvalidClass : inputClass} flex-1 font-mono`} value={f.name} onChange={(e) => updateField(i, "name", e.target.value)} placeholder="amount" />
-                <button onClick={() => removeField(i)} className="shrink-0 text-muted-foreground/60 hover:text-destructive"><X size={12} /></button>
+                <button onClick={() => removeField(i)} className={edx(edIconBtnSm, "hover:bg-red-500/10 hover:text-red-400")}><X size={12} /></button>
               </div>
               <ValidationHint show={fieldNameInvalid} message="Must be snake_case, not a Rust keyword" />
               <ValidationHint show={fieldDuplicate && !fieldNameInvalid} message="Duplicate field name" />
@@ -1162,9 +1166,9 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           <FieldRow label="Amount">
             <input className={`${inputClass} font-mono`} value={data.transferAmount ?? ""} onChange={(e) => set({ transferAmount: e.target.value })} placeholder="1_000_000" />
           </FieldRow>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="rounded" />
-            <span className="text-xs">PDA signer seeds</span>
+          <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+            <span className="text-[12px]">PDA signer seeds</span>
           </label>
           {data.useSignerSeeds && (
             <SeedEditor
@@ -1200,9 +1204,9 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           <FieldRow label="Amount">
             <input className={`${inputClass} font-mono`} value={data.transferAmount ?? ""} onChange={(e) => set({ transferAmount: e.target.value })} placeholder="1_000_000" />
           </FieldRow>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="rounded" />
-            <span className="text-xs">PDA signer seeds</span>
+          <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+            <span className="text-[12px]">PDA signer seeds</span>
           </label>
           {data.useSignerSeeds && (
             <SeedEditor
@@ -1238,9 +1242,9 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           <FieldRow label="Amount">
             <input className={`${inputClass} font-mono`} value={data.transferAmount ?? ""} onChange={(e) => set({ transferAmount: e.target.value })} placeholder="1_000_000" />
           </FieldRow>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="rounded" />
-            <span className="text-xs">PDA signer seeds</span>
+          <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+            <input type="checkbox" checked={!!data.useSignerSeeds} onChange={(e) => set({ useSignerSeeds: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+            <span className="text-[12px]">PDA signer seeds</span>
           </label>
           {data.useSignerSeeds && (
             <SeedEditor
@@ -1342,9 +1346,9 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
           <FieldRow label="Result var">
             <input className={`${inputClass} font-mono`} value={data.mathResult ?? ""} onChange={(e) => set({ mathResult: e.target.value })} placeholder="new_count" />
           </FieldRow>
-          <label className="flex cursor-pointer items-center gap-2">
-            <input type="checkbox" checked={!!data.mathChecked} onChange={(e) => set({ mathChecked: e.target.checked })} className="rounded" />
-            <span className="text-xs">Checked arithmetic (overflow-safe)</span>
+          <label className="flex min-h-6 cursor-pointer items-center gap-2 rounded-md text-foreground/90 hover:text-foreground">
+            <input type="checkbox" checked={!!data.mathChecked} onChange={(e) => set({ mathChecked: e.target.checked })} className="h-3.5 w-3.5 rounded accent-[var(--primary)]" />
+            <span className="text-[12px]">Checked arithmetic (overflow-safe)</span>
           </label>
         </>
       )}
@@ -1363,7 +1367,7 @@ function LogicForm({ nodeId, data }: { nodeId: string; data: LogicNodeData }) {
       {lt === "custom-code" && (
         <FieldRow label="Rust code">
           <textarea
-            className={`${inputClass} resize-y font-mono text-[11px]`}
+            className={`${textareaClass} resize-y font-mono text-[11px]`}
             rows={8}
             value={data.customCode ?? ""}
             onChange={(e) => set({ customCode: e.target.value })}
@@ -1391,7 +1395,7 @@ function CustomCodeForm({ nodeId, data }: { nodeId: string; data: CustomCodeNode
         <input className={`${inputClass} font-mono`} value={data.name ?? ""} onChange={(e) => set({ name: e.target.value })} placeholder="custom_logic" />
       </FieldRow>
       <FieldRow label="Description">
-        <textarea className={`${inputClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="What does this code do?" />
+        <textarea className={`${textareaClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="What does this code do?" />
       </FieldRow>
       <FieldRow label="Input bindings (comma-separated)">
         <input className={`${inputClass} font-mono`} value={inputsStr} onChange={(e) => set({ inputs: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} placeholder="counter, authority" />
@@ -1401,7 +1405,7 @@ function CustomCodeForm({ nodeId, data }: { nodeId: string; data: CustomCodeNode
       </FieldRow>
       <FieldRow label="Rust code">
         <textarea
-          className={`${inputClass} resize-y font-mono text-[11px]`}
+          className={`${textareaClass} resize-y font-mono text-[11px]`}
           rows={8}
           value={data.code ?? ""}
           onChange={(e) => set({ code: e.target.value })}
@@ -1430,11 +1434,11 @@ function IntegrationForm({ nodeId, data }: { nodeId: string; data: IntegrationNo
         <input className={inputClass} value={data.integrationId ?? ""} onChange={(e) => set({ integrationId: e.target.value })} placeholder="price_feed" />
       </FieldRow>
       <FieldRow label="Description">
-        <textarea className={`${inputClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="What does this integration do?" />
+        <textarea className={`${textareaClass} resize-none`} rows={2} value={data.description ?? ""} onChange={(e) => set({ description: e.target.value })} placeholder="What does this integration do?" />
       </FieldRow>
       <FieldRow label="Config (JSON)">
         <textarea
-          className={`${inputClass} resize-y font-mono text-[11px]`}
+          className={`${textareaClass} resize-y font-mono text-[11px]`}
           rows={4}
           value={configStr}
           onChange={(e) => {
@@ -1527,28 +1531,31 @@ export function PropertiesPanel() {
     : null;
 
   return (
-    <div className="flex h-full w-[260px] flex-col border-l border-border bg-card">
+    <div className="flex h-full w-[272px] shrink-0 flex-col border-l border-border bg-card">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-3 py-2.5">
-        <div className="flex items-center gap-2">
+      <div className={edx(edPanelHeader, "justify-between pr-1.5")}>
+        <div className="flex min-w-0 items-center gap-2">
           {meta && (
             <span
-              className="flex h-5 w-5 items-center justify-center rounded"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-[5px]"
               style={{
-                background: `${meta.color}22`,
+                boxShadow: `inset 0 0 0 1px ${meta.color}33`,
+                background: `${meta.color}24`,
                 color: meta.color,
               }}
             >
               {meta.icon}
             </span>
           )}
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="truncate text-[12px] font-semibold tracking-[-0.005em] text-foreground">
             {meta ? meta.label : "Properties"}
           </p>
         </div>
         <button
           onClick={toggleProperties}
-          className="text-muted-foreground hover:text-foreground"
+          title="Hide properties panel"
+          aria-label="Hide properties panel"
+          className={edIconBtn}
         >
           <X size={13} />
         </button>
@@ -1560,10 +1567,10 @@ export function PropertiesPanel() {
           <div className="space-y-4">
             {/* Multi-select header */}
             <div className="flex flex-col items-center gap-2 py-3 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <div className="flex h-9 w-9 items-center justify-center rounded-[10px] border border-primary/20 bg-primary/10 text-primary">
                 <Layers size={18} />
               </div>
-              <p className="text-sm font-medium">
+              <p className="text-[13px] font-semibold tabular-nums">
                 {selectedNodeIds.length} nodes selected
               </p>
               <p className="text-[11px] text-muted-foreground">
@@ -1585,7 +1592,7 @@ export function PropertiesPanel() {
                   return (
                     <div
                       key={n.id}
-                      className="flex items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs"
+                      className="flex h-7 items-center gap-2 rounded-md bg-white/[0.03] px-2 text-[12px] shadow-[0_0_0_1px_rgba(255,255,255,0.06)]"
                     >
                       <span
                         className="h-2 w-2 shrink-0 rounded-full"
@@ -1599,26 +1606,26 @@ export function PropertiesPanel() {
 
             {/* Batch actions */}
             <div className="space-y-1.5 pt-2">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="text-[11px] font-medium text-muted-foreground">
                 Actions
               </p>
               <button
                 onClick={handleBatchDuplicate}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+                className="flex h-8 w-full items-center gap-2 rounded-md bg-white/[0.03] px-2.5 text-[12px] font-medium text-foreground/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(255,255,255,0.07)] outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-white/[0.07] hover:text-foreground active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
               >
                 <Copy size={12} />
                 Duplicate all
               </button>
               <button
                 onClick={handleAlignH}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+                className="flex h-8 w-full items-center gap-2 rounded-md bg-white/[0.03] px-2.5 text-[12px] font-medium text-foreground/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(255,255,255,0.07)] outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-white/[0.07] hover:text-foreground active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
               >
                 <AlignHorizontalSpaceAround size={12} />
                 Align horizontal
               </button>
               <button
                 onClick={handleAlignV}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+                className="flex h-8 w-full items-center gap-2 rounded-md bg-white/[0.03] px-2.5 text-[12px] font-medium text-foreground/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(255,255,255,0.07)] outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-white/[0.07] hover:text-foreground active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
               >
                 <AlignVerticalSpaceAround size={12} />
                 Align vertical
@@ -1628,14 +1635,14 @@ export function PropertiesPanel() {
                   useFlowStore.getState().compactSelectedNodes(selectedNodeIds);
                   setTimeout(() => getRFInstance()?.fitView({ duration: 400, padding: 0.2, nodes: selectedNodeIds.map((id) => ({ id })) }), 50);
                 }}
-                className="flex w-full items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-xs text-foreground/80 hover:bg-accent hover:text-foreground transition-colors"
+                className="flex h-8 w-full items-center gap-2 rounded-md bg-white/[0.03] px-2.5 text-[12px] font-medium text-foreground/85 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(255,255,255,0.07)] outline-none transition-[background-color,color,transform] duration-150 ease-out hover:bg-white/[0.07] hover:text-foreground active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
               >
                 <Minimize2 size={12} />
                 Compact
               </button>
               <button
                 onClick={handleBatchDelete}
-                className="flex w-full items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                className="flex h-8 w-full items-center gap-2 rounded-md bg-red-500/[0.06] px-2.5 text-[12px] font-medium text-red-400 shadow-[0_0_0_1px_rgba(239,68,68,0.22)] outline-none transition-[background-color,transform] duration-150 ease-out hover:bg-red-500/[0.12] active:scale-[0.98] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
               >
                 <Trash2 size={12} />
                 Delete all
@@ -1643,9 +1650,20 @@ export function PropertiesPanel() {
             </div>
           </div>
         ) : !selectedNode ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <Settings className="h-8 w-8 text-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground">
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-2 text-center">
+            <div aria-hidden className="w-[180px] rounded-[10px] border border-white/[0.07] bg-background/60 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+              <div className="flex items-center gap-1.5 border-b border-white/[0.06] pb-1.5">
+                <span className="h-3.5 w-3.5 rounded-[4px] bg-primary/25" />
+                <span className="h-1.5 w-14 rounded-full bg-white/15" />
+              </div>
+              <div className="space-y-1.5 pt-2">
+                <span className="block h-1.5 w-20 rounded-full bg-white/10" />
+                <span className="block h-5 rounded-[5px] border border-white/[0.07]" />
+                <span className="block h-1.5 w-12 rounded-full bg-white/10" />
+                <span className="block h-5 rounded-[5px] border border-primary/40 shadow-[0_0_0_2px_color-mix(in_oklab,var(--primary)_15%,transparent)]" />
+              </div>
+            </div>
+            <p className="text-[12px] text-muted-foreground">
               Select a node to edit its properties
             </p>
           </div>
@@ -1670,7 +1688,7 @@ export function PropertiesPanel() {
         ) : selectedNode.type === "integration" ? (
           <IntegrationForm nodeId={selectedNode.id} data={selectedNode.data as IntegrationNodeData} />
         ) : (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[12px] text-muted-foreground">
             No editor for type &ldquo;{selectedNode.type}&rdquo; yet.
           </p>
         )}

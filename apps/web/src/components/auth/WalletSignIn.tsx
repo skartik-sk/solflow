@@ -2,10 +2,22 @@
 
 import React, { useState } from "react";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { BaseWalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { signIn } from "next-auth/react";
 import bs58 from "bs58";
 import { toast } from "sonner";
+
+// WalletMultiButton's own labels, with the sign-in wording on the first state.
+// Same component and click handling as WalletMultiButton; only the labels differ.
+const WALLET_LABELS = {
+  "change-wallet": "Change wallet",
+  connecting: "Connecting…",
+  "copy-address": "Copy address",
+  copied: "Copied",
+  disconnect: "Disconnect",
+  "has-wallet": "Connect wallet",
+  "no-wallet": "Continue with a wallet",
+} as const;
 
 function createSignInMessage(publicKey: string, nonce: string): string {
   const domain =
@@ -39,26 +51,45 @@ export function WalletSignIn({
 
   if (!connected || !publicKey) {
     return (
-      <div className="w-full [&>button]:w-full">
+      <div className="w-full">
         <style>{`
+          .wallet-adapter-dropdown {
+            display: block !important;
+            width: 100% !important;
+          }
           .wallet-adapter-button-trigger,
           button.wallet-adapter-button.wallet-adapter-button-trigger {
             background-color: var(--color-card) !important;
             color: var(--color-foreground) !important;
-            border: 1px solid var(--color-border) !important;
-            border-radius: var(--radius-lg) !important;
-            height: 2.75rem !important;
+            border: 1px solid rgba(255, 255, 255, 0.08) !important;
+            border-radius: 10px !important;
+            height: 2.5rem !important;
             width: 100% !important;
             max-width: 100% !important;
             display: flex !important;
             justify-content: center !important;
-            font-size: 0.875rem !important;
+            font-size: 13px !important;
             font-weight: 500 !important;
             font-family: inherit !important;
-            transition: background-color 0.2s !important;
+            transition: background-color 150ms ease-out !important;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+            align-items: center !important;
+            gap: 10px !important;
+            color: var(--color-foreground) !important;
+            line-height: 1 !important;
+            padding: 0 16px !important;
           }
           .wallet-adapter-button-trigger:hover {
             background-color: var(--color-accent) !important;
+          }
+          .wallet-adapter-button-trigger:focus-visible {
+            outline: 2px solid var(--color-primary) !important;
+            outline-offset: 2px !important;
+          }
+          .wallet-adapter-button-trigger .wallet-adapter-button-start-icon {
+            width: 16px !important;
+            height: 16px !important;
+            margin-right: 0 !important;
           }
           .wallet-adapter-modal-wrapper,
           .wallet-adapter-modal-container {
@@ -84,7 +115,7 @@ export function WalletSignIn({
             color: var(--color-muted-foreground) !important;
           }
         `}</style>
-        <WalletMultiButton />
+        <BaseWalletMultiButton labels={WALLET_LABELS} />
       </div>
     );
   }
@@ -140,14 +171,14 @@ export function WalletSignIn({
       <button
         onClick={handleSignIn}
         disabled={signing}
-        className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-primary bg-primary text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+        className="flex h-10 w-full items-center justify-center gap-2.5 rounded-[10px] bg-primary text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] disabled:opacity-50"
       >
         <WalletIcon />
         {signing ? "Signing…" : `Sign in as ${shortKey}`}
       </button>
       <button
         onClick={() => disconnect()}
-        className="text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
+        className="self-center rounded-md px-2 py-1 text-[12px] text-muted-foreground transition-colors duration-150 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
       >
         Disconnect wallet
       </button>

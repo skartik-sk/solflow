@@ -1,45 +1,57 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Check, Copy } from "lucide-react";
 
-export function CopyBlock({ code, lang }: { code: string; lang?: string }) {
-  const [copied, setCopied] = useState(false);
+const FOCUS =
+  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary";
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(code).then(() => {
+function useCopy(text: string) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const copy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setCopied(false), 2000);
     });
-  }, [code]);
+  }, [text]);
+  return { copied, copy };
+}
+
+/** Swaps copy for check in place, with a short blur crossfade. */
+function CopyGlyph({ copied }: { copied: boolean }) {
+  const base =
+    "absolute h-3.5 w-3.5 transition-[opacity,transform,filter] duration-150 ease-out motion-reduce:transition-none";
+  return (
+    <span className="relative grid h-3.5 w-3.5 place-items-center" aria-hidden>
+      <Copy className={`${base} ${copied ? "scale-90 opacity-0 blur-[2px]" : "opacity-100"}`} />
+      <Check className={`${base} text-primary ${copied ? "opacity-100" : "scale-90 opacity-0 blur-[2px]"}`} />
+    </span>
+  );
+}
+
+export function CopyBlock({ code, lang }: { code: string; lang?: string }) {
+  const { copied, copy } = useCopy(code);
 
   return (
-    <div className="relative group my-6 overflow-hidden rounded-lg border border-border/60 bg-card">
-      {(lang || true) && (
-        <div className="flex items-center justify-between border-b border-border/40 px-4 py-2">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
-            {lang || "bash"}
-          </span>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-foreground transition-colors"
-            aria-label="Copy code"
-          >
-            {copied ? (
-              <>
-                <Check className="h-3 w-3 text-emerald-400" />
-                <span className="text-emerald-400">Copied</span>
-              </>
-            ) : (
-              <>
-                <Copy className="h-3 w-3" />
-                <span>Copy</span>
-              </>
-            )}
-          </button>
-        </div>
-      )}
-      <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed text-foreground/90 font-mono">
+    <div className="group/code my-5 overflow-hidden rounded-xl border border-white/[0.07] bg-[#0b0c0f] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="flex h-9 items-center justify-between border-b border-white/[0.06] bg-card pr-1.5 pl-4">
+        <span className="font-mono text-[11.5px] text-muted-foreground">{lang || "bash"}</span>
+        <button
+          type="button"
+          onClick={copy}
+          className={`inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-foreground active:scale-[0.97] ${FOCUS}`}
+          aria-label="Copy code"
+        >
+          <CopyGlyph copied={copied} />
+          <span>{copied ? "Copied" : "Copy"}</span>
+        </button>
+      </div>
+      <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[13px] leading-[1.7] text-[#d4d6dc]">
         <code>{code}</code>
       </pre>
     </div>
@@ -47,33 +59,24 @@ export function CopyBlock({ code, lang }: { code: string; lang?: string }) {
 }
 
 export function CopyInline({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  }, [code]);
+  const { copied, copy } = useCopy(code);
 
   return (
-    <div className="relative mt-2 rounded-md border border-border bg-card overflow-hidden">
-      <div className="flex items-center justify-between">
-        <code className="block overflow-x-auto px-3 py-2 font-mono text-xs text-foreground flex-1">
-          {code}
-        </code>
-        <button
-          onClick={handleCopy}
-          className="shrink-0 px-2.5 py-2 border-l border-border text-muted-foreground/60 hover:text-foreground transition-colors"
-          aria-label="Copy command"
-        >
-          {copied ? (
-            <Check className="h-3 w-3 text-emerald-400" />
-          ) : (
-            <Copy className="h-3 w-3" />
-          )}
-        </button>
-      </div>
+    <div className="relative mt-2 flex items-center overflow-hidden rounded-[10px] border border-white/[0.07] bg-[#0b0c0f] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <span aria-hidden className="pl-3 font-mono text-[12.5px] text-primary/80">
+        $
+      </span>
+      <code className="block flex-1 overflow-x-auto px-2.5 py-2 font-mono text-[12.5px] whitespace-nowrap text-foreground">
+        {code}
+      </code>
+      <button
+        type="button"
+        onClick={copy}
+        className={`mr-1 grid h-7 w-7 shrink-0 place-items-center rounded-md text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-white/[0.06] hover:text-foreground active:scale-[0.97] ${FOCUS}`}
+        aria-label="Copy command"
+      >
+        <CopyGlyph copied={copied} />
+      </button>
     </div>
   );
 }

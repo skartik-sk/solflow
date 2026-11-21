@@ -11,6 +11,7 @@ import { useProjectStore } from "@/store/project-store";
 import { useBuildStore } from "@/store/build-store";
 import { useFlowStore } from "@/store/flow-store";
 import { getRFInstance } from "@/lib/rf-instance";
+import { edBtn, edGhostBtn, edIconBtn, edKbd, edPrimaryBtn } from "@/components/ui-kit/editor-ui";
 
 type SettingsTab = "editor" | "defaults" | "build" | "shortcuts";
 
@@ -22,28 +23,30 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
 
       {/* Dialog */}
-      <div className="relative flex w-[520px] max-h-[80vh] flex-col rounded-xl border border-border bg-card shadow-2xl">
+      <div role="dialog" aria-modal="true" aria-label="Settings" className="relative mx-4 flex max-h-[80vh] w-full max-w-[520px] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-popover shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_32px_80px_-24px_rgba(0,0,0,0.85)]">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="text-sm font-semibold">Settings</h2>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X size={16} />
+        <div className="flex h-12 items-center justify-between pl-4 pr-2">
+          <h2 className="text-[14px] font-semibold tracking-[-0.01em]">Settings</h2>
+          <button onClick={onClose} aria-label="Close settings" className={edIconBtn}>
+            <X size={15} />
           </button>
         </div>
 
         {/* Tab bar */}
-        <div className="flex shrink-0 border-b border-border px-5">
+        <div role="tablist" className="flex h-9 shrink-0 items-stretch gap-1 border-b border-white/[0.06] px-2.5">
           {(["editor", "defaults", "build", "shortcuts"] as SettingsTab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`px-3 py-2 text-xs font-medium border-b-2 transition-colors ${
+              role="tab"
+              aria-selected={tab === t}
+              className={`relative px-2 text-[12px] font-medium outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary ${
                 tab === t
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
+                  ? "text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               {t === "editor" ? "Editor" : t === "defaults" ? "Defaults" : t === "build" ? "Build" : "Shortcuts"}
@@ -52,7 +55,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         </div>
 
         {/* Content */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
           {tab === "editor" && <EditorTab />}
           {tab === "defaults" && <DefaultsTab />}
           {tab === "build" && <BuildTab />}
@@ -60,11 +63,11 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-5 py-3">
+        <div className="flex h-12 items-center justify-between border-t border-white/[0.06] bg-card/60 px-3">
           <ResetButton />
           <button
             onClick={onClose}
-            className="rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+            className={edPrimaryBtn}
           >
             Done
           </button>
@@ -78,10 +81,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
 function Row({ label, children, description }: { label: string; children: React.ReactNode; description?: string }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2">
+    <div className="flex min-h-12 items-center justify-between gap-4 py-2">
       <div>
-        <p className="text-xs font-medium text-foreground">{label}</p>
-        {description && <p className="text-[10px] text-muted-foreground">{description}</p>}
+        <p className="text-[13px] font-medium text-foreground">{label}</p>
+        {description && <p className="mt-0.5 text-[12px] text-muted-foreground">{description}</p>}
       </div>
       {children}
     </div>
@@ -92,12 +95,14 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
   return (
     <button
       onClick={() => onChange(!value)}
-      className={`relative h-5 w-9 rounded-full transition-colors ${
-        value ? "bg-primary" : "bg-muted-foreground/30"
+      role="switch"
+      aria-checked={value}
+      className={`relative h-5 w-9 shrink-0 rounded-full shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)] transition-colors duration-150 ease-out ${
+        value ? "bg-primary" : "bg-white/[0.12]"
       }`}
     >
       <span
-        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+        className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow-[0_1px_2px_rgba(0,0,0,0.4)] transition-transform duration-150 ease-out ${
           value ? "translate-x-4" : "translate-x-0"
         }`}
       />
@@ -106,7 +111,7 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 }
 
 const selectClass =
-  "rounded-md border border-border bg-input px-2 py-1 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+  "h-7 rounded-md border border-white/[0.08] bg-background/60 px-2 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20";
 
 // ─── Editor Tab ──────────────────────────────────────────────────────────────
 
@@ -123,7 +128,7 @@ function EditorTab() {
   const setTheme = useUIStore((s) => s.setTheme);
 
   return (
-    <div className="divide-y divide-border/30">
+    <div className="divide-y divide-white/[0.05]">
       <Row label="Font Size" description="Editor text size (10–24)">
         <div className="flex items-center gap-2">
           <input
@@ -134,7 +139,7 @@ function EditorTab() {
             onChange={(e) => setFontSize(Number(e.target.value))}
             className="w-24 accent-primary"
           />
-          <span className="w-6 text-right text-xs text-muted-foreground font-mono">{fontSize}</span>
+          <span className="w-6 text-right text-[12px] text-muted-foreground font-mono">{fontSize}</span>
         </div>
       </Row>
       <Row label="Theme">
@@ -172,7 +177,7 @@ function DefaultsTab() {
   const setAutoSaveInterval = useSettingsStore((s) => s.setAutoSaveIntervalSec);
 
   return (
-    <div className="divide-y divide-border/30">
+    <div className="divide-y divide-white/[0.05]">
       <Row label="Default Framework" description="Framework used when generating code">
         <select
           className={selectClass}
@@ -206,7 +211,7 @@ function DefaultsTab() {
             onChange={(e) => setAutoSaveInterval(Number(e.target.value))}
             className="w-24 accent-primary"
           />
-          <span className="w-12 text-right text-xs text-muted-foreground font-mono">
+          <span className="w-12 text-right text-[12px] text-muted-foreground font-mono">
             {autoSaveInterval === 0 ? "Off" : `${autoSaveInterval}s`}
           </span>
         </div>
@@ -245,7 +250,7 @@ function BuildTab() {
   };
 
   return (
-    <div className="divide-y divide-border/30">
+    <div className="divide-y divide-white/[0.05]">
       <Row label="Auto-build on Code Change" description="Automatically build when code is modified">
         <Toggle value={autoBuild} onChange={setAutoBuild} />
       </Row>
@@ -256,7 +261,7 @@ function BuildTab() {
         <button
           onClick={handleResetProgram}
           disabled={!projectId || isDeploying}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-40 transition-colors"
+          className={edBtn}
         >
           <RefreshCw size={11} />
           Reset
@@ -269,7 +274,7 @@ function BuildTab() {
             useFlowStore.getState().compactSelectedNodes(nodeIds);
             setTimeout(() => getRFInstance()?.fitView({ duration: 400, padding: 0.2 }), 50);
           }}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          className={edBtn}
         >
           <Workflow size={11} />
           Reset
@@ -283,12 +288,12 @@ function BuildTab() {
 
 function ShortcutsTab() {
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 py-2">
       <div className="flex items-center gap-2 text-muted-foreground">
         <Keyboard size={14} />
-        <p className="text-xs font-medium">Keyboard Shortcuts</p>
+        <p className="text-[12px] font-medium">Keyboard Shortcuts</p>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-0.5">
         <ShortcutRow keys="Ctrl+S" label="Save" />
         <ShortcutRow keys="Ctrl+Z" label="Undo" />
         <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
@@ -307,9 +312,9 @@ function ShortcutsTab() {
 
 function ShortcutRow({ keys, label }: { keys: string; label: string }) {
   return (
-    <div className="flex items-center justify-between rounded-md border border-border/50 px-3 py-1.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <kbd className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-foreground/70">
+    <div className="flex h-8 items-center justify-between rounded-md px-2 hover:bg-white/[0.03]">
+      <span className="text-[12px] text-muted-foreground">{label}</span>
+      <kbd className={edKbd}>
         {keys}
       </kbd>
     </div>
@@ -323,7 +328,7 @@ function ResetButton() {
   return (
     <button
       onClick={resetToDefaults}
-      className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+      className={edGhostBtn}
     >
       <RotateCcw size={12} />
       Reset to defaults

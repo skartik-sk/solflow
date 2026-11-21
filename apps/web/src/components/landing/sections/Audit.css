@@ -1,0 +1,480 @@
+/* Section 6: Audit. Everything scoped under .sl-audit. */
+
+.sl-audit {
+  /* Section layout: object left, copy right */
+  & .aud-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  & .aud-copy {
+    order: -1;
+    max-width: 560px;
+  }
+  @media (min-width: 1024px) {
+    & .aud-grid {
+      grid-template-columns: minmax(0, 668px) minmax(0, 1fr);
+      gap: 56px;
+    }
+    & .aud-copy {
+      order: 0;
+    }
+    /* The stage carries its own 24px gutter; pull it out so the card lines up with the page edge */
+    & .aud-object {
+      margin-left: -24px;
+    }
+  }
+
+  & .aud-object {
+    min-width: 0;
+  }
+
+  & .aud-copy .sl-lead {
+    margin-top: 20px;
+  }
+
+  & .aud-facts {
+    margin: 32px 0 0;
+    padding: 0;
+    border-top: 1px solid var(--line);
+  }
+  & .aud-facts > div {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--line);
+    align-items: baseline;
+  }
+  & .aud-facts dt {
+    font-size: 15px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  & .aud-facts dd {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--text-2);
+  }
+
+  & .aud-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 28px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--text);
+    border-radius: 6px;
+    transition: color 160ms ease-out;
+  }
+  & .aud-link svg {
+    transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  & .aud-link:hover {
+    color: var(--accent);
+  }
+  & .aud-link:hover svg {
+    transform: translateX(2px);
+  }
+  & .aud-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 4px;
+  }
+
+  & .aud-mono {
+    font-family: var(--mono);
+  }
+
+  /* ---------- The stage: the product's tokens mapped onto the kit ---------- */
+  & .ss-stage {
+    --ss-font: var(--font);
+    --ss-mono: var(--mono);
+    --ss-surface: var(--s1);
+    --ss-raised: var(--s3);
+    --ss-text-strong: var(--text);
+    --ss-text: var(--text-2);
+    --ss-text-faint: var(--text-3);
+    --ss-line: var(--line);
+    --ss-accent: var(--accent);
+    --g: 24px;
+    background: transparent;
+    overflow: hidden;
+    font-family: var(--font);
+  }
+  & .ss-stage[data-layout="compact"] {
+    --g: 0px;
+  }
+
+  /* The report: one dark sheet, ruled like a ledger, fading out at its foot over filler */
+  & .aud-card {
+    position: absolute;
+    left: var(--g);
+    right: var(--g);
+    top: var(--g);
+    min-height: calc(100% + 40px);
+    overflow: hidden;
+    will-change: transform;
+    background: var(--s1);
+    border-radius: 16px 16px 0 0;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px var(--line-2);
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--text-2);
+  }
+
+  & .aud-faint {
+    color: var(--text-3);
+  }
+
+  & .aud-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 52px;
+    padding: 0 20px;
+    border-bottom: 1px dashed var(--line-2);
+  }
+  & .aud-head__title {
+    font-size: 14px;
+    font-weight: 550;
+    color: var(--text);
+  }
+  & .aud-head__meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+  & .aud-head__meta .aud-mono {
+    color: var(--text);
+    font-size: 12.5px;
+  }
+  & .aud-sep {
+    color: var(--text-3);
+  }
+
+  /* Score: the ring, then a severity tally */
+  & .aud-score {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 20px;
+    border-bottom: 1px dashed var(--line-2);
+  }
+  & .aud-ring {
+    position: relative;
+    flex: none;
+    width: 104px;
+    height: 104px;
+  }
+  & .aud-ring svg {
+    display: block;
+  }
+  & .aud-ring__track,
+  & .aud-ring__arc {
+    fill: none;
+    stroke-width: 8;
+  }
+  & .aud-ring__track {
+    stroke: var(--s3);
+  }
+  & .aud-ring__arc {
+    stroke: var(--accent);
+    stroke-linecap: round;
+    transition: stroke-dashoffset 900ms cubic-bezier(0.25, 0.8, 0.25, 1) 250ms;
+  }
+  & .aud-ring__num {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-size: 30px;
+    line-height: 1;
+    font-weight: 560;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    font-variant-numeric: proportional-nums;
+  }
+  & .aud-ring__num > * {
+    text-box: trim-both cap alphabetic;
+  }
+
+  & .aud-score__side {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  & .aud-score__label {
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 500;
+  }
+  & .aud-score__label .aud-faint {
+    font-weight: 400;
+    margin-left: 4px;
+  }
+  & .aud-score__rules {
+    font-size: 12px;
+    color: var(--text-3);
+  }
+
+  & .aud-tally {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  & .aud-tally__cell {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 12px;
+  }
+  & .aud-tally__cell:first-child {
+    padding-left: 0;
+  }
+  & .aud-tally__cell + .aud-tally__cell {
+    border-left: 1px dashed var(--line-2);
+  }
+  & .aud-tally__name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--text-3);
+  }
+  & .aud-tally__n {
+    font-family: var(--mono);
+    font-size: 15px;
+    line-height: 20px;
+    color: var(--text);
+  }
+
+  /* Severity dots: colour is the content */
+  & .aud-dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-3);
+  }
+  & .aud-dot[data-sev="critical"] {
+    background: var(--bad);
+  }
+  & .aud-dot[data-sev="high"] {
+    background: var(--n-constraint);
+  }
+  & .aud-dot[data-sev="medium"] {
+    background: var(--warn);
+  }
+
+  /* Findings */
+  & .aud-list-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 40px;
+    padding: 0 20px;
+    font-size: 12.5px;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--line);
+  }
+
+  & .aud-item {
+    border-bottom: 1px solid var(--line);
+  }
+  & .aud-row {
+    display: grid;
+    grid-template-columns: 8px 64px minmax(0, 1fr) 56px;
+    align-items: center;
+    column-gap: 12px;
+    height: 42px;
+    padding: 0 20px;
+  }
+  & .aud-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-2);
+  }
+  & .aud-title {
+    font-size: 13px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 240ms ease-out;
+  }
+  & .aud-status {
+    justify-self: end;
+    font-size: 12.5px;
+    color: var(--text-3);
+    transition: color 240ms ease-out;
+  }
+  & .aud-item[data-done] .aud-title {
+    color: var(--text-3);
+  }
+  & .aud-item[data-done] .aud-status {
+    color: var(--ok);
+  }
+  & .aud-item .aud-dot {
+    transition: opacity 240ms ease-out;
+  }
+  & .aud-item[data-done] .aud-dot {
+    opacity: 0.35;
+  }
+
+  /* The expanded row: its fix, as a tiny diff */
+  & .aud-fix-wrap {
+    will-change: transform;
+  }
+  & .aud-fix {
+    margin: 0 20px 16px;
+    border-radius: 10px;
+    background: var(--bg);
+    box-shadow: 0 0 0 1px var(--line);
+    overflow: hidden;
+  }
+  & .aud-fix__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    height: 34px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+  }
+  & .aud-fix__head .aud-mono {
+    font-size: 11.5px;
+  }
+  & .aud-fix__label {
+    color: var(--text);
+    font-weight: 500;
+  }
+  & .aud-item[data-done] .aud-fix__label {
+    color: var(--ok);
+  }
+  & .aud-code {
+    padding: 8px 0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 19px;
+  }
+
+  /* Filler under the findings: the stress section, words only as bars */
+  & .aud-filler {
+    padding: 16px 20px;
+  }
+  & .aud-filler__label {
+    font-size: 12.5px;
+    color: var(--text-3);
+    margin-bottom: 12px;
+  }
+  & .aud-filler__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 32px;
+  }
+  & .aud-filler__row i {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--s4);
+  }
+  & .aud-filler__row b {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--s3);
+  }
+
+  /* ---------- Compact: the phone column ---------- */
+  & .ss-stage[data-layout="compact"] .aud-card {
+    border-radius: 16px 16px 0 0;
+  }
+  & .ss-stage[data-layout="compact"] .aud-head {
+    padding: 0 16px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-score {
+    padding: 16px;
+    gap: 16px;
+    align-items: flex-start;
+  }
+  & .ss-stage[data-layout="compact"] .aud-ring {
+    width: 88px;
+    height: 88px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-ring svg {
+    width: 88px;
+    height: 88px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-ring__num {
+    font-size: 26px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-tally {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  & .ss-stage[data-layout="compact"] .aud-tally {
+    row-gap: 8px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-tally__cell {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 10px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-tally__cell:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  & .ss-stage[data-layout="compact"] .aud-tally__n {
+    font-size: 13px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-list-head {
+    padding: 0 16px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-row {
+    grid-template-columns: 8px minmax(0, 1fr) 48px;
+    grid-template-areas:
+      "dot id status"
+      ". title title";
+    row-gap: 4px;
+    height: auto;
+    padding: 10px 16px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-row .aud-dot {
+    grid-area: dot;
+  }
+  & .ss-stage[data-layout="compact"] .aud-id {
+    grid-area: id;
+  }
+  & .ss-stage[data-layout="compact"] .aud-title {
+    grid-area: title;
+  }
+  & .ss-stage[data-layout="compact"] .aud-status {
+    grid-area: status;
+  }
+  & .ss-stage[data-layout="compact"] .aud-score__side {
+    gap: 6px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-fix {
+    margin: 0 0 0;
+    border-radius: 0;
+    box-shadow: 0 -1px 0 var(--line);
+  }
+  & .ss-stage[data-layout="compact"] .aud-fix__head .aud-mono {
+    display: none;
+  }
+  & .ss-stage[data-layout="compact"] .aud-code {
+    font-size: 10.5px;
+  }
+  & .ss-stage[data-layout="compact"] .aud-filler {
+    padding: 16px;
+  }
+}

@@ -70,6 +70,16 @@ const nextConfig: NextConfig = {
   },
 
  
+  // Turbopack (next dev --turbopack) ignores webpack's resolve.fallback; mirror it for the browser.
+  turbopack: {
+    resolveAlias: {
+      fs: { browser: "./src/lib/empty-module.ts" },
+      path: { browser: "./src/lib/empty-module.ts" },
+      os: { browser: "./src/lib/empty-module.ts" },
+      crypto: { browser: "./src/lib/empty-module.ts" },
+    },
+  },
+
   // Monaco editor requires this
   webpack: (config, { isServer }) => {
     if (isServer) {

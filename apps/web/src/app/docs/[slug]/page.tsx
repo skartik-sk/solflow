@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
 import Link from "next/link";
-import { ArrowLeft, ChevronRight, Play } from "lucide-react";
+import { Play } from "lucide-react";
 import { notFound } from "next/navigation";
+import { DocsCallout, DocsPager, DocsShell } from "@/components/ui-kit/docs-shell";
 import { CopyBlock } from "../copy-block";
 
 const DOCS_DIR = fs.existsSync(path.join(process.cwd(), "src/app/docs"))
@@ -73,8 +74,42 @@ export async function generateMetadata({
 
 // ─── Markdown Renderer ────────────────────────────────────────────────────────
 
-function MarkdownContent({ content }: { content: string }) {
+type Heading = { id: string; text: string; level: 2 | 3 };
+
+/** h2/h3 headings outside code fences, with ids made unique in document order. */
+function collectHeadings(content: string): Heading[] {
+  const out: Heading[] = [];
+  const seen = new Map<string, number>();
+  let fence = false;
+  for (const line of content.split("\n")) {
+    if (line.startsWith("```")) {
+      fence = !fence;
+      continue;
+    }
+    if (fence) continue;
+    const m = line.match(/^(##|###) (.+)$/);
+    if (!m) continue;
+    const text = m[2];
+    const base = slugify(text);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    out.push({ id: n ? `${base}-${n}` : base, text, level: m[1] === "##" ? 2 : 3 });
+  }
+  return out;
+}
+
+const PLAIN_LINE = /^(?!#|\||- |\d+\. |```|> |---$)\S/;
+
+function MarkdownContent({
+  content,
+  afterTitle,
+}: {
+  content: string;
+  afterTitle?: React.ReactNode;
+}) {
   const lines = content.split("\n");
+  const headingIds = collectHeadings(content).map((h) => h.id);
+  let headingIndex = 0;
   const elements: React.ReactNode[] = [];
   let i = 0;
   let key = 0;
@@ -116,8 +151,25 @@ function MarkdownContent({ content }: { content: string }) {
 
     // Horizontal rule
     if (line.trim() === "---") {
-      elements.push(<hr key={key++} className="my-10 border-border/40" />);
+      elements.push(<hr key={key++} className="my-10 border-white/[0.07]" />);
       i++;
+      continue;
+    }
+
+    // Callouts (blockquotes)
+    if (line.startsWith(">")) {
+      const quote: string[] = [];
+      while (i < lines.length && lines[i].startsWith(">")) {
+        quote.push(lines[i].replace(/^>\s?/, ""));
+        i++;
+      }
+      const text = quote.join(" ").trim();
+      const warn = /^\*\*(warning|caution|important)/i.test(text);
+      elements.push(
+        <DocsCallout key={key++} tone={warn ? "warn" : "note"}>
+          {renderInline(text)}
+        </DocsCallout>,
+      );
       continue;
     }
 
@@ -126,7 +178,7 @@ function MarkdownContent({ content }: { content: string }) {
       elements.push(
         <h4
           key={key++}
-          className="text-base font-semibold mt-8 mb-3 text-foreground"
+          className="mt-8 mb-2 text-[15px] font-semibold tracking-[-0.01em] text-foreground"
         >
           {renderInline(line.slice(5))}
         </h4>,
@@ -135,25 +187,32 @@ function MarkdownContent({ content }: { content: string }) {
       continue;
     }
     if (line.startsWith("### ")) {
+      const id = headingIds[headingIndex++];
       elements.push(
         <h3
           key={key++}
-          className="text-lg font-semibold mt-10 mb-3 text-foreground"
+          id={id}
+          className="group mt-10 mb-3 scroll-mt-20 text-[17px] font-semibold tracking-[-0.015em] text-foreground"
         >
-          {renderInline(line.slice(4))}
+          <a href={`#${id}`} className="outline-none focus-visible:underline">
+            {renderInline(line.slice(4))}
+          </a>
         </h3>,
       );
       i++;
       continue;
     }
     if (line.startsWith("## ")) {
+      const id = headingIds[headingIndex++];
       elements.push(
         <h2
           key={key++}
-          className="text-xl font-bold mt-14 mb-5 text-foreground scroll-mt-20"
-          id={slugify(line.slice(3))}
+          id={id}
+          className="mt-12 mb-4 scroll-mt-20 text-[22px] font-semibold tracking-[-0.025em] text-foreground first:mt-0"
         >
-          {renderInline(line.slice(3))}
+          <a href={`#${id}`} className="outline-none focus-visible:underline">
+            {renderInline(line.slice(3))}
+          </a>
         </h2>,
       );
       i++;
@@ -163,12 +222,24 @@ function MarkdownContent({ content }: { content: string }) {
       elements.push(
         <h1
           key={key++}
-          className="text-3xl font-extrabold tracking-tight mb-2 text-foreground"
+          className="text-[30px] leading-[1.15] font-semibold tracking-[-0.03em] text-foreground md:text-[34px]"
         >
           {renderInline(line.slice(2))}
         </h1>,
       );
       i++;
+      // The first paragraph under the title is the lead
+      while (i < lines.length && lines[i].trim() === "") i++;
+      if (i < lines.length && PLAIN_LINE.test(lines[i])) {
+        elements.push(
+          <p key={key++} className="mt-3 text-[16px] leading-[1.65] text-muted-foreground">
+            {renderInline(lines[i])}
+          </p>,
+        );
+        i++;
+      }
+      if (afterTitle) elements.push(<div key={key++}>{afterTitle}</div>);
+      elements.push(<div key={key++} className="h-6" aria-hidden />);
       continue;
     }
 
@@ -191,15 +262,15 @@ function MarkdownContent({ content }: { content: string }) {
       elements.push(
         <div
           key={key++}
-          className="my-6 overflow-x-auto rounded-lg border border-border/60"
+          className="my-6 overflow-x-auto rounded-xl border border-white/[0.07] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
         >
-          <table className="w-full text-sm">
+          <table className="w-full text-[13.5px]">
             <thead>
-              <tr className="bg-muted/40 border-b border-border/60">
+              <tr className="border-b border-white/[0.07]">
                 {headerRow.map((cell, ci) => (
                   <th
                     key={ci}
-                    className="px-4 py-2.5 text-left text-xs font-semibold text-foreground/80 tracking-wide"
+                    className="px-4 py-2.5 text-left text-[12.5px] font-medium whitespace-nowrap text-foreground"
                   >
                     {cell.trim()}
                   </th>
@@ -208,14 +279,11 @@ function MarkdownContent({ content }: { content: string }) {
             </thead>
             <tbody>
               {bodyRows.map((cells, ri) => (
-                <tr
-                  key={ri}
-                  className={`border-b border-border/30 last:border-0 ${ri % 2 === 1 ? "bg-muted/20" : ""}`}
-                >
+                <tr key={ri} className="border-b border-white/[0.05] last:border-0">
                   {cells.map((cell, ci) => (
                     <td
                       key={ci}
-                      className="px-4 py-2.5 text-sm text-muted-foreground leading-relaxed"
+                      className="px-4 py-2.5 align-top leading-[1.6] text-muted-foreground"
                     >
                       {renderInline(cell.trim())}
                     </td>
@@ -229,60 +297,63 @@ function MarkdownContent({ content }: { content: string }) {
       continue;
     }
 
-    // Unordered list items
-    if (line.match(/^- /)) {
-      const items: string[] = [];
-      while (i < lines.length && lines[i].match(/^- /)) {
-        items.push(lines[i].slice(2));
-        i++;
+    // Lists (with indented sub-items kept under their parent)
+    const ordered = /^\d+\. /.test(line);
+    if (ordered || line.startsWith("- ")) {
+      const items: { text: string; num: string; sub: string[] }[] = [];
+      while (i < lines.length) {
+        const l = lines[i];
+        const top = ordered ? l.match(/^(\d+)\. (.*)$/) : l.match(/^()- (.*)$/);
+        if (top) {
+          items.push({ num: top[1], text: top[2], sub: [] });
+          i++;
+          continue;
+        }
+        const sub = l.match(/^\s{2,}(?:-|\d+\.) (.*)$/);
+        if (sub && items.length) {
+          items[items.length - 1].sub.push(sub[1]);
+          i++;
+          continue;
+        }
+        break;
       }
+      const Tag = ordered ? "ol" : "ul";
       elements.push(
-        <ul key={key++} className="my-4 space-y-2 ml-1">
+        <Tag key={key++} className="my-4 space-y-2">
           {items.map((item, idx) => (
             <li
               key={idx}
-              className="flex items-start gap-2.5 text-sm leading-relaxed text-muted-foreground"
+              className="flex items-start gap-3 text-[15px] leading-[1.7] text-muted-foreground"
             >
-              <span className="mt-2 h-1 w-1 rounded-full bg-primary/60 shrink-0" />
-              <span>{renderInline(item)}</span>
+              {ordered ? (
+                <span className="mt-[3px] flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-md border border-white/[0.08] bg-card font-mono text-[11px] text-foreground tabular-nums">
+                  {item.num || idx + 1}
+                </span>
+              ) : (
+                <span className="mt-[11px] h-1 w-1 shrink-0 rounded-full bg-muted-foreground/60" />
+              )}
+              <div className="min-w-0 flex-1">
+                <span>{renderInline(item.text)}</span>
+                {item.sub.length > 0 && (
+                  <ul className="mt-2 space-y-1.5 border-l border-white/[0.07] pl-4">
+                    {item.sub.map((s, si) => (
+                      <li key={si} className="text-[14.5px] leading-[1.65]">
+                        {renderInline(s)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </li>
           ))}
-        </ul>,
-      );
-      continue;
-    }
-
-    // Ordered list items
-    if (line.match(/^\d+\. /)) {
-      const items: string[] = [];
-      while (i < lines.length && lines[i].match(/^\d+\. /)) {
-        items.push(lines[i].replace(/^\d+\. /, ""));
-        i++;
-      }
-      elements.push(
-        <ol key={key++} className="my-4 space-y-2 ml-1 counter-reset-list">
-          {items.map((item, idx) => (
-            <li
-              key={idx}
-              className="flex items-start gap-2.5 text-sm leading-relaxed text-muted-foreground"
-            >
-              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">
-                {idx + 1}
-              </span>
-              <span>{renderInline(item)}</span>
-            </li>
-          ))}
-        </ol>,
+        </Tag>,
       );
       continue;
     }
 
     // Regular paragraph
     elements.push(
-      <p
-        key={key++}
-        className="text-sm leading-relaxed text-muted-foreground my-3"
-      >
+      <p key={key++} className="my-4 text-[15px] leading-[1.75] text-muted-foreground">
         {renderInline(line)}
       </p>,
     );
@@ -305,7 +376,7 @@ function renderInline(text: string): React.ReactNode {
       parts.push(
         <code
           key={partKey++}
-          className="rounded-md bg-muted/80 border border-border/50 px-1.5 py-0.5 text-[12px] font-mono text-foreground/90"
+          className="rounded-[5px] border border-white/[0.08] bg-white/[0.04] px-[5px] py-px font-mono text-[0.86em] text-foreground"
         >
           {codeMatch[2]}
         </code>,
@@ -345,7 +416,7 @@ function renderInline(text: string): React.ReactNode {
         <a
           key={partKey++}
           href={linkMatch[3]}
-          className="text-primary hover:underline font-medium"
+          className="font-medium text-primary underline decoration-primary/30 underline-offset-[3px] transition-colors duration-150 hover:decoration-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
         >
           {linkMatch[2]}
         </a>,
@@ -368,22 +439,6 @@ function slugify(text: string): string {
     .replace(/^-|-$/g, "");
 }
 
-// ─── Side nav items ──────────────────────────────────────────────────────────
-
-const NAV_ITEMS = [
-  {
-    slug: "learn-visual-builder",
-    title: "Visual Builder Path",
-    href: "/docs/learn/visual-builder",
-  },
-  { slug: "learn-cli", title: "CLI Path", href: "/docs/learn/cli" },
-  { slug: "learn-cloud", title: "Cloud Path", href: "/docs/learn/cloud" },
-  ...DOC_SLUGS.map((slug) => ({
-    slug,
-    title: DOC_META[slug]?.title ?? slug,
-    href: `/docs/${slug}`,
-  })),
-];
 
 const PRACTICE_CTA: Record<
   string,
@@ -415,6 +470,25 @@ const PRACTICE_CTA: Record<
   },
 };
 
+
+function PracticeCta({ cta }: { cta: (typeof PRACTICE_CTA)[string] }) {
+  return (
+    <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-white/[0.07] bg-card p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] sm:flex-row sm:items-center sm:p-5">
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-medium text-foreground">{cta.title}</p>
+        <p className="mt-1 text-[13.5px] leading-[1.6] text-muted-foreground">{cta.body}</p>
+      </div>
+      <Link
+        href={cta.href}
+        className="inline-flex h-9 shrink-0 items-center gap-1.5 self-start rounded-[10px] bg-primary px-3.5 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary sm:self-center"
+      >
+        <Play size={13} className="fill-current" aria-hidden />
+        {cta.label}
+      </Link>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function DocPage({
@@ -434,178 +508,41 @@ export default async function DocPage({
     content = fs.readFileSync(filePath, "utf-8");
   } catch {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-muted-foreground text-sm">
+      <DocsShell>
+        <div className="py-20 text-center">
+          <p className="text-[14px] text-muted-foreground">
             Documentation file not found: {slug}.md
           </p>
           <Link
             href="/docs"
-            className="text-primary hover:underline mt-4 inline-block text-sm"
+            className="mt-4 inline-block text-[14px] text-primary hover:underline"
           >
             Back to docs
           </Link>
         </div>
-      </div>
+      </DocsShell>
     );
   }
 
   const meta = DOC_META[slug];
-  const title =
-    meta?.title ??
-    slug.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  // Extract h2 headings for TOC
-  const headings = content
-    .split("\n")
-    .filter((l) => l.startsWith("## "))
-    .map((l) => ({ id: slugify(l.slice(3)), text: l.slice(3) }));
+  // h2s for the outline, plus h3s when the page is short enough to list them
+  const all = collectHeadings(content);
+  const headings = all.length <= 24 ? all : all.filter((h) => h.level === 2);
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-bricolage">
-      {/* Header */}
-      <header className="sticky top-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/docs"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <ArrowLeft size={16} />
-            </Link>
-            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-              <Link
-                href="/docs"
-                className="hover:text-foreground transition-colors"
-              >
-                Docs
-              </Link>
-              <ChevronRight size={12} className="text-muted-foreground/40" />
-              <span className="text-foreground font-medium">{title}</span>
-            </div>
-          </div>
-          <Link
-            href="/"
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            SolStudio
-          </Link>
-        </div>
-      </header>
+    <DocsShell toc={headings.map((h) => ({ id: h.id, text: h.text.replace(/`/g, ""), level: h.level }))}>
+      <article>
+        <MarkdownContent
+          content={content}
+          afterTitle={PRACTICE_CTA[slug] ? <PracticeCta cta={PRACTICE_CTA[slug]} /> : undefined}
+        />
+      </article>
 
-      <div className="mx-auto max-w-7xl px-6 flex gap-12">
-        {/* Sidebar */}
-        <aside className="hidden lg:block w-56 shrink-0 py-10 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-border/40 pr-6">
-          <nav className="space-y-1">
-            {NAV_ITEMS.map((item) => (
-              <Link
-                key={item.slug}
-                href={item.href}
-                className={`block rounded-md px-3 py-2 text-sm transition-colors ${
-                  item.slug === slug
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                }`}
-              >
-                {item.title}
-              </Link>
-            ))}
-          </nav>
-
-          {/* Page TOC */}
-          {headings.length > 2 && (
-            <div className="mt-8 pt-6 border-t border-border/40">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/50 mb-3 px-3">
-                On this page
-              </p>
-              <nav className="space-y-1">
-                {headings.map((h) => (
-                  <a
-                    key={h.id}
-                    href={`#${h.id}`}
-                    className="block px-3 py-1.5 text-xs text-muted-foreground/70 hover:text-foreground transition-colors truncate"
-                  >
-                    {h.text}
-                  </a>
-                ))}
-              </nav>
-            </div>
-          )}
-        </aside>
-
-        {/* Content */}
-        <main className="flex-1 min-w-0 py-10 pb-24">
-          <article className="max-w-3xl">
-            {PRACTICE_CTA[slug] && (
-              <div className="mb-8 rounded-xl border border-primary/20 bg-primary/10 p-5">
-                <div className="flex items-start gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                    <Play size={18} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <h2 className="text-sm font-semibold text-foreground">
-                      {PRACTICE_CTA[slug].title}
-                    </h2>
-                    <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                      {PRACTICE_CTA[slug].body}
-                    </p>
-                    <Link
-                      href={PRACTICE_CTA[slug].href}
-                      className="mt-4 inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-3 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                    >
-                      {PRACTICE_CTA[slug].label}
-                      <ChevronRight size={14} />
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            )}
-            <MarkdownContent content={content} />
-          </article>
-
-          {/* Prev / Next */}
-          <div className="mt-16 flex items-center justify-between border-t border-border/40 pt-6 max-w-3xl">
-            {meta?.prev ? (
-              <Link
-                href={`/docs/${meta.prev}`}
-                className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <ArrowLeft
-                  size={14}
-                  className="group-hover:-translate-x-0.5 transition-transform"
-                />
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50">
-                    Previous
-                  </p>
-                  <p className="font-medium">{DOC_META[meta.prev]?.title}</p>
-                </div>
-              </Link>
-            ) : (
-              <div />
-            )}
-            {meta?.next ? (
-              <Link
-                href={`/docs/${meta.next}`}
-                className="group flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors text-right"
-              >
-                <div>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground/50">
-                    Next
-                  </p>
-                  <p className="font-medium">{DOC_META[meta.next]?.title}</p>
-                </div>
-                <ChevronRight
-                  size={14}
-                  className="group-hover:translate-x-0.5 transition-transform"
-                />
-              </Link>
-            ) : (
-              <div />
-            )}
-          </div>
-        </main>
-      </div>
-    </div>
+      <DocsPager
+        prev={meta?.prev ? { href: `/docs/${meta.prev}`, title: DOC_META[meta.prev]?.title ?? meta.prev } : undefined}
+        next={meta?.next ? { href: `/docs/${meta.next}`, title: DOC_META[meta.next]?.title ?? meta.next } : undefined}
+      />
+    </DocsShell>
   );
 }

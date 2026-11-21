@@ -109,8 +109,8 @@ export function PluginsPanel() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-muted-foreground">
         <Puzzle className="h-8 w-8 opacity-30" />
-        <p className="text-sm font-medium">No plugins registered</p>
-        <p className="text-xs max-w-64 text-center">
+        <p className="text-[13px] font-medium">No plugins registered</p>
+        <p className="text-[12px] max-w-64 text-center">
           First-party plugins (SPL Token, Metaplex, Pyth) are registered at app
           startup.
         </p>
@@ -121,11 +121,11 @@ export function PluginsPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-2">
-        <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5 min-h-10">
+        <span className="text-[12px] font-semibold text-foreground">
           Plugins ({allPlugins.length})
         </span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-[12px] text-muted-foreground">
           {enabledPluginIds.length} enabled
         </span>
       </div>
@@ -142,12 +142,12 @@ export function PluginsPanel() {
           return (
             <div
               key={plugin.id}
-              className="flex items-start gap-3 px-4 py-3 hover:bg-accent/50 transition-colors"
+              className="flex items-start gap-3 px-4 py-3 hover:bg-white/[0.06] transition-colors duration-150 ease-out"
             >
               {/* Toggle */}
               <button
                 onClick={() => togglePlugin(plugin.id)}
-                className={`mt-0.5 shrink-0 transition-colors ${
+                className={`mt-0.5 shrink-0 transition-colors duration-150 ease-out ${
                   enabled
                     ? "text-primary hover:text-primary/80"
                     : "text-muted-foreground/40 hover:text-muted-foreground"
@@ -164,17 +164,17 @@ export function PluginsPanel() {
               {/* Info */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold">{plugin.name}</span>
-                  <span className="text-[10px] text-muted-foreground/60 font-mono">
+                  <span className="text-[12px] font-semibold">{plugin.name}</span>
+                  <span className="text-[11px] text-muted-foreground/60 font-mono">
                     v{plugin.version}
                   </span>
                   {enabled && (
-                    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                    <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary">
                       active
                     </span>
                   )}
                   <span
-                    className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                    className={`rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
                       trust.trustLevel === "first-party"
                         ? "bg-green-500/10 text-green-400"
                         : trust.trustLevel === "verified"
@@ -188,24 +188,24 @@ export function PluginsPanel() {
                     {trust.trustLevel}
                   </span>
                   {hasAuditRules ? (
-                    <span className="flex items-center gap-0.5 text-[10px] text-green-400" title="Has audit rules">
+                    <span className="flex items-center gap-0.5 text-[11px] text-green-400" title="Has audit rules">
                       <ShieldCheck size={10} />
                     </span>
                   ) : (
-                    <span className="flex items-center gap-0.5 text-[10px] text-yellow-400" title="No audit rules — unreviewed codegen">
+                    <span className="flex items-center gap-0.5 text-[11px] text-yellow-400" title="No audit rules — unreviewed codegen">
                       <ShieldAlert size={10} />
                     </span>
                   )}
                   {!isTrusted && (
-                    <span className="flex items-center gap-0.5 text-[10px] text-orange-400" title="Untrusted plugin">
+                    <span className="flex items-center gap-0.5 text-[11px] text-orange-400" title="Untrusted plugin">
                       <AlertTriangle size={10} />
                     </span>
                   )}
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground truncate">
+                <p className="mt-0.5 text-[12px] text-muted-foreground truncate">
                   {plugin.description}
                 </p>
-                <div className="mt-1 flex items-center gap-3 text-[10px] text-muted-foreground/60">
+                <div className="mt-1 flex items-center gap-3 text-[11px] text-muted-foreground/60">
                   <span>by {plugin.author}</span>
                   {plugin.security?.provenance ? (
                     <button
@@ -213,7 +213,7 @@ export function PluginsPanel() {
                         e.stopPropagation();
                         openFloatingBrowser(plugin.security!.provenance!, `${plugin.name} provenance`);
                       }}
-                      className="flex items-center gap-0.5 hover:text-foreground transition-colors"
+                      className="flex items-center gap-0.5 hover:text-foreground transition-colors duration-150 ease-out"
                     >
                       <ShieldCheck className="h-2.5 w-2.5" />
                       provenance
@@ -229,7 +229,7 @@ export function PluginsPanel() {
                         e.stopPropagation();
                         openFloatingBrowser(plugin.website!, plugin.name);
                       }}
-                      className="flex items-center gap-0.5 hover:text-foreground transition-colors"
+                      className="flex items-center gap-0.5 hover:text-foreground transition-colors duration-150 ease-out"
                     >
                       <ExternalLink className="h-2.5 w-2.5" />
                       docs
@@ -245,7 +245,7 @@ export function PluginsPanel() {
                     {warnings.map((w, i) => (
                       <div
                         key={i}
-                        className={`flex items-start gap-1 text-[10px] ${
+                        className={`flex items-start gap-1 text-[11px] ${
                           w.severity === "error"
                             ? "text-red-400"
                             : "text-yellow-400/80"
@@ -264,13 +264,13 @@ export function PluginsPanel() {
                     {plugin.nodes.slice(0, 4).map((node) => (
                       <span
                         key={node.type}
-                        className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                        className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
                       >
                         {node.label}
                       </span>
                     ))}
                     {plugin.nodes.length > 4 && (
-                      <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
                         +{plugin.nodes.length - 4} more
                       </span>
                     )}

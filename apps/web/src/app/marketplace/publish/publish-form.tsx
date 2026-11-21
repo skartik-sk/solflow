@@ -8,7 +8,16 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
-import { Loader2, Send, Info } from "lucide-react";
+import { Loader2, Send, Info, GitFork } from "lucide-react";
+import {
+  AuthorAvatar,
+  Chip,
+  FrameworkBadge,
+  GraphThumb,
+  GraphThumbStyles,
+  btnPrimary,
+  panel,
+} from "@/components/marketplace/parts";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,234 +109,296 @@ export function PublishForm({ projects }: Props) {
     });
   };
 
+
+  const field =
+    "w-full rounded-[10px] border border-white/[0.08] bg-background px-3 text-[16px] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] outline-none transition-colors duration-150 placeholder:text-muted-foreground/60 hover:border-white/[0.14] focus:border-primary/70 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary/40 sm:text-[13px]";
+  const label = "text-[12.5px] font-medium text-foreground";
+  const hint = "text-[11.5px] text-muted-foreground";
+  const req = <span className="text-muted-foreground"> *</span>;
+
   if (projects.length === 0) {
     return (
-      <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
-        <p className="text-sm">
-          You don&apos;t have any saved projects yet.{" "}
-          <a href="/dashboard" className="text-primary hover:underline">
+      <div className={`${panel} relative overflow-hidden`}>
+        <GraphThumbStyles />
+        <div aria-hidden className="mk-dots h-40 border-b border-white/[0.07] opacity-60">
+          <GraphThumb seed="empty-publish" />
+        </div>
+        <div className="px-5 py-4">
+          <p className="text-[14px] font-medium">No saved projects yet</p>
+          <p className="mt-1 text-[12.5px] text-muted-foreground">
+            Build a program in the editor and save it, then come back to publish it.
+          </p>
+          <a href="/dashboard" className={`${btnPrimary} mt-3`}>
             Create one first
-          </a>{" "}
-          and save it before publishing.
-        </p>
+          </a>
+        </div>
       </div>
     );
   }
 
+  const selected = projects.find((p) => p.id === projectId);
+  const previewPrice =
+    pricingModel === "FREE"
+      ? "Free"
+      : pricingModel === "PAY_WHAT_YOU_WANT"
+        ? "PWYW"
+        : priceSOL
+          ? `${priceSOL} SOL`
+          : "Paid";
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Project selector */}
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">
-          Project <span className="text-red-400">*</span>
-        </label>
-        <select
-          value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-        >
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}{" "}
-              {p.listing
-                ? `(${p.listing.status.toLowerCase().replace(/_/g, " ")})`
-                : ""}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-muted-foreground flex items-center gap-1">
-          <Info className="h-3 w-3" />
-          Only projects with saved flow data can be published.
-        </p>
-      </div>
-
-      {/* Title */}
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">
-          Title <span className="text-red-400">*</span>
-        </label>
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          maxLength={100}
-          placeholder="e.g. Simple Vault with PDA"
-          className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
-        />
-        <p className="text-right text-xs text-muted-foreground">
-          {title.length}/100
-        </p>
-      </div>
-
-      {/* Short description */}
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">
-          Short Description <span className="text-red-400">*</span>
-        </label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          maxLength={1000}
-          rows={3}
-          placeholder="One or two sentences that appear in search results and listing cards."
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-        />
-        <p className="text-right text-xs text-muted-foreground">
-          {description.length}/1000
-        </p>
-      </div>
-
-      {/* Long description */}
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium">
-          Full Description{" "}
-          <span className="text-xs text-muted-foreground font-normal">
-            (optional)
-          </span>
-        </label>
-        <textarea
-          value={longDescription}
-          onChange={(e) => setLongDescription(e.target.value)}
-          maxLength={5000}
-          rows={6}
-          placeholder="Detailed description, use-cases, architecture notes, and deploy instructions. Certified templates need compile, audit, tests, export package, and deploy notes."
-          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-        />
-        <p className="text-right text-xs text-muted-foreground">
-          {longDescription.length}/5000
-        </p>
-      </div>
-
-      {/* Category + Tags row */}
-      <div className="grid gap-4 sm:grid-cols-2">
-        {/* Category */}
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">
-            Category <span className="text-red-400">*</span>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <GraphThumbStyles />
+      <form onSubmit={handleSubmit} className="min-w-0 space-y-4">
+        {/* Project */}
+        <fieldset className={`${panel} space-y-1.5 p-4`}>
+          <label htmlFor="pub-project" className={label}>
+            Project{req}
           </label>
           <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value as Category)}
-            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/50"
+            id="pub-project"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            className={`${field} h-9`}
           >
-            {CATEGORIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}{" "}
+                {p.listing
+                  ? `(${p.listing.status.toLowerCase().replace(/_/g, " ")})`
+                  : ""}
               </option>
             ))}
           </select>
-        </div>
+          <p className={`${hint} flex items-center gap-1`}>
+            <Info className="h-3 w-3" />
+            Only projects with saved flow data can be published.
+          </p>
+        </fieldset>
 
-        {/* Tags */}
-        <div className="space-y-1.5">
-          <label className="text-sm font-medium">
-            Tags{" "}
-            <span className="text-xs text-muted-foreground font-normal">
-              (comma-separated, max 10)
-            </span>
-          </label>
-          <input
-            type="text"
-            value={tagsInput}
-            onChange={(e) => setTagsInput(e.target.value)}
-            placeholder="vault, pda, defi, escrow"
-            className="h-9 w-full rounded-md border border-border bg-background px-3 text-sm placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/50"
-          />
-          {tags.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {tags.map((tag) => (
-                <span
-                  key={tag}
-                  className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground"
+        {/* Listing copy */}
+        <fieldset className={`${panel} space-y-4 p-4`}>
+          <div className="space-y-1.5">
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="pub-title" className={label}>
+                Title{req}
+              </label>
+              <span className={`${hint} font-mono tabular-nums`}>{title.length}/100</span>
+            </div>
+            <input
+              id="pub-title"
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={100}
+              placeholder="e.g. Simple Vault with PDA"
+              className={`${field} h-9`}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="pub-desc" className={label}>
+                Short description{req}
+              </label>
+              <span className={`${hint} font-mono tabular-nums`}>{description.length}/1000</span>
+            </div>
+            <textarea
+              id="pub-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={1000}
+              rows={2}
+              placeholder="One or two sentences that appear in search results and listing cards."
+              className={`${field} resize-none py-2`}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex items-baseline justify-between">
+              <label htmlFor="pub-long" className={label}>
+                Full description <span className="font-normal text-muted-foreground">optional</span>
+              </label>
+              <span className={`${hint} font-mono tabular-nums`}>{longDescription.length}/5000</span>
+            </div>
+            <textarea
+              id="pub-long"
+              value={longDescription}
+              onChange={(e) => setLongDescription(e.target.value)}
+              maxLength={5000}
+              rows={6}
+              placeholder="Use-cases, architecture notes and deploy instructions. Certified templates need compile, audit, tests, an export package and deploy notes."
+              className={`${field} resize-y py-2`}
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label htmlFor="pub-category" className={label}>
+                Category{req}
+              </label>
+              <select
+                id="pub-category"
+                value={category}
+                onChange={(e) => setCategory(e.target.value as Category)}
+                className={`${field} h-9`}
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="pub-tags" className={label}>
+                Tags <span className="font-normal text-muted-foreground">comma-separated, max 10</span>
+              </label>
+              <input
+                id="pub-tags"
+                type="text"
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+                placeholder="vault, pda, defi, escrow"
+                className={`${field} h-9`}
+              />
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  {tags.map((tag) => (
+                    <Chip key={tag} className="font-mono">
+                      {tag}
+                    </Chip>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </fieldset>
+
+        {/* Pricing */}
+        <fieldset className={`${panel} space-y-3 p-4`}>
+          <legend className="sr-only">Pricing</legend>
+          <p className={label} aria-hidden>
+            Pricing
+          </p>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {(
+              [
+                { value: "FREE", label: "Free", desc: "Anyone can fork it" },
+                { value: "PAID", label: "Paid", desc: "Set a price in SOL" },
+                { value: "PAY_WHAT_YOU_WANT", label: "Pay what you want", desc: "Buyer chooses amount" },
+              ] as const
+            ).map((opt) => {
+              const on = pricingModel === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => setPricingModel(opt.value)}
+                  className={`flex items-start gap-2.5 rounded-[12px] border p-3 text-left transition-[border-color,background-color,transform] duration-150 ease-out active:scale-[0.98] outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                    on
+                      ? "border-primary/60 bg-primary/[0.07]"
+                      : "border-white/[0.08] bg-background/40 hover:border-white/[0.16]"
+                  }`}
                 >
-                  {tag}
-                </span>
-              ))}
+                  <span
+                    aria-hidden
+                    className={`mt-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border ${
+                      on ? "border-primary" : "border-white/25"
+                    }`}
+                  >
+                    {on && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+                  </span>
+                  <span>
+                    <span className="block text-[13px] font-medium">{opt.label}</span>
+                    <span className="block text-[11.5px] text-muted-foreground">{opt.desc}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {pricingModel === "PAID" && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="pub-price" className="sr-only">
+                Price in SOL
+              </label>
+              <input
+                id="pub-price"
+                type="number"
+                value={priceSOL}
+                onChange={(e) => setPriceSOL(e.target.value)}
+                min="0.01"
+                step="0.01"
+                placeholder="0.50"
+                className={`${field} h-9 w-32 font-mono`}
+              />
+              <span className="text-[13px] text-muted-foreground">SOL</span>
             </div>
           )}
-        </div>
-      </div>
+        </fieldset>
 
-      {/* Pricing */}
-      <div className="space-y-3">
-        <label className="text-sm font-medium">Pricing</label>
-        <div className="grid gap-2 sm:grid-cols-3">
-          {(
-            [
-              { value: "FREE", label: "Free", desc: "Anyone can fork it" },
-              {
-                value: "PAID",
-                label: "Paid",
-                desc: "Set a price in SOL",
-              },
-              {
-                value: "PAY_WHAT_YOU_WANT",
-                label: "Pay what you want",
-                desc: "Buyer chooses amount",
-              },
-            ] as const
-          ).map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => setPricingModel(opt.value)}
-              className={`rounded-lg border p-3 text-left transition-colors ${
-                pricingModel === opt.value
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-primary/40"
-              }`}
+        {/* Submit */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className={`${hint} max-w-sm`}>
+            Submissions are reviewed before they go public, usually within 1–2 business days. Track status in{" "}
+            <a
+              href="/marketplace/my-listings"
+              className="rounded text-primary hover:underline outline-none focus-visible:outline-2 focus-visible:outline-primary"
             >
-              <div className="text-sm font-medium">{opt.label}</div>
-              <div className="text-xs text-muted-foreground">{opt.desc}</div>
-            </button>
-          ))}
+              My listings
+            </a>
+            .
+          </p>
+          <button type="submit" disabled={publish.isPending} className={`${btnPrimary} h-9 shrink-0 px-4 disabled:opacity-50`}>
+            {publish.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            {publish.isPending ? "Submitting…" : "Submit for review"}
+          </button>
         </div>
+      </form>
 
-        {/* Price SOL field — only shown for PAID */}
-        {pricingModel === "PAID" && (
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={priceSOL}
-              onChange={(e) => setPriceSOL(e.target.value)}
-              min="0.01"
-              step="0.01"
-              placeholder="0.50"
-              className="h-9 w-32 rounded-md border border-border bg-background px-3 text-sm outline-none focus:ring-2 focus:ring-primary/50"
-            />
-            <span className="text-sm text-muted-foreground">SOL</span>
+      {/* Live card preview: how the listing will look in the marketplace */}
+      <aside className="hidden lg:block">
+        <div className="sticky top-20">
+          <p className="mb-2 text-[11.5px] text-muted-foreground">Card preview</p>
+          <div
+            data-lit
+            className="flex flex-col overflow-hidden rounded-[16px] border border-white/[0.07] bg-card shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_24px_48px_-24px_rgba(0,0,0,0.9)]"
+          >
+            <div className="mk-dots relative h-[132px] overflow-hidden border-b border-white/[0.07]">
+              <GraphThumb seed={projectId || "preview"} className="px-2 py-1" />
+              <div className="absolute left-2.5 top-2.5">
+                <FrameworkBadge framework={selected?.framework ?? "ANCHOR"} />
+              </div>
+            </div>
+            <div className="px-3.5 pb-3 pt-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="truncate text-[14px] font-medium">{title.trim() || selected?.name || "Untitled"}</h3>
+                <span className="shrink-0 font-mono text-[12px] text-muted-foreground">{previewPrice}</span>
+              </div>
+              <p className="mt-1 line-clamp-2 min-h-[2lh] text-[12.5px] leading-[1.45] text-muted-foreground">
+                {description.trim() || "Your short description shows here."}
+              </p>
+              {tags.length > 0 && (
+                <p className="mt-2 truncate font-mono text-[10.5px] text-muted-foreground/80">
+                  {tags.slice(0, 3).join(" · ")}
+                </p>
+              )}
+              <div className="mt-3 flex items-center justify-between border-t border-white/[0.06] pt-2.5 text-[12px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <AuthorAvatar name="You" image={null} />
+                  You
+                </span>
+                <span className="flex items-center gap-1 font-mono text-[11px]">
+                  <GitFork className="h-3 w-3" />0
+                </span>
+              </div>
+            </div>
           </div>
-        )}
-      </div>
-
-      {/* Review notice */}
-      <div className="rounded-lg border border-border bg-muted/30 p-4 text-xs text-muted-foreground">
-        <strong className="text-foreground">Review process:</strong> Your
-        submission will be reviewed before it appears publicly in the
-        marketplace. Typically takes 1–2 business days. You&apos;ll be able to
-        track the status in{" "}
-        <a
-          href="/marketplace/my-listings"
-          className="text-primary hover:underline"
-        >
-          My Listings
-        </a>
-        .
-      </div>
-
-      {/* Submit */}
-      <button
-        type="submit"
-        disabled={publish.isPending}
-        className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-      >
-        {publish.isPending ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <Send className="h-4 w-4" />
-        )}
-        {publish.isPending ? "Submitting…" : "Submit for Review"}
-      </button>
-    </form>
+        </div>
+      </aside>
+    </div>
   );
 }

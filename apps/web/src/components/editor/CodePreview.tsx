@@ -14,6 +14,8 @@ import type * as MonacoNamespace from "monaco-editor";
 import { useCodeStore } from "@/store/code-store";
 import type { CodeFocusRequest, GeneratedFile } from "@/store/code-store";
 import { CodeCompareView } from "./CodeCompareView";
+import { ArrowLeftRight, FileCode2, FileCog, FileJson } from "lucide-react";
+import { EdEmptyState, edChipBtn } from "@/components/ui-kit/editor-ui";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -202,9 +204,9 @@ export function CodePreview() {
   // ── Empty / error state ──────────────────────────────────────────
   if (!generatedCode && errors.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <EdEmptyState icon={<FileCode2 size={15} />}>
         Add nodes to the canvas to see generated code here.
-      </div>
+      </EdEmptyState>
     );
   }
 
@@ -214,7 +216,7 @@ export function CodePreview() {
         {errors.map((e, i) => (
           <div
             key={i}
-            className="rounded border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs font-mono text-destructive"
+            className="rounded-lg border border-red-500/25 bg-red-500/[0.07] px-3 py-2 font-mono text-[12px] leading-[1.55] text-red-300"
           >
             {e.message}
           </div>
@@ -228,13 +230,13 @@ export function CodePreview() {
     return (
       <div className="flex h-full flex-col overflow-hidden">
         {/* Compare header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-3 py-1.5">
-          <span className="text-xs font-semibold text-foreground">
+        <div className="flex h-9 shrink-0 items-center justify-between border-b border-border bg-card px-3">
+          <span className="text-[12px] font-semibold text-foreground">
             Framework Compare
           </span>
           <button
             onClick={() => setCompareMode(false)}
-            className="rounded border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className={edChipBtn}
           >
             Exit Compare
           </button>
@@ -250,8 +252,8 @@ export function CodePreview() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* File tabs + compare toggle */}
-      <div className="flex shrink-0 items-center overflow-x-auto border-b border-border bg-card">
-        <div className="flex min-w-0 flex-1 overflow-x-auto">
+      <div className="flex h-9 shrink-0 items-stretch overflow-x-auto border-b border-border bg-card [scrollbar-width:none]">
+        <div className="flex min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
           {files.map((file) => {
             const isActive = file.path === (activeFile ?? files[0]?.path);
             return (
@@ -260,11 +262,10 @@ export function CodePreview() {
                 onClick={() => handleTabClick(file.path)}
                 title={file.path}
                 className={cn(
-                  "flex shrink-0 items-center gap-1.5 border-r border-border px-3 py-1.5 text-xs transition-colors",
-                  "hover:bg-accent hover:text-accent-foreground",
+                  "relative flex shrink-0 items-center gap-1.5 border-r border-white/[0.06] px-3 font-mono text-[12px] outline-none transition-colors duration-150 ease-out focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary",
                   isActive
-                    ? "border-b-2 border-b-primary bg-background text-foreground"
-                    : "text-muted-foreground",
+                    ? "bg-background text-foreground shadow-[inset_0_-2px_0_var(--primary)]"
+                    : "text-muted-foreground hover:bg-white/[0.03] hover:text-foreground",
                 )}
               >
                 <FileIcon path={file.path} />
@@ -276,18 +277,19 @@ export function CodePreview() {
         <button
           onClick={() => setCompareMode(true)}
           title="Compare generated framework output side-by-side"
-          className="shrink-0 border-l border-border px-3 py-1.5 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors whitespace-nowrap"
+          className="flex shrink-0 items-center gap-1.5 whitespace-nowrap border-l border-white/[0.06] px-3 text-[12px] font-medium text-muted-foreground outline-none transition-colors duration-150 ease-out hover:bg-white/[0.04] hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary"
         >
-          ⇄ Compare
+          <ArrowLeftRight size={12} />
+          Compare
         </button>
       </div>
 
       {/* Path breadcrumb */}
       {currentFile && (
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-3 py-1 font-mono text-xs text-muted-foreground">
+        <div className="flex h-7 shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] bg-background px-3 font-mono text-[11.5px] text-muted-foreground">
           <span>{currentFile.path}</span>
           {focusTarget?.path === currentFile.path && (
-            <span className="rounded border border-cyan-500/30 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-300">
+            <span className="rounded-[4px] border border-primary/30 bg-primary/10 px-1.5 text-[11px] text-primary">
               audit focus: line {focusTarget.line}
             </span>
           )}
@@ -338,29 +340,27 @@ export function CodePreview() {
             </div>
           </>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            No file selected.
-          </div>
+          <EdEmptyState>No file selected.</EdEmptyState>
         )}
       </div>
 
       {/* Error / warning banner */}
       {(errors.length > 0 || (generatedCode?.warnings?.length ?? 0) > 0) && (
-        <div className="shrink-0 border-t border-border bg-card">
+        <div className="max-h-28 shrink-0 overflow-y-auto border-t border-border bg-card py-1">
           {errors.map((e, i) => (
             <div
               key={`err-${i}`}
-              className="flex items-center gap-2 px-3 py-1 text-xs text-destructive"
+              className="flex items-center gap-2 px-3 py-0.5 font-mono text-[12px] text-red-400"
             >
-              <span className="font-bold">Error:</span> {e.message}
+              <span className="font-semibold">Error:</span> {e.message}
             </div>
           ))}
           {generatedCode?.warnings?.map((w, i) => (
             <div
               key={`warn-${i}`}
-              className="flex items-center gap-2 px-3 py-1 text-xs text-yellow-500"
+              className="flex items-center gap-2 px-3 py-0.5 font-mono text-[12px] text-amber-300"
             >
-              <span className="font-bold">Warning:</span> {w.message}
+              <span className="font-semibold">Warning:</span> {w.message}
             </div>
           ))}
         </div>
@@ -379,7 +379,7 @@ export function CodePreview() {
 
 function PlainCodeFallback({ file }: { file: GeneratedFile }) {
   return (
-    <pre className="h-full overflow-auto bg-zinc-950 p-3 font-mono text-[12px] leading-5 text-zinc-200">
+    <pre className="h-full overflow-auto bg-[#1e1e1e] p-3 pl-4 font-mono text-[12px] leading-5 text-zinc-200">
       <code>{file.content}</code>
     </pre>
   );
@@ -388,10 +388,10 @@ function PlainCodeFallback({ file }: { file: GeneratedFile }) {
 // ─── File type icon ───────────────────────────────────────────────────────────
 
 function FileIcon({ path }: { path: string }) {
-  if (path.endsWith(".rs")) return <span className="text-orange-400">🦀</span>;
-  if (path.endsWith(".toml")) return <span className="text-blue-400">⚙</span>;
-  if (path.endsWith(".ts")) return <span className="text-blue-500">TS</span>;
+  if (path.endsWith(".rs")) return <FileCode2 size={13} aria-hidden className="text-[#f2a98a]" />;
+  if (path.endsWith(".toml")) return <FileCog size={13} aria-hidden className="text-muted-foreground" />;
+  if (path.endsWith(".ts")) return <FileCode2 size={13} aria-hidden className="text-[#8fd1e8]" />;
   if (path.endsWith(".json"))
-    return <span className="text-yellow-400">{"{}"}</span>;
+    return <FileJson size={13} aria-hidden className="text-[#d6b98a]" />;
   return null;
 }

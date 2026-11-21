@@ -1,0 +1,236 @@
+/* Docs entry-card miniatures. Tokens match the landing (landing.css). Scoped under .dmini. */
+
+.dmini {
+  & .ss-stage {
+    --dm-bg: #08090b;
+    --dm-s1: #0e1013;
+    --dm-s2: #14161a;
+    --dm-line: rgba(255, 255, 255, 0.07);
+    --dm-line-2: rgba(255, 255, 255, 0.12);
+    --dm-text: #ededf0;
+    --dm-text-2: #a3a7b0;
+    --dm-text-3: #7a7f89;
+    --ss-font: var(--font-sans);
+    --ss-mono: var(--font-mono);
+    --ss-surface: var(--dm-s1);
+    --ss-text-strong: var(--dm-text);
+    --ss-text: var(--dm-text-2);
+    --ss-line: var(--dm-line);
+    --ss-accent: #58d3db;
+    background: transparent;
+    overflow: hidden;
+    font-family: var(--font-sans);
+  }
+
+  /* A window hung from the top-left, running off the right and bottom */
+  & .dm-win,
+  & .dm-term {
+    position: absolute;
+    left: 14px;
+    top: 14px;
+    width: 400px;
+    height: 240px;
+    background: var(--dm-s1);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 0 0 1px var(--dm-line-2), 0 30px 60px -30px rgba(0, 0, 0, 0.9);
+  }
+  & .dm-win .ss-window__bar {
+    background: var(--dm-s1);
+  }
+  & .dm-canvas {
+    position: relative;
+    height: 202px;
+    background-color: var(--dm-bg);
+    background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    background-size: 14px 14px;
+    background-position: 7px 7px;
+    overflow: hidden;
+  }
+  & .dm-wires {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 380px;
+    height: 200px;
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.24);
+    stroke-width: 1.25;
+  }
+  & .dm-draw {
+    stroke: #58d3db;
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 420ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  & .dm-draw[data-on] {
+    stroke-dashoffset: 0;
+  }
+
+  /* Editor nodes */
+  & .dm-node {
+    position: absolute;
+    width: 112px;
+    height: 54px;
+    border-radius: 9px;
+    background: var(--dm-s2);
+    box-shadow: 0 0 0 1px var(--dm-line-2), 0 8px 20px -10px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+    --c: #8b8cf8;
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+    transition: opacity 240ms ease-out, transform 320ms cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  & .dm-node[data-on] {
+    opacity: 1;
+    transform: none;
+  }
+  & .dm-node--ix {
+    --c: #38bdf8;
+  }
+  & .dm-node--state {
+    --c: #f5a524;
+  }
+  & .dm-node__head {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    height: 26px;
+    padding: 0 8px;
+    border-bottom: 1px solid var(--dm-line);
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--dm-text-2);
+  }
+  & .dm-node__badge {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 16%, transparent);
+  }
+  & .dm-node__name {
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--dm-text);
+  }
+
+  /* Terminal */
+  & .dm-term {
+    --ss-term-bg: var(--dm-s1);
+    --ss-term-path: var(--dm-text-3);
+    --ss-term-sigil: #58d3db;
+    --ss-term-dim: var(--dm-text-3);
+  }
+  & .dm-term__body {
+    display: flex;
+    flex-direction: column;
+    padding: 10px 16px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    line-height: 19px;
+    color: #c9ccd3;
+  }
+  & .dm-term__body .ss-term__prompt {
+    font-size: 11.5px;
+    line-height: 19px;
+    margin-bottom: 6px;
+  }
+  & .dm-out {
+    white-space: pre;
+    opacity: 0;
+    transform: translateY(3px);
+    transition: opacity 220ms ease-out, transform 220ms cubic-bezier(0.25, 0.8, 0.25, 1);
+    transition-delay: calc(var(--i, 0) * 60ms);
+  }
+  & .dm-out[data-on] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* Cloud nodes: category edge, icon chip, label, status mark, then a key in mono */
+  & .dm-flow {
+    position: absolute;
+    width: 124px;
+    height: 52px;
+    border-radius: 9px;
+    background: var(--dm-s2);
+    box-shadow: 0 0 0 1px var(--dm-line-2), 0 8px 20px -10px rgba(0, 0, 0, 0.8);
+    overflow: hidden;
+    --c: #38bdf8;
+  }
+  & .dm-flow::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--c);
+  }
+  & .dm-flow--trigger {
+    --c: #58d3db;
+  }
+  & .dm-flow--logic {
+    --c: #f5a524;
+  }
+  & .dm-flow__head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 8px 0 10px;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--dm-text);
+  }
+  & .dm-flow__chip {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    color: var(--c);
+    background: color-mix(in srgb, var(--c) 16%, transparent);
+  }
+  & .dm-flow__label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+  }
+  & .dm-flow__st {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    transition: background-color 200ms ease-out, box-shadow 200ms ease-out;
+  }
+  & .dm-flow[data-st="1"] .dm-flow__st {
+    background: #f5a524;
+    box-shadow: 0 0 0 3px rgba(245, 165, 36, 0.18);
+  }
+  & .dm-flow[data-st="2"] .dm-flow__st {
+    background: #4ade80;
+  }
+  & .dm-flow__k {
+    padding: 0 8px 0 10px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--dm-text-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dmini .dm-node,
+  .dmini .dm-out,
+  .dmini .dm-draw,
+  .dmini .dm-flow__st {
+    transition: none;
+  }
+}

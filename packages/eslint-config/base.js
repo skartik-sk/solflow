@@ -8,6 +8,8 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/.next/**",
       "**/out/**",
+      // Vendored stageshow kit (MIT, see its LICENSE)
+      "**/components/landing/kit/**",
     ],
   },
   ...tseslint.configs.recommended,

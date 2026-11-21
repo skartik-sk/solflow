@@ -15,9 +15,9 @@ const TYPE_CATEGORIES = ["primitive", "vec", "option", "array", "defined", "enum
 type TypeCategory = (typeof TYPE_CATEGORIES)[number];
 
 const selectClass =
-  "w-full rounded-md border border-border bg-input px-2 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+  "h-7 w-full rounded-md border border-white/[0.08] bg-background/60 px-1.5 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20";
 const inputClass =
-  "w-full rounded-md border border-border bg-input px-2.5 py-1.5 text-xs outline-none focus:border-primary focus:ring-1 focus:ring-primary";
+  "h-7 w-full rounded-md border border-white/[0.08] bg-background/60 px-2 text-[12px] outline-none transition-[border-color,box-shadow] duration-150 ease-out hover:border-white/[0.14] focus:border-primary/70 focus:ring-2 focus:ring-primary/20";
 
 function getCategory(t: SolanaType): TypeCategory {
   if (typeof t === "string") {
@@ -86,9 +86,9 @@ export function TypeEditor({ value, onChange, availableStates, compact }: TypeEd
   }
 
   return (
-    <div className="space-y-1.5 rounded border border-border p-2">
+    <div className="space-y-1.5 rounded-lg border border-white/[0.07] bg-background/30 p-2">
       <div className="flex items-center gap-1.5">
-        <span className="text-[10px] font-medium text-muted-foreground shrink-0">Type</span>
+        <span className="shrink-0 text-[11px] font-medium text-muted-foreground">Type</span>
         <select
           className={selectClass}
           value={category}
@@ -181,8 +181,8 @@ function TypeValueEditor({
     case "vec": {
       const inner = typeof value === "object" && "vec" in value ? value.vec : ("u64" as SolanaType);
       return (
-        <div className="pl-2 border-l-2 border-border space-y-1">
-          <span className="text-[10px] text-muted-foreground">Vec inner type</span>
+        <div className="space-y-1 border-l border-white/[0.1] pl-2">
+          <span className="text-[11px] text-muted-foreground">Vec inner type</span>
           <TypeEditor value={inner} onChange={(t) => onChange({ vec: t })} availableStates={availableStates} compact />
         </div>
       );
@@ -191,8 +191,8 @@ function TypeValueEditor({
     case "option": {
       const inner = typeof value === "object" && "option" in value ? value.option : ("u64" as SolanaType);
       return (
-        <div className="pl-2 border-l-2 border-border space-y-1">
-          <span className="text-[10px] text-muted-foreground">Option inner type</span>
+        <div className="space-y-1 border-l border-white/[0.1] pl-2">
+          <span className="text-[11px] text-muted-foreground">Option inner type</span>
           <TypeEditor value={inner} onChange={(t) => onChange({ option: t })} availableStates={availableStates} compact />
         </div>
       );
@@ -204,11 +204,11 @@ function TypeValueEditor({
       const size =
         typeof value === "object" && "array" in value ? value.array[1] : 8;
       return (
-        <div className="pl-2 border-l-2 border-border space-y-1">
-          <span className="text-[10px] text-muted-foreground">Array inner type</span>
+        <div className="space-y-1 border-l border-white/[0.1] pl-2">
+          <span className="text-[11px] text-muted-foreground">Array inner type</span>
           <TypeEditor value={inner} onChange={(t) => onChange({ array: [t, size] })} availableStates={availableStates} compact />
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground shrink-0">Size</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">Size</span>
             <input
               className={inputClass}
               type="number"
@@ -227,10 +227,10 @@ function TypeValueEditor({
       const val =
         typeof value === "object" && "hashMap" in value ? value.hashMap[1] : ("u64" as SolanaType);
       return (
-        <div className="pl-2 border-l-2 border-border space-y-1">
-          <span className="text-[10px] text-muted-foreground">Key type</span>
+        <div className="space-y-1 border-l border-white/[0.1] pl-2">
+          <span className="text-[11px] text-muted-foreground">Key type</span>
           <TypeEditor value={key} onChange={(k) => onChange({ hashMap: [k, val] })} availableStates={availableStates} compact />
-          <span className="text-[10px] text-muted-foreground">Value type</span>
+          <span className="text-[11px] text-muted-foreground">Value type</span>
           <TypeEditor value={val} onChange={(v) => onChange({ hashMap: [key, v] })} availableStates={availableStates} compact />
         </div>
       );
@@ -241,16 +241,16 @@ function TypeValueEditor({
         ? value.enum
         : { name: "MyEnum", variants: [{ name: "Variant1" }] };
       return (
-        <div className="pl-2 border-l-2 border-border space-y-1">
+        <div className="space-y-1 border-l border-white/[0.1] pl-2">
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-muted-foreground shrink-0">Name</span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">Name</span>
             <input
               className={inputClass}
               value={enumDef.name}
               onChange={(e) => onChange({ enum: { ...enumDef, name: e.target.value } })}
             />
           </div>
-          <span className="text-[10px] text-muted-foreground">Variants</span>
+          <span className="text-[11px] text-muted-foreground">Variants</span>
           {enumDef.variants.map((v, i) => (
             <div key={i} className="flex items-center gap-1">
               <input
@@ -263,7 +263,7 @@ function TypeValueEditor({
                 }}
               />
               <button
-                className="text-red-500 hover:text-red-400 text-xs"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[12px] text-muted-foreground outline-none transition-colors duration-150 hover:bg-red-500/10 hover:text-red-400 focus-visible:outline-2 focus-visible:outline-primary"
                 onClick={() => {
                   const newVariants = enumDef.variants.filter((_, vi) => vi !== i);
                   onChange({ enum: { ...enumDef, variants: newVariants.length ? newVariants : [{ name: "Variant1" }] } });
@@ -274,7 +274,7 @@ function TypeValueEditor({
             </div>
           ))}
           <button
-            className="text-[10px] text-primary hover:underline"
+            className="rounded text-[11px] font-medium text-primary outline-none hover:underline focus-visible:outline-2 focus-visible:outline-primary"
             onClick={() =>
               onChange({ enum: { ...enumDef, variants: [...enumDef.variants, { name: `Variant${enumDef.variants.length + 1}` }] } })
             }

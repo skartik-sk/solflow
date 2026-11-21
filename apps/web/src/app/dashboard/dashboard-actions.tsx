@@ -57,75 +57,81 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
         onClick={onClose}
       />
 
       {/* Dialog */}
-      <div className="relative w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl shadow-black/40">
-        <h2 className="mb-1 text-lg font-semibold">New project</h2>
-        <p className="mb-5 text-sm text-muted-foreground">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-project-title"
+        className="relative w-full max-w-[420px] rounded-[16px] border border-white/[0.08] bg-popover p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_40px_100px_-30px_rgba(0,0,0,0.9)]"
+      >
+        <h2 id="new-project-title" className="text-[15px] font-semibold tracking-[-0.01em]">New project</h2>
+        <p className="mb-4 mt-0.5 text-[13px] text-muted-foreground">
           Give your Solana program a name and choose a framework.
         </p>
 
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           {/* Name */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium">
+            <label htmlFor="new-project-name" className="mb-1.5 block text-[12px] font-medium text-foreground/90">
               Project name <span className="text-destructive">*</span>
             </label>
             <input
+              id="new-project-name"
               type="text"
+              autoComplete="off"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="my_token_program"
-              className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:ring-offset-2 font-mono"
+              className="h-9 w-full rounded-[10px] border border-white/[0.08] bg-background px-3 font-mono text-[16px] outline-none transition-colors duration-150 placeholder:text-muted-foreground/70 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 sm:text-[13px]"
               autoFocus
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
-            <p className="mt-1 text-xs text-muted-foreground">
+            <p className="mt-1 text-[11px] text-muted-foreground">
               snake_case recommended
             </p>
           </div>
 
           {/* Description */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium">
+            <label htmlFor="new-project-description" className="mb-1.5 block text-[12px] font-medium text-foreground/90">
               Description{" "}
               <span className="text-muted-foreground">(optional)</span>
             </label>
             <textarea
+              id="new-project-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="A brief description of your program..."
               rows={2}
-              className="w-full resize-none rounded-lg border border-border bg-input px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus:ring-2 focus:ring-primary focus:ring-offset-2"
+              className="w-full resize-none rounded-[10px] border border-white/[0.08] bg-background px-3 py-2 text-[16px] outline-none transition-colors duration-150 placeholder:text-muted-foreground/70 focus-visible:border-primary/60 focus-visible:ring-2 focus-visible:ring-primary/30 sm:text-[13px]"
             />
           </div>
 
           {/* Framework toggle */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium">
+            <p id="new-project-framework" className="mb-1.5 block text-[12px] font-medium text-foreground/90">
               Framework
-            </label>
-            <div className="grid grid-cols-3 gap-2">
+            </p>
+            <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-labelledby="new-project-framework">
               {(["ANCHOR", "PINOCCHIO", "QUASAR"] as const).map((fw) => (
                 <button
                   key={fw}
                   type="button"
+                  role="radio"
+                  aria-checked={framework === fw}
                   onClick={() => setFramework(fw)}
-                  className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                  className={`rounded-[10px] border px-2.5 py-2 text-left text-[13px] font-medium transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.98] ${
                     framework === fw
-                      ? fw === "ANCHOR"
-                        ? "border-blue-500/60 bg-blue-500/10 text-blue-400"
-                        : fw === "PINOCCHIO"
-                          ? "border-violet-500/60 bg-violet-500/10 text-violet-400"
-                          : "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
-                      : "border-border bg-card text-muted-foreground hover:border-border/80 hover:text-foreground"
+                      ? "border-primary/60 bg-primary/10 text-foreground"
+                      : "border-white/[0.08] bg-background text-muted-foreground hover:border-white/[0.14] hover:text-foreground"
                   }`}
                 >
                   {fw === "ANCHOR" ? "Anchor" : fw === "PINOCCHIO" ? "Pinocchio" : "Quasar"}
-                  <p className="mt-0.5 text-xs opacity-70">
+                  <p className="mt-0.5 text-[11px] font-normal text-muted-foreground">
                     {fw === "ANCHOR" ? "High-level, safe" : fw === "PINOCCHIO" ? "Zero-copy, fast" : "Zero-copy, easy"}
                   </p>
                 </button>
@@ -135,11 +141,11 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer */}
-        <div className="mt-6 flex justify-end gap-3">
+        <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="h-9 rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-accent transition-colors"
+            className="h-9 rounded-[10px] border border-white/[0.08] bg-background px-3.5 text-[13px] font-medium transition-colors duration-150 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97]"
           >
             Cancel
           </button>
@@ -147,7 +153,7 @@ function CreateProjectDialog({ onClose }: { onClose: () => void }) {
             type="button"
             onClick={handleCreate}
             disabled={createProject.isPending || !name.trim()}
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-primary px-3.5 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-colors duration-150 hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             {createProject.isPending ? "Creating..." : "Create project"}
@@ -225,14 +231,14 @@ function ProjectMenu({
   return (
     <div
       ref={ref}
-      className="absolute right-0 top-8 z-20 w-52 rounded-lg border border-border bg-popover p-1 shadow-xl shadow-black/30"
+      className="absolute right-0 top-9 z-20 w-48 rounded-[12px] border border-white/[0.08] bg-popover p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.05),0_20px_50px_-15px_rgba(0,0,0,0.85)]"
     >
       <button
         onClick={(e) => {
           e.preventDefault();
           router.push(`/editor/${projectId}`);
         }}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+        className="flex h-8 w-full items-center gap-2 rounded-[8px] px-2.5 text-[13px] outline-none transition-colors duration-150 hover:bg-accent focus-visible:bg-accent"
       >
         <ExternalLink className="h-3.5 w-3.5" />
         Open editor
@@ -249,7 +255,7 @@ function ProjectMenu({
               if (e.key === "Enter") commitRename();
               if (e.key === "Escape") { setNameInput(projectName); setRenaming(false); }
             }}
-            className="w-full rounded border border-primary bg-background px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-primary"
+            className="h-8 w-full rounded-[8px] border border-primary/60 bg-background px-2 text-[16px] outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:text-[13px]"
           />
         </div>
       ) : (
@@ -259,20 +265,20 @@ function ProjectMenu({
             setNameInput(projectName);
             setRenaming(true);
           }}
-          className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm hover:bg-accent transition-colors"
+          className="flex h-8 w-full items-center gap-2 rounded-[8px] px-2.5 text-[13px] outline-none transition-colors duration-150 hover:bg-accent focus-visible:bg-accent"
         >
           <Pencil className="h-3.5 w-3.5" />
           Rename
         </button>
       )}
-      <div className="my-1 border-t border-border" />
+      <div className="my-1 border-t border-white/[0.07]" />
       <button
         onClick={(e) => {
           e.preventDefault();
           handleDelete();
         }}
         disabled={deleteProject.isPending}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50 transition-colors"
+        className="flex h-8 w-full items-center gap-2 rounded-[8px] px-2.5 text-[13px] text-destructive outline-none transition-colors duration-150 hover:bg-destructive/10 focus-visible:bg-destructive/10 disabled:opacity-50"
       >
         <Trash2 className="h-3.5 w-3.5" />
         {deleteProject.isPending ? "Deleting..." : "Delete"}
@@ -304,7 +310,7 @@ export function DashboardActions({
             e.stopPropagation();
             setShowMenu((v) => !v);
           }}
-          className="flex h-7 w-7 items-center justify-center rounded-md border border-border bg-card/80 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          className="flex h-8 w-8 items-center justify-center rounded-[8px] border border-white/[0.1] bg-popover/90 text-muted-foreground backdrop-blur-sm transition-colors duration-150 hover:bg-accent hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary active:scale-[0.95]"
           aria-label="Project options"
         >
           <MoreHorizontal className="h-4 w-4" />
@@ -326,7 +332,7 @@ export function DashboardActions({
     <>
       <button
         onClick={() => setShowCreate(true)}
-        className="inline-flex h-9 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors"
+        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-primary px-3.5 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-colors duration-150 hover:bg-primary/90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary active:scale-[0.97]"
       >
         <Plus className="h-4 w-4" />
         New project

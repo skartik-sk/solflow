@@ -343,7 +343,7 @@ export function TransactionBuilderPanel() {
 
   if (allInstructions.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
         Generate code first — instructions will appear here for transaction
         building.
       </div>
@@ -353,11 +353,11 @@ export function TransactionBuilderPanel() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ── Controls row ── */}
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5 min-h-10">
         <select
           value={selectedIx}
           onChange={(e) => handleSelectIx(e.target.value)}
-          className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          className="rounded-md border border-white/[0.08] bg-card px-2 py-1 text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
         >
           <option value="">— select instruction —</option>
           {allInstructions.map((ix) => (
@@ -370,7 +370,7 @@ export function TransactionBuilderPanel() {
         <select
           value={selectedNetwork}
           onChange={(e) => setSelectedNetwork(e.target.value as Network)}
-          className="rounded border border-border bg-card px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          className="rounded-md border border-white/[0.08] bg-card px-2 py-1 text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
         >
           <option value="devnet">Devnet</option>
           <option value="mainnet">Mainnet</option>
@@ -389,13 +389,13 @@ export function TransactionBuilderPanel() {
           placeholder="Program ID"
           value={programId}
           onChange={(e) => setProgramId(e.target.value)}
-          className="w-64 rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+          className="w-64 rounded-md border border-white/[0.08] bg-background/60 px-2 py-1 font-mono text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
         />
 
         <button
           onClick={simulate}
           disabled={loading || !selectedIx}
-          className="rounded bg-primary px-3 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
         >
           {loading ? "Simulating…" : "Simulate"}
         </button>
@@ -403,7 +403,7 @@ export function TransactionBuilderPanel() {
         <button
           onClick={send}
           disabled={loading || !selectedIx}
-          className="rounded border border-border px-3 py-1 text-xs hover:bg-accent disabled:opacity-50"
+          className="rounded-md border border-white/[0.08] px-3 py-1 text-[12px] hover:bg-white/[0.06] disabled:opacity-50"
         >
           Send
         </button>
@@ -412,16 +412,16 @@ export function TransactionBuilderPanel() {
       {/* ── Form ── */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {!instruction && (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
             Select an instruction above to build a transaction.
           </div>
         )}
 
         {instruction && (
-          <div className="divide-y divide-border/30 px-4 py-3 space-y-4">
+          <div className="divide-y divide-white/[0.05] px-4 py-3 space-y-4">
             {/* Fee payer */}
             <div>
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-1 text-[11px] font-semibold text-muted-foreground">
                 Fee Payer
               </p>
               <div className="flex items-center gap-1">
@@ -430,13 +430,13 @@ export function TransactionBuilderPanel() {
                   placeholder="pubkey (leave empty to use wallet)"
                   value={payer}
                   onChange={(e) => setPayer(e.target.value)}
-                  className="flex-1 rounded border border-border bg-muted/30 px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="flex-1 rounded-md border border-white/[0.08] bg-background/60 px-2 py-1 font-mono text-[12px] focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
                 />
                 {wallet.publicKey && (
                   <button
                     onClick={() => setPayer(wallet.publicKey!.toBase58())}
                     title="Use connected wallet"
-                    className="shrink-0 rounded border border-border px-1.5 py-1 text-[9px] text-primary hover:bg-accent transition-colors"
+                    className="shrink-0 rounded-md border border-white/[0.08] px-1.5 py-1 text-[11px] text-primary hover:bg-white/[0.06] transition-colors duration-150 ease-out"
                   >
                     Wallet
                   </button>
@@ -448,7 +448,7 @@ export function TransactionBuilderPanel() {
             {instruction.accounts.length > 0 && (
               <div className="pt-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                  <p className="text-[11px] font-semibold text-muted-foreground">
                     Accounts
                   </p>
                   {wallet.publicKey && instruction.accounts.some((a: Account) => a.constraints.some((c) => c.type === "signer")) && (
@@ -463,7 +463,7 @@ export function TransactionBuilderPanel() {
                         setAccounts(updated);
                         if (!payer) setPayer(wallet.publicKey!.toBase58());
                       }}
-                      className="text-[9px] text-primary hover:underline"
+                      className="text-[11px] text-primary hover:underline"
                     >
                       Auto-fill signers
                     </button>
@@ -482,12 +482,12 @@ export function TransactionBuilderPanel() {
                         </span>
                         <span className="flex gap-1 shrink-0">
                           {isSigner && (
-                            <span className="rounded bg-yellow-500/10 px-1 py-0.5 text-[9px] text-yellow-400">
+                            <span className="rounded bg-yellow-500/10 px-1 py-0.5 text-[11px] text-yellow-400">
                               signer
                             </span>
                           )}
                           {isMut && (
-                            <span className="rounded bg-blue-500/10 px-1 py-0.5 text-[9px] text-blue-400">
+                            <span className="rounded bg-blue-500/10 px-1 py-0.5 text-[11px] text-blue-400">
                               writable
                             </span>
                           )}
@@ -502,7 +502,7 @@ export function TransactionBuilderPanel() {
                               [acc.name]: e.target.value,
                             }))
                           }
-                          className="flex-1 rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                          className="flex-1 rounded-md border border-white/[0.08] bg-background/60 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
                         />
                         {wallet.publicKey && isSigner && (
                           <button
@@ -513,7 +513,7 @@ export function TransactionBuilderPanel() {
                               }))
                             }
                             title="Use connected wallet"
-                            className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[9px] text-primary hover:bg-accent transition-colors"
+                            className="shrink-0 rounded-md border border-white/[0.08] px-1.5 py-0.5 text-[11px] text-primary hover:bg-white/[0.06] transition-colors duration-150 ease-out"
                           >
                             Me
                           </button>
@@ -528,7 +528,7 @@ export function TransactionBuilderPanel() {
             {/* Args */}
             {(instruction.args ?? []).length > 0 && (
               <div className="pt-3">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
                   Arguments
                 </p>
                 <div className="space-y-1.5">
@@ -537,7 +537,7 @@ export function TransactionBuilderPanel() {
                       <span className="w-36 shrink-0 font-mono text-[11px]">
                         {arg.name}
                       </span>
-                      <span className="shrink-0 rounded bg-muted/50 px-1 py-0.5 font-mono text-[9px] text-muted-foreground">
+                      <span className="shrink-0 rounded bg-muted/50 px-1 py-0.5 font-mono text-[11px] text-muted-foreground">
                         {typeLabel(arg.type)}
                       </span>
                       <input
@@ -550,7 +550,7 @@ export function TransactionBuilderPanel() {
                             [arg.name]: e.target.value,
                           }))
                         }
-                        className="flex-1 rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
+                        className="flex-1 rounded-md border border-white/[0.08] bg-background/60 px-2 py-0.5 font-mono text-[11px] placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/70 focus:ring-2 focus:ring-primary/20"
                       />
                     </div>
                   ))}
@@ -560,14 +560,14 @@ export function TransactionBuilderPanel() {
 
             {/* Error */}
             {error && (
-              <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+              <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-[12px] text-red-400">
                 {error}
               </div>
             )}
 
             {/* Send signature */}
             {sendSig && (
-              <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400 font-mono break-all">
+              <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-[12px] text-green-400 font-mono break-all">
                 Sent: {sendSig}
               </div>
             )}
@@ -575,7 +575,7 @@ export function TransactionBuilderPanel() {
             {/* Simulation result */}
             {simResult && (
               <div className="pt-2">
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <p className="mb-2 text-[11px] font-semibold text-muted-foreground">
                   Simulation Result
                 </p>
                 <div
@@ -587,25 +587,25 @@ export function TransactionBuilderPanel() {
                 >
                   <div className="flex items-center gap-3 mb-2">
                     <span
-                      className={`text-xs font-semibold ${
+                      className={`text-[12px] font-semibold ${
                         simResult.success ? "text-green-400" : "text-red-400"
                       }`}
                     >
                       {simResult.success ? "Success (simulated)" : "Failed"}
                     </span>
                     {simResult.unitsConsumed !== undefined && (
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-[11px] text-muted-foreground">
                         ~{simResult.unitsConsumed.toLocaleString()} CU
                       </span>
                     )}
                   </div>
                   {simResult.error && (
-                    <p className="mb-2 text-xs text-red-400">
+                    <p className="mb-2 text-[12px] text-red-400">
                       {simResult.error}
                     </p>
                   )}
                   {simResult.logs.length > 0 && (
-                    <pre className="font-mono text-[10px] text-muted-foreground whitespace-pre-wrap">
+                    <pre className="font-mono text-[11px] text-muted-foreground whitespace-pre-wrap">
                       {simResult.logs.join("\n")}
                     </pre>
                   )}

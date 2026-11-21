@@ -125,10 +125,10 @@ export function IDLPanel() {
 
   if (!irJson) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-[13px] text-muted-foreground">
         <div className="text-3xl text-muted-foreground/30">{"{ }"}</div>
         <p>Add nodes to the canvas to generate an IDL.</p>
-        <p className="text-xs text-muted-foreground/60">
+        <p className="text-[12px] text-muted-foreground/60">
           The IDL is automatically derived from your program&apos;s IR
           (instructions, accounts, types).
         </p>
@@ -141,28 +141,28 @@ export function IDLPanel() {
       {/* ── Left: Summary + Controls ─────────────────────────── */}
       <div className="flex w-60 shrink-0 flex-col border-r border-border bg-card">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-1.5 min-h-10">
+          <span className="text-[12px] font-semibold text-foreground">
             IDL
           </span>
           {/* Format toggle */}
-          <div className="flex rounded border border-border overflow-hidden">
+          <div className="flex h-6 items-center gap-0.5 rounded-md bg-white/[0.03] p-0.5 shadow-[0_0_0_1px_rgba(255,255,255,0.06)]">
             <button
               onClick={() => setFormat("anchor")}
-              className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+              className={`h-5 rounded-[4px] px-2 text-[11px] font-medium transition-colors duration-150 ease-out ${
                 format === "anchor"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-card text-muted-foreground hover:bg-accent"
+                  ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07)]"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Anchor
             </button>
             <button
               onClick={() => setFormat("codama")}
-              className={`px-2 py-0.5 text-[10px] font-medium transition-colors ${
+              className={`h-5 rounded-[4px] px-2 text-[11px] font-medium transition-colors duration-150 ease-out ${
                 format === "codama"
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-card text-muted-foreground hover:bg-accent"
+                  ? "bg-[#23262c] text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.06),0_0_0_1px_rgba(255,255,255,0.07)]"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               Codama
@@ -173,10 +173,10 @@ export function IDLPanel() {
         {/* Summary */}
         {idlSummary && (
           <div className="shrink-0 border-b border-border px-3 py-3 space-y-1.5">
-            <p className="font-mono text-xs font-semibold text-foreground">
+            <p className="font-mono text-[12px] font-semibold text-foreground">
               {idlSummary.name}
             </p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               v{idlSummary.version}
             </p>
             <div className="mt-2 space-y-1">
@@ -204,14 +204,14 @@ export function IDLPanel() {
           <button
             onClick={handleCopy}
             disabled={!idlJson}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[10px] text-foreground hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left"
+            className="w-full rounded-md border border-white/[0.08] bg-background px-2 py-1 text-[11px] text-foreground hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 ease-out text-left"
           >
             {copied ? "Copied!" : "Copy to clipboard"}
           </button>
           <button
             onClick={handleDownload}
             disabled={!idlJson}
-            className="w-full rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[10px] text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors text-left"
+            className="w-full rounded border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] text-primary hover:bg-primary/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors duration-150 ease-out text-left"
           >
             Download {format === "anchor" ? "Anchor" : "Codama"} IDL
           </button>
@@ -222,27 +222,27 @@ export function IDLPanel() {
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {error ? (
           <div className="flex h-full items-center justify-center p-4">
-            <div className="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-400 max-w-lg">
+            <div className="rounded border border-red-500/30 bg-red-500/10 px-4 py-3 text-[12px] text-red-400 max-w-lg">
               <p className="font-semibold mb-1">IDL Generation Error</p>
               <pre className="whitespace-pre-wrap">{error}</pre>
             </div>
           </div>
         ) : idlJson ? (
           <>
-            <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-4 py-2">
-              <span className="font-mono text-xs text-muted-foreground">
+            <div className="flex shrink-0 items-center justify-between border-b border-border bg-card px-3 py-1.5 min-h-10">
+              <span className="font-mono text-[12px] text-muted-foreground">
                 {slug}-{format === "anchor" ? "anchor" : "codama"}-idl.json
               </span>
-              <span className="text-[10px] text-muted-foreground/60">
+              <span className="text-[11px] text-muted-foreground/60">
                 {idlJson.length.toLocaleString()} chars
               </span>
             </div>
-            <pre className="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-relaxed text-foreground/90">
+            <pre className="min-h-0 flex-1 overflow-auto bg-[#0c0d10] p-3 font-mono text-[12px] leading-[1.6] text-foreground/90">
               {idlJson}
             </pre>
           </>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+          <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
             Generating IDL…
           </div>
         )}
@@ -256,7 +256,7 @@ export function IDLPanel() {
 function SummaryRow({ label, count }: { label: string; count: number }) {
   if (!count) return null;
   return (
-    <div className="flex items-center justify-between text-[10px]">
+    <div className="flex items-center justify-between text-[11px]">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono text-foreground">{count}</span>
     </div>
