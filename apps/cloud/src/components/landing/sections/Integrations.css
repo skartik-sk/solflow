@@ -1,0 +1,308 @@
+/* Integrations: the node palette and a slice of canvas. Scoped under .sl-integrations. */
+
+.sl-integrations .in-layout {
+  display: grid;
+  gap: 36px;
+  align-items: center;
+}
+@media (min-width: 1024px) {
+  .sl-integrations .in-layout {
+    grid-template-columns: 320px minmax(0, 1fr);
+    gap: 56px;
+  }
+}
+.sl-integrations .in-copy {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+.sl-integrations .in-copy .sl-h2 {
+  margin: 0;
+}
+.sl-integrations .in-copy .cs-link {
+  margin-top: 6px;
+}
+
+/* The editor runs off the viewport's right edge on desktop */
+.sl-integrations .in-bleed {
+  min-width: 0;
+}
+@media (min-width: 1024px) {
+  .sl-integrations .in-bleed {
+    margin-right: calc(-1 * max(var(--gutter), (100vw - var(--max)) / 2 + var(--gutter)));
+  }
+  .sl-integrations .in-bleed .ss-fit {
+    margin-left: 0;
+  }
+  .sl-integrations .ss-stage {
+    border-radius: var(--r-card) 0 0 var(--r-card);
+    mask-image: linear-gradient(90deg, #000 calc(100% - 40px), transparent);
+  }
+}
+
+.sl-integrations .ss-stage {
+  border-radius: var(--r-card);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.sl-integrations .in-app {
+  position: absolute;
+  inset: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.sl-integrations .in-mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.sl-integrations .in-faint {
+  color: var(--text-3);
+}
+
+/* Canvas: the editor's dotted grid */
+.sl-integrations .in-canvas {
+  position: absolute;
+  inset: 0;
+  background-color: var(--bg);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1.2px);
+  background-size: 20px 20px;
+  background-position: 10px 10px;
+}
+
+/* ---------- the palette ---------- */
+.sl-integrations .in-pal {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 248px;
+  overflow: hidden;
+  background: var(--s1);
+  box-shadow: 1px 0 0 var(--line);
+}
+.sl-integrations .ss-stage[data-layout="compact"] .in-pal {
+  right: 0;
+  bottom: auto;
+  width: auto;
+  height: 316px;
+  box-shadow: 0 1px 0 var(--line);
+}
+.sl-integrations .in-pal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-integrations .in-pal__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sl-integrations .in-pal__search {
+  padding: 8px 8px 4px;
+}
+.sl-integrations .in-pal__search .ss-field__box {
+  --ss-control: 32px;
+  padding: 0 10px;
+  background: var(--bg);
+  font-size: 12.5px;
+}
+
+.sl-integrations .in-pills {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px 2px;
+}
+.sl-integrations .in-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.sl-integrations .in-pill[data-on] {
+  background: var(--s4);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.sl-integrations .in-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 6px 14px 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.sl-integrations .in-group__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cat);
+}
+.sl-integrations .in-group__n {
+  margin-left: auto;
+  font-size: 10.5px;
+}
+
+.sl-integrations .in-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  margin: 0 6px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.sl-integrations .in-row[data-hover],
+.sl-integrations .in-row[data-held] {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+.sl-integrations .in-row__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-integrations .in-row__grip {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 150ms ease-out;
+}
+.sl-integrations .in-row[data-hover] .in-row__grip,
+.sl-integrations .in-row[data-held] .in-row__grip {
+  opacity: 0.7;
+}
+
+/* ---------- the canvas ---------- */
+.sl-integrations .in-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.sl-integrations .in-edge {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-width: 1.5;
+}
+.sl-integrations .in-edge--new {
+  stroke: var(--accent);
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 480ms cubic-bezier(0.45, 0, 0.1, 1);
+}
+.sl-integrations .in-edge--new[data-on] {
+  stroke-dashoffset: 0;
+}
+.sl-integrations .in-edges circle {
+  fill: var(--s4);
+  stroke: var(--bg);
+  stroke-width: 2;
+}
+.sl-integrations .in-edges .in-handle--new {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.sl-integrations .in-edges .in-handle--new[data-on] {
+  opacity: 1;
+}
+
+.sl-integrations .in-node {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  background: var(--s2);
+  box-shadow: inset 3px 0 0 var(--cat), 0 0 0 1px var(--line-2), 0 12px 24px -12px rgba(0, 0, 0, 0.7);
+  will-change: transform;
+}
+.sl-integrations .in-node__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-integrations .in-node__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--text);
+}
+.sl-integrations .in-node__body {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 0 14px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.sl-integrations .in-node__k {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.sl-integrations .in-node__v {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* The dropped node opens around the held row */
+.sl-integrations .in-node--new {
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 200ms ease-out, transform 260ms cubic-bezier(0.25, 0.8, 0.25, 1), box-shadow 200ms ease-out;
+}
+.sl-integrations .in-node--new[data-on] {
+  opacity: 1;
+  transform: none;
+  box-shadow: inset 3px 0 0 var(--cat), 0 0 0 1px rgba(88, 211, 219, 0.5), 0 12px 24px -12px rgba(0, 0, 0, 0.7);
+}
+
+.sl-integrations .in-drop {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* The held copy of the row */
+.sl-integrations .in-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  opacity: 0;
+  pointer-events: none;
+  will-change: transform;
+  transition: opacity 140ms ease-out;
+}
+.sl-integrations .in-ghost[data-on] {
+  opacity: 1;
+}
+.sl-integrations .in-row--held {
+  margin: 0;
+  background: var(--s3);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--line-2), 0 16px 32px -12px rgba(0, 0, 0, 0.8);
+  transform: rotate(-1.5deg) scale(1.03);
+}

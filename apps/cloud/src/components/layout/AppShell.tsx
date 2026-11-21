@@ -39,8 +39,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         key={item.href}
         href={item.href}
         aria-current={active ? "page" : undefined}
-        className={`inline-flex h-8 shrink-0 items-center rounded-md px-2.5 transition-colors duration-150 ${focusRing} ${
-          active ? "bg-white/[0.06] font-medium text-foreground" : "text-muted-foreground hover:text-foreground"
+        className={`inline-flex h-8 shrink-0 items-center rounded-[8px] px-2.5 text-[13.5px] transition-colors duration-150 ${focusRing} ${
+          active ? "bg-white/[0.05] font-medium text-foreground" : "text-muted-foreground hover:bg-white/[0.04] hover:text-foreground"
         }`}
       >
         {item.label}
@@ -50,25 +50,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-background/85 backdrop-blur-md">
-        <div className="mx-auto flex h-12 max-w-6xl items-center gap-5 px-4 sm:px-6">
-          <Link href="/" className={`flex shrink-0 items-center gap-2 rounded-md text-[14px] font-semibold tracking-[-0.01em] ${focusRing}`}>
-            <SolMark size={22} />
+      <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-7 px-4 sm:px-6">
+          <Link href="/" className={`flex shrink-0 items-center gap-2.5 rounded-md text-[15px] font-semibold tracking-[-0.02em] ${focusRing}`}>
+            <SolMark size={24} />
             <span>
               SolStudio <span className="font-normal text-muted-foreground">Cloud</span>
             </span>
           </Link>
 
-          <nav className="hidden items-center gap-0.5 text-[13px] md:flex" aria-label="App">
+          <nav className="hidden items-center gap-0.5 md:flex" aria-label="App">
             {NAV_ITEMS.map(navLink)}
           </nav>
 
-          <div className="ml-auto flex items-center gap-0.5 text-[13px]">
-            <a href={WEB_EDITOR_URL} className={`hidden h-8 items-center gap-1 rounded-md px-2.5 text-muted-foreground transition-colors duration-150 hover:text-foreground sm:inline-flex ${focusRing}`}>
+          <div className="ml-auto flex items-center gap-1.5 text-[13px]">
+            <a href={WEB_EDITOR_URL} className={`hidden h-8 items-center gap-1 rounded-[8px] px-2.5 text-muted-foreground transition-colors duration-150 hover:bg-white/[0.04] hover:text-foreground sm:inline-flex ${focusRing}`}>
               Web Editor
               <ArrowUpRight className="h-3 w-3" aria-hidden />
             </a>
-            <a href={CLOUD_DOCS_URL} className={`inline-flex h-8 items-center rounded-md px-2.5 text-muted-foreground transition-colors duration-150 hover:text-foreground ${focusRing}`}>
+            <a href={CLOUD_DOCS_URL} className={`inline-flex h-8 items-center rounded-[8px] px-2.5 text-muted-foreground transition-colors duration-150 hover:bg-white/[0.04] hover:text-foreground ${focusRing}`}>
               Docs
             </a>
           </div>

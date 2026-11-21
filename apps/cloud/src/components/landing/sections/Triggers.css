@@ -1,0 +1,257 @@
+/* Triggers: three trigger nodes as one ruled strip. Scoped under .sl-triggers. */
+
+.sl-triggers .ss-stage {
+  border-radius: var(--r-card);
+  background: var(--s1);
+  box-shadow: var(--hi), 0 0 0 1px var(--line);
+}
+
+.sl-triggers .tr-strip {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.sl-triggers .ss-stage[data-layout="compact"] .tr-strip {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto 1fr;
+}
+
+.sl-triggers .tr-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  padding: 20px;
+}
+.sl-triggers .tr-tile + .tr-tile {
+  border-left: 1px solid var(--line);
+}
+.sl-triggers .ss-stage[data-layout="compact"] .tr-tile {
+  padding: 18px 16px;
+}
+.sl-triggers .ss-stage[data-layout="compact"] .tr-tile + .tr-tile {
+  border-left: 0;
+  border-top: 1px solid var(--line);
+}
+
+.sl-triggers .tr-tile__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 24px;
+}
+.sl-triggers .tr-tile__label {
+  font-weight: 550;
+  color: var(--text);
+  white-space: nowrap;
+}
+.sl-triggers .tr-tile__meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.sl-triggers .tr-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.sl-triggers .tr-strong {
+  color: var(--text);
+}
+.sl-triggers .tr-faint {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.sl-triggers .tr-push {
+  margin-left: auto;
+}
+
+/* The trigger's one field */
+.sl-triggers .tr-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  flex: none;
+  padding: 0 12px;
+  border-radius: var(--r-ctl);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.sl-triggers .tr-box .tr-faint {
+  margin-left: auto;
+}
+.sl-triggers .tr-verb {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.sl-triggers .tr-url {
+  overflow: hidden;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Cron: the next run, a bar that runs out, the history it lands in */
+.sl-triggers .tr-next {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: -6px;
+}
+.sl-triggers .tr-bar {
+  position: relative;
+  display: block;
+  height: 4px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--s3);
+}
+.sl-triggers .tr-bar i {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.sl-triggers .tr-bar i[data-bar="1"] {
+  transform: scaleX(1);
+  transition: transform 3000ms linear;
+}
+.sl-triggers .tr-bar i[data-bar="2"] {
+  transform: scaleX(0.01);
+}
+.sl-triggers .tr-bar i[data-bar="3"] {
+  transform: scaleX(0.2);
+  transition: transform 24s linear;
+}
+
+.sl-triggers .tr-hist {
+  display: grid;
+  margin-top: -2px;
+}
+.sl-triggers .tr-hist__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 28px;
+  color: var(--text-2);
+}
+.sl-triggers .tr-hist__row[data-new] .tr-mono {
+  color: var(--text);
+}
+.sl-triggers .ss-stage[data-layout="compact"] .tr-hist > .tr-hist__row:last-child {
+  display: none;
+}
+.sl-triggers .tr-dot {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+/* Webhook: the body that lands */
+.sl-triggers .tr-listen[data-wait] .ss-badge__dot {
+  animation: tr-blink 1.2s ease-in-out infinite;
+}
+@keyframes tr-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+.sl-triggers .tr-json {
+  position: relative;
+  display: grid;
+  align-content: start;
+  padding: 12px 14px;
+  border-radius: var(--r-ctl);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--text-2);
+}
+.sl-triggers .tr-json__wait {
+  position: absolute;
+  top: 12px;
+  left: 14px;
+  font-family: var(--font);
+  color: var(--text-3);
+  transition: opacity 160ms ease-out;
+}
+.sl-triggers .tr-json[data-on] .tr-json__wait {
+  opacity: 0;
+}
+.sl-triggers .tr-json__line {
+  white-space: pre;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 220ms ease-out, transform 280ms cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.sl-triggers .tr-json__line[data-on] {
+  opacity: 1;
+  transform: none;
+}
+.sl-triggers .tr-json b {
+  font-weight: 400;
+  color: var(--n-instruction);
+}
+.sl-triggers .tr-json i {
+  font-style: normal;
+  color: var(--text);
+}
+
+/* Manual: Run once and the nodes it runs */
+.sl-triggers .tr-run {
+  align-self: flex-start;
+}
+.sl-triggers .tr-steps {
+  display: grid;
+}
+.sl-triggers .tr-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+  color: var(--text-3);
+  transition: color 200ms ease-out;
+}
+.sl-triggers .tr-step + .tr-step {
+  border-top: 1px solid var(--line);
+}
+.sl-triggers .tr-step[data-done] {
+  color: var(--text);
+}
+.sl-triggers .tr-step__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+}
+.sl-triggers .tr-step__ms {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.sl-triggers .tr-step[data-done] .tr-step__ms {
+  opacity: 1;
+}
+.sl-triggers .tr-step .ss-check {
+  color: var(--ok);
+}

@@ -3,6 +3,7 @@
 
 import React from "react";
 import Link from "next/link";
+import { SiteHeader, type SiteSection } from "@/components/ui-kit/site-header";
 import { User } from "lucide-react";
 
 /** The real SolStudio logo (same drawing as the landing Nav's Mark). */
@@ -31,46 +32,40 @@ export const panel =
 
 type Crumb = { label: string; href?: string };
 
-/** Sticky app header: logo, a breadcrumb trail, and links on the right. */
+/** The site header (components/ui-kit/site-header) plus a slim breadcrumb row for nested pages. */
 export function MarketHeader({
   crumbs = [],
   children,
   max = "max-w-[1200px]",
+  active = "templates",
 }: {
   crumbs?: Crumb[];
   children?: React.ReactNode;
   max?: string;
+  active?: SiteSection | null;
 }) {
   return (
-    <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-background/80 backdrop-blur-xl">
-      <div className={`mx-auto flex h-14 ${max} items-center justify-between gap-4 px-4 sm:px-6`}>
-        <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-[13px]">
-          <Link
-            href="/"
-            className={`flex shrink-0 items-center gap-2 rounded-md font-semibold tracking-[-0.01em] text-foreground ${focusRing}`}
-          >
-            <Mark />
-            <span className="hidden sm:inline">SolStudio</span>
-          </Link>
-          {crumbs.map((c, i) => (
-            <React.Fragment key={i}>
-              <span aria-hidden className="text-white/20">/</span>
-              {c.href ? (
-                <Link
-                  href={c.href}
-                  className={`truncate rounded-md text-muted-foreground transition-colors duration-150 hover:text-foreground ${focusRing}`}
-                >
-                  {c.label}
-                </Link>
-              ) : (
-                <span className="truncate font-medium text-foreground">{c.label}</span>
-              )}
-            </React.Fragment>
-          ))}
+    <>
+      <SiteHeader active={active ?? undefined} inApp max={max} actions={children} />
+      {crumbs.length > 1 && (
+        <nav aria-label="Breadcrumb" className="border-b border-white/[0.05]">
+          <ol className={`mx-auto flex h-10 ${max} min-w-0 items-center gap-2 px-4 text-[12.5px] sm:px-6`}>
+            {crumbs.map((c, i) => (
+              <li key={i} className="flex min-w-0 items-center gap-2">
+                {i > 0 && <span aria-hidden className="text-white/20">/</span>}
+                {c.href ? (
+                  <Link href={c.href} className={`truncate rounded-md text-muted-foreground transition-colors duration-150 hover:text-foreground ${focusRing}`}>
+                    {c.label}
+                  </Link>
+                ) : (
+                  <span aria-current="page" className="truncate font-medium text-foreground">{c.label}</span>
+                )}
+              </li>
+            ))}
+          </ol>
         </nav>
-        <div className="flex shrink-0 items-center gap-1">{children}</div>
-      </div>
-    </header>
+      )}
+    </>
   );
 }
 

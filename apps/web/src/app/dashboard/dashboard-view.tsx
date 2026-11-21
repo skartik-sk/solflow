@@ -1,7 +1,7 @@
+import { SiteHeader } from "@/components/ui-kit/site-header";
 import React from "react";
 import Link from "next/link";
 import { Anchor, ArrowUpRight, GitBranch, LogOut, Orbit, Rocket, Zap } from "lucide-react";
-import { SolMark } from "@/components/ui-kit/dashboard-mark";
 import { GraphToCode } from "@/components/ui-kit/dashboard-graph-to-code";
 import { DashboardActions } from "./dashboard-actions";
 import type { Thumb, ThumbKind } from "./thumbnail";
@@ -57,27 +57,12 @@ export function DashboardView({
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      {/* ─── Topbar ────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-40 border-b border-white/[0.07] bg-background/85 backdrop-blur-md">
-        <div className="mx-auto flex h-12 max-w-6xl items-center gap-6 px-4 sm:px-6">
-          <Link href="/" className={`flex items-center gap-2 rounded-md text-[14px] font-semibold tracking-[-0.01em] ${focusRing}`}>
-            <SolMark size={22} />
-            SolStudio
-          </Link>
-
-          <nav className="hidden items-center gap-1 text-[13px] md:flex" aria-label="App">
-            <Link href="/dashboard" aria-current="page" className={`rounded-md px-2.5 py-1.5 font-medium text-foreground ${focusRing}`}>
-              Projects
-            </Link>
-            <Link href="/marketplace" className={`rounded-md px-2.5 py-1.5 text-muted-foreground transition-colors duration-150 hover:text-foreground ${focusRing}`}>
-              Marketplace
-            </Link>
-            <Link href="/docs" className={`rounded-md px-2.5 py-1.5 text-muted-foreground transition-colors duration-150 hover:text-foreground ${focusRing}`}>
-              Docs
-            </Link>
-          </nav>
-
-          <div className="ml-auto flex items-center gap-2">
+      <SiteHeader
+        active="projects"
+        inApp
+        max="max-w-6xl"
+        actions={
+          <>
             <span
               className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/15 text-[11px] font-semibold text-primary"
               title={userName}
@@ -86,9 +71,9 @@ export function DashboardView({
               {userInitial}
             </span>
             {signOut}
-          </div>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       {/* ─── Main ──────────────────────────────────────────────────── */}
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-12 pt-6 sm:px-6">

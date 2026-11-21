@@ -2,7 +2,6 @@
 // this renders. Fork, payment and download keep their own components.
 
 import React from "react";
-import Link from "next/link";
 import type { Node, Edge } from "@xyflow/react";
 import { Star, GitFork, Download, ShieldCheck, CheckCircle2, AlertTriangle, Lock, FileCode2 } from "lucide-react";
 import { ForkButton } from "@/app/marketplace/[id]/fork-button";
@@ -19,7 +18,6 @@ import {
   GraphThumb,
   GraphThumbStyles,
   MarketHeader,
-  btnGhost,
   frameworkLabel,
   panel,
 } from "./parts";
@@ -102,9 +100,6 @@ export function ListingDetailView({
     <div className="min-h-screen bg-background text-foreground selection:bg-primary/25 selection:text-foreground">
       <GraphThumbStyles />
       <MarketHeader crumbs={[{ label: "Marketplace", href: "/marketplace" }, { label: listing.title }]}>
-        <Link href="/dashboard" className={btnGhost}>
-          Dashboard
-        </Link>
       </MarketHeader>
 
       <main className="mx-auto max-w-[1200px] px-4 pb-20 pt-7 sm:px-6 sm:pt-9">

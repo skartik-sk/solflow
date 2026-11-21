@@ -1,0 +1,257 @@
+/* Runs and replay: executions beside a run's node timeline. Scoped under .sl-runs. */
+
+.sl-runs .ss-stage {
+  border-radius: var(--r-card);
+  background: var(--s1);
+  box-shadow: var(--hi), 0 0 0 1px var(--line);
+}
+
+.sl-runs .rn-app {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.sl-runs .rn-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.sl-runs .rn-strong {
+  color: var(--text);
+}
+.sl-runs .rn-faint {
+  color: var(--text-3);
+}
+
+.sl-runs .rn-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  flex: none;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-runs .ss-stage[data-layout="compact"] .rn-bar {
+  padding: 0 16px;
+}
+.sl-runs .rn-bar__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sl-runs .rn-bar__cron {
+  margin-left: auto;
+}
+
+.sl-runs .rn-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 404px;
+  flex: 1;
+  min-height: 0;
+}
+.sl-runs .ss-stage[data-layout="compact"] .rn-body {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+}
+
+/* ---------- table ---------- */
+.sl-runs .rn-table {
+  min-width: 0;
+  overflow: hidden;
+  box-shadow: 1px 0 0 var(--line);
+}
+.sl-runs .ss-stage[data-layout="compact"] .rn-table {
+  box-shadow: 0 1px 0 var(--line);
+  height: 268px;
+}
+.sl-runs .rn-row {
+  display: grid;
+  grid-template-columns: 112px 76px 168px 72px 88px minmax(0, 1fr) auto;
+  align-items: center;
+  height: 48px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  transition: background-color 200ms ease-out;
+  will-change: transform;
+}
+.sl-runs .rn-row[data-sel] {
+  background: var(--s2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.sl-runs .rn-row--head {
+  height: 36px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.sl-runs .rn-row--fill {
+  border-bottom-color: transparent;
+}
+.sl-runs .rn-row__trigger {
+  overflow: hidden;
+  color: var(--text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-runs .rn-row__act {
+  display: flex;
+  justify-content: flex-end;
+}
+.sl-runs .ss-stage[data-layout="compact"] .rn-row {
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  gap: 10px;
+  height: 56px;
+  padding: 0 16px;
+}
+.sl-runs .ss-stage[data-layout="compact"] .rn-row--fill {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+.sl-runs .rn-row__main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.sl-runs .rn-row__sub {
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-runs .rn-badge {
+  justify-self: start;
+}
+.sl-runs .rn-badge[data-run] .ss-badge__dot {
+  animation: rn-blink 1s ease-in-out infinite;
+}
+@keyframes rn-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- timeline ---------- */
+.sl-runs .rn-detail {
+  min-width: 0;
+  padding: 18px 20px;
+}
+.sl-runs .ss-stage[data-layout="compact"] .rn-detail {
+  padding: 14px 16px;
+}
+.sl-runs .rn-detail__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.sl-runs .rn-detail__id {
+  font-size: 13px;
+}
+.sl-runs .rn-detail__sub {
+  font-size: 12.5px;
+}
+
+.sl-runs .rn-steps {
+  position: relative;
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* The rail joining the marks */
+.sl-runs .rn-steps::before {
+  content: "";
+  position: absolute;
+  top: 24px;
+  bottom: 24px;
+  left: 7.5px;
+  width: 1px;
+  background: var(--line-2);
+}
+.sl-runs .rn-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 12px;
+  min-height: 48px;
+}
+.sl-runs .rn-step__mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--s1);
+}
+.sl-runs .rn-check {
+  --ss-success: var(--ok);
+}
+.sl-runs .rn-check[data-skip] {
+  opacity: 0.4;
+}
+.sl-runs .rn-x {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bad);
+  color: var(--bg);
+}
+.sl-runs .rn-step__main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.sl-runs .rn-step__label {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-runs .rn-step[data-st="idle"] .rn-step__label,
+.sl-runs .rn-step[data-st="skip"] .rn-step__label {
+  color: var(--text-3);
+}
+.sl-runs .rn-step__out {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.sl-runs .rn-step__out[data-on] {
+  opacity: 1;
+}
+.sl-runs .rn-step[data-st="fail"] .rn-step__out {
+  color: #f87171;
+}
+.sl-runs .rn-step__ms {
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+.sl-runs .rn-step__ms[data-on] {
+  opacity: 1;
+}
+.sl-runs .rn-err-wrap {
+  grid-column: 3 / -1;
+}
+.sl-runs .rn-err {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(240, 82, 82, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(240, 82, 82, 0.2);
+  font-size: 12px;
+  line-height: 1.4;
+  color: #fca5a5;
+}

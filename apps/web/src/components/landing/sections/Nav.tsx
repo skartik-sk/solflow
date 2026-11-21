@@ -7,10 +7,11 @@ import { CLOUD_URL, EDITOR_HREF, PRIMARY_LABEL } from "../shared";
 import "./Nav.css";
 
 const LINKS = [
+  // Same order as the app's SiteHeader (components/ui-kit/site-header.tsx)
   { label: "Templates", href: "/marketplace" },
-  { label: "Cloud", href: CLOUD_URL },
-  { label: "CLI", href: "/docs/cli" },
   { label: "Docs", href: "/docs" },
+  { label: "CLI", href: "/docs/cli" },
+  { label: "Cloud", href: CLOUD_URL },
 ];
 
 /** SolStudio's logo: the two linked blocks, white on the brand cyan (public/solstudio-logo-primary.png). */

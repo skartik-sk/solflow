@@ -1,0 +1,297 @@
+/* Final call: copy beside a working "New workflow" dialog. Scoped under .sl-close. */
+
+.sl-close .cl2-grid {
+  display: grid;
+  gap: 36px;
+  align-items: center;
+}
+@media (min-width: 960px) {
+  .sl-close .cl2-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 540px);
+    gap: 80px;
+  }
+}
+
+.sl-close .cl2-copy {
+  display: grid;
+  gap: 14px;
+  max-width: 460px;
+}
+.sl-close .cl2-copy .sl-h2 {
+  margin: 0;
+}
+.sl-close .cl2-more {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.sl-close .cl2-more a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--line-2);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 140ms ease-out;
+}
+.sl-close .cl2-more a:hover {
+  text-decoration-color: var(--text-2);
+}
+.sl-close .cl2-more a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* The dialog: the app's own surface, lifted one step */
+.sl-close .cl2-dialog {
+  min-width: 0;
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--s1);
+  box-shadow: var(--hi), 0 0 0 1px var(--line-2), 0 40px 100px -40px rgba(0, 0, 0, 0.9);
+}
+@media (max-width: 480px) {
+  .sl-close .cl2-dialog {
+    padding: 16px;
+  }
+}
+.sl-close .cl2-head {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 20px;
+}
+.sl-close .cl2-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+}
+.sl-close .cl2-sub {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-3);
+}
+
+.sl-close .cl2-field {
+  min-width: 0;
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+}
+.sl-close .cl2-field legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+/* Native radios, visually hidden, so arrow keys move the choice */
+.sl-close input[type="radio"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Trigger: a segmented control whose thumb slides */
+.sl-close .cl2-seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 3px;
+  border-radius: 11px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.sl-close .cl2-seg__thumb {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc((100% - 6px) / 3);
+  border-radius: 8px;
+  background: var(--s3);
+  box-shadow: var(--hi), 0 0 0 1px var(--line-2);
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sl-close .cl2-seg label {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 550;
+  color: var(--text-3);
+  cursor: pointer;
+  transition: color 160ms ease-out;
+}
+.sl-close .cl2-seg label:hover {
+  color: var(--text-2);
+}
+.sl-close .cl2-seg label:active {
+  transform: scale(0.97);
+}
+.sl-close .cl2-seg label[data-on] {
+  color: var(--text);
+}
+.sl-close .cl2-seg label:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.sl-close .cl2-seg .cs-chip {
+  opacity: 0.55;
+  transition: opacity 160ms ease-out;
+}
+.sl-close .cl2-seg label[data-on] .cs-chip {
+  opacity: 1;
+}
+
+/* Template: a radio list */
+.sl-close .cl2-list {
+  display: grid;
+  gap: 4px;
+}
+.sl-close .cl2-tpl {
+  position: relative;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color 160ms ease-out, box-shadow 160ms ease-out;
+}
+.sl-close .cl2-tpl:hover {
+  background: var(--s2);
+}
+.sl-close .cl2-tpl:active {
+  background: var(--s3);
+}
+.sl-close .cl2-tpl[data-on] {
+  background: var(--s2);
+  box-shadow: inset 0 0 0 1px var(--line-2);
+}
+.sl-close .cl2-tpl:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.sl-close .cl2-radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--text-3);
+  transition: box-shadow 160ms ease-out;
+}
+.sl-close .cl2-tpl[data-on] .cl2-radio {
+  box-shadow: inset 0 0 0 5px var(--accent);
+}
+.sl-close .cl2-tpl__name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 550;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-close .cl2-tpl__n {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* Preview: the template's nodes, top to bottom, on the editor's grid */
+.sl-close .cl2-preview {
+  display: grid;
+  align-content: center;
+  height: 284px;
+  padding: 16px;
+  border-radius: 12px;
+  background-color: var(--bg);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.06) 1px, transparent 1.2px);
+  background-size: 16px 16px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.sl-close .cl2-graph {
+  position: relative;
+  display: grid;
+  gap: 12px;
+  max-width: 360px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 0;
+  list-style: none;
+}
+.sl-close .cl2-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px 0 12px;
+  border-radius: 10px;
+  background: var(--s2);
+  box-shadow: inset 3px 0 0 var(--cat), 0 0 0 1px var(--line-2), 0 10px 20px -12px rgba(0, 0, 0, 0.7);
+  animation: cl2-in 320ms cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation-delay: calc(var(--i, 0) * 50ms);
+}
+/* The edge to the next node */
+.sl-close .cl2-node + .cl2-node::before {
+  content: "";
+  position: absolute;
+  top: -13px;
+  left: 50%;
+  width: 1px;
+  height: 13px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.sl-close .cl2-node__label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-close .cl2-node__v {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+@media (max-width: 420px) {
+  .sl-close .cl2-node__v {
+    display: none;
+  }
+}
+@keyframes cl2-in {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+    transform: translateY(4px);
+  }
+}
+
+.sl-close .cl2-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  margin-top: 20px;
+}
+.sl-close .cl2-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
+}

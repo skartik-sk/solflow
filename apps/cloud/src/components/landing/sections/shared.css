@@ -1,0 +1,132 @@
+/* Shared by the landing sections: node colours, the node chip, section
+   headers, and the product's tokens mapped onto the stageshow kit. */
+
+.sl {
+  /* The editor's node categories (packages/cloud-nodes CATEGORY_COLORS), on the landing's inks */
+  --cl-trigger: var(--ok);
+  --cl-action: var(--n-instruction);
+  --cl-logic: var(--n-event);
+  --cl-transform: var(--n-state);
+  --cl-ai: #f472b6;
+  --cl-output: #2dd4bf;
+}
+
+.sl [data-cat="trigger"] {
+  --cat: var(--cl-trigger);
+}
+.sl [data-cat="action"] {
+  --cat: var(--cl-action);
+}
+.sl [data-cat="logic"] {
+  --cat: var(--cl-logic);
+}
+.sl [data-cat="transform"] {
+  --cat: var(--cl-transform);
+}
+.sl [data-cat="ai"] {
+  --cat: var(--cl-ai);
+}
+.sl [data-cat="output"] {
+  --cat: var(--cl-output);
+}
+
+.sl .cs-chip {
+  display: grid;
+  flex: none;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--cat);
+  background: color-mix(in srgb, var(--cat) 14%, transparent);
+}
+
+/* Section header: one headline, one line */
+.sl .cs-head {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+.sl .cs-head .sl-h2 {
+  margin: 0;
+}
+.sl .cs-lead {
+  margin: 0;
+  max-width: 520px;
+  font-size: 15.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+@media (min-width: 900px) {
+  .sl .cs-head[data-split] {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    align-items: end;
+    gap: 64px;
+  }
+  .sl .cs-head[data-center] {
+    justify-items: center;
+    text-align: center;
+  }
+}
+
+/* A quiet text link with an arrow */
+.sl .cs-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-self: start;
+  border-radius: 6px;
+  font-size: 14.5px;
+  font-weight: 550;
+  color: var(--text);
+  transition: color 160ms ease-out;
+}
+.sl .cs-link svg {
+  transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.sl .cs-link:hover {
+  color: var(--accent);
+}
+.sl .cs-link:hover svg {
+  transform: translateX(2px);
+}
+.sl .cs-link:active {
+  transform: scale(0.98);
+}
+.sl .cs-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+/* The product's tokens on every section stage */
+.sl .cs-stage .ss-stage {
+  --ss-font: var(--font);
+  --ss-mono: var(--mono);
+  --ss-canvas: var(--bg);
+  --ss-surface: var(--s2);
+  --ss-raised: var(--s3);
+  --ss-line: var(--line);
+  --ss-text-strong: var(--text);
+  --ss-text: var(--text-2);
+  --ss-text-faint: var(--text-3);
+  --ss-icon: var(--text-3);
+  --ss-accent: var(--accent);
+  --ss-accent-soft: var(--accent-soft);
+  --ss-accent-text: var(--accent);
+  --ss-success: var(--ok);
+  --ss-success-text: var(--ok);
+  --ss-success-soft: rgba(74, 222, 128, 0.12);
+  --ss-danger: var(--bad);
+  --ss-danger-text: #f87171;
+  --ss-danger-soft: rgba(240, 82, 82, 0.14);
+  --ss-warning: var(--warn);
+  --ss-warning-text: var(--warn);
+  --ss-warning-soft: rgba(245, 165, 36, 0.14);
+  overflow: hidden;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+/* Text that rides a moving layout keeps its own layer */
+.sl .cs-stage .ss-collapse {
+  will-change: transform;
+}

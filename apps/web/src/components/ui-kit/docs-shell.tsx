@@ -1,5 +1,6 @@
 "use client";
 
+import { SiteHeader } from "./site-header";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
@@ -175,44 +176,22 @@ export function DocsShell({
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground antialiased">
-      <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-background/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-[1440px] items-center gap-3 px-4 md:px-6">
+      <SiteHeader
+        active="docs"
+        max="max-w-[1440px]"
+        leading={
           <button
             type="button"
             onClick={() => setOpen(true)}
             aria-label="Open docs menu"
             aria-expanded={open}
             aria-controls="docs-drawer"
-            className={`-ml-1.5 grid h-9 w-9 place-items-center rounded-[10px] text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-white/[0.05] hover:text-foreground active:scale-[0.97] lg:hidden ${FOCUS}`}
+            className={`-ml-1.5 mr-0.5 grid h-9 w-9 place-items-center rounded-[10px] text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-white/[0.05] hover:text-foreground active:scale-[0.97] lg:hidden ${FOCUS}`}
           >
             <Menu size={18} />
           </button>
-          <Link href="/" aria-label="SolStudio home" className={`flex items-center gap-2 rounded-md text-[14px] font-semibold tracking-[-0.01em] ${FOCUS}`}>
-            <DocsMark />
-            <span className="hidden sm:inline">SolStudio</span>
-          </Link>
-          <span aria-hidden className="text-muted-foreground/40">/</span>
-          <Link
-            href="/docs"
-            className={`rounded-md text-[14px] text-muted-foreground transition-colors duration-150 hover:text-foreground ${FOCUS}`}
-          >
-            Docs
-          </Link>
-          <div className="flex-1" />
-          <a
-            href="https://github.com/skartik-sk/solflow"
-            className={`hidden h-8 items-center rounded-lg px-2.5 text-[13px] text-muted-foreground transition-colors duration-150 hover:text-foreground sm:inline-flex ${FOCUS}`}
-          >
-            GitHub
-          </a>
-          <Link
-            href="/auth/signin"
-            className={`inline-flex h-8 items-center rounded-lg bg-primary px-3 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.97] ${FOCUS}`}
-          >
-            Open the editor
-          </Link>
-        </div>
-      </header>
+        }
+      />
 
       <div className="mx-auto flex max-w-[1440px] px-4 md:px-6">
         <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-[232px] shrink-0 overflow-y-auto border-r border-white/[0.06] py-8 pr-4 lg:block">

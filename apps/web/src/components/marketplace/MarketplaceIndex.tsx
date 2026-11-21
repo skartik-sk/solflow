@@ -79,9 +79,6 @@ export function categoryLabel(c: string) {
 export function MarketplaceHeader() {
   return (
     <MarketHeader crumbs={[{ label: "Marketplace" }]}>
-      <Link href="/dashboard" className={btnGhost}>
-        Dashboard
-      </Link>
       <Link href="/marketplace/my-listings" className={`${btnGhost} hidden sm:inline-flex`}>
         My listings
       </Link>

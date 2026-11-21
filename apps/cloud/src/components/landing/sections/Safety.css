@@ -1,0 +1,268 @@
+/* Safety: a preflight panel. Scoped under .sl-safety. */
+
+.sl-safety .sf-layout {
+  display: grid;
+  gap: 36px;
+  align-items: center;
+}
+.sl-safety .sf-copy {
+  display: grid;
+  gap: 14px;
+  order: -1;
+  max-width: 460px;
+}
+.sl-safety .sf-copy .sl-h2 {
+  margin: 0;
+}
+@media (min-width: 960px) {
+  .sl-safety .sf-layout {
+    grid-template-columns: minmax(0, 600px) minmax(0, 1fr);
+    gap: 72px;
+  }
+  .sl-safety .sf-copy {
+    order: 0;
+  }
+}
+.sl-safety .sf-object {
+  min-width: 0;
+}
+.sl-safety .sf-object .ss-fit {
+  margin-left: 0;
+}
+
+.sl-safety .ss-stage {
+  border-radius: var(--r-card);
+  background: var(--s1);
+  box-shadow: var(--hi), 0 0 0 1px var(--line-2);
+}
+
+.sl-safety .sf-card {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.sl-safety .sf-faint {
+  color: var(--text-3);
+}
+.sl-safety .sf-mono {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.sl-safety .sf-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 56px;
+  flex: none;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.sl-safety .ss-stage[data-layout="compact"] .sf-head {
+  padding: 0 16px;
+}
+.sl-safety .sf-head__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.sl-safety .sf-head__badge {
+  margin-left: auto;
+}
+
+.sl-safety .sf-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px;
+}
+.sl-safety .ss-stage[data-layout="compact"] .sf-body {
+  padding: 16px;
+}
+
+/* Amount: the field that caused the block */
+.sl-safety .sf-amount .ss-field__label {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.sl-safety .sf-amount .ss-field__box {
+  --ss-control: 38px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 13.5px;
+}
+.sl-safety .sf-unit {
+  flex: none;
+  font-family: var(--font);
+  font-size: 12px;
+  color: var(--text-3);
+}
+.sl-safety .sf-error {
+  margin: 0;
+  padding-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: #f87171;
+}
+
+/* The workflow's limits */
+.sl-safety .sf-limits {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-radius: 12px;
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.sl-safety .sf-limit {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 64px;
+  padding: 0 14px;
+  transition: background-color 200ms ease-out;
+}
+.sl-safety .ss-stage[data-layout="compact"] .sf-limit {
+  padding: 0 10px;
+}
+.sl-safety .sf-limit + .sf-limit {
+  box-shadow: -1px 0 0 var(--line);
+}
+.sl-safety .sf-limit[data-hit] {
+  background: rgba(240, 82, 82, 0.07);
+}
+.sl-safety .sf-limit:first-child {
+  border-radius: 12px 0 0 12px;
+}
+.sl-safety .sf-limit__label {
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.sl-safety .sf-limit__value {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 18px;
+  color: var(--text);
+  transition: color 200ms ease-out;
+}
+.sl-safety .sf-limit[data-hit] .sf-limit__value {
+  color: #f87171;
+}
+.sl-safety .sf-toggle {
+  justify-self: start;
+}
+
+/* Simulation */
+.sl-safety .sf-sim {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: var(--s2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  color: var(--text);
+}
+.sl-safety .sf-sim__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: 12.5px;
+  color: var(--text-3);
+  transition: color 200ms ease-out;
+}
+.sl-safety .sf-sim__state[data-ok] {
+  color: var(--ok);
+}
+.sl-safety .sf-sim__mark {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+}
+
+/* Sign and the record of it */
+.sl-safety .sf-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 36px;
+}
+.sl-safety .sf-signed {
+  min-width: 0;
+}
+.sl-safety .sf-signed__text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.sl-safety .sf-signed__text svg {
+  flex: none;
+  color: var(--ok);
+}
+.sl-safety .sf-send {
+  margin-left: auto;
+}
+
+/* Credentials: dots only */
+.sl-safety .sf-creds {
+  display: grid;
+  margin-top: auto;
+  padding: 6px 20px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+  border-radius: 0 0 var(--r-card) var(--r-card);
+}
+.sl-safety .ss-stage[data-layout="compact"] .sf-creds {
+  padding: 6px 16px 10px;
+}
+.sl-safety .sf-cred {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.sl-safety .sf-cred svg {
+  flex: none;
+  color: var(--text-3);
+}
+.sl-safety .sf-cred + .sf-cred {
+  border-top: 1px solid var(--line);
+}
+.sl-safety .sf-dots {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+.sl-safety .sf-cred--note {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.sl-safety .ss-stage[data-layout="compact"] .sf-limit {
+  height: 76px;
+  align-content: space-between;
+  padding: 12px 10px;
+}
+.sl-safety .ss-stage[data-layout="compact"] .sf-limit__label {
+  white-space: normal;
+  line-height: 1.3;
+}

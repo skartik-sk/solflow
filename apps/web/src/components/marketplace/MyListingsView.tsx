@@ -115,9 +115,6 @@ export function MyListingsView({ listings }: { listings: MyListing[] }) {
     <div className="min-h-screen bg-background text-foreground">
       <GraphThumbStyles />
       <MarketHeader crumbs={[{ label: "Marketplace", href: "/marketplace" }, { label: "My listings" }]}>
-        <Link href="/dashboard" className={btnGhost}>
-          Dashboard
-        </Link>
       </MarketHeader>
 
       <main className="mx-auto max-w-[1200px] px-4 pb-20 pt-8 sm:px-6 sm:pt-10">

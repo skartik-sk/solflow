@@ -31,7 +31,7 @@ export function SharedGraphView({
   return (
     <main className="min-h-screen bg-background text-foreground">
       <GraphThumbStyles />
-      <MarketHeader max="max-w-[1320px]" crumbs={[{ label: "Shared graph" }]}>
+      <MarketHeader max="max-w-[1320px]" active={null}>
         <Chip className="mr-2 hidden sm:inline-flex">Read-only</Chip>
         <Link href="/" className={btnPrimary}>
           Open SolStudio
