@@ -3,6 +3,7 @@
 // Settings Store — user preferences persisted to localStorage.
 // Can be synced to server via tRPC when a settings DB field is added.
 
+import { useMemo } from "react";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -53,6 +54,18 @@ const DEFAULTS: Omit<SettingsState, `set${string}` | "resetToDefaults"> = {
   showBuildNotifications: true,
 };
 
+/** Monaco options for the read-only code views, from the user's editor settings. */
+export function codeViewOptions(
+  s: Pick<SettingsState, "fontSize" | "wordWrap" | "showLineNumbers" | "minimapEnabled">,
+) {
+  return {
+    fontSize: s.fontSize,
+    wordWrap: s.wordWrap ? ("on" as const) : ("off" as const),
+    lineNumbers: s.showLineNumbers ? ("on" as const) : ("off" as const),
+    minimap: { enabled: s.minimapEnabled },
+  };
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
@@ -73,3 +86,15 @@ export const useSettingsStore = create<SettingsState>()(
     { name: "solflow-user-settings" },
   ),
 );
+
+/** Code-view Monaco options that follow the Settings dialog. */
+export function useCodeViewOptions() {
+  const fontSize = useSettingsStore((s) => s.fontSize);
+  const wordWrap = useSettingsStore((s) => s.wordWrap);
+  const showLineNumbers = useSettingsStore((s) => s.showLineNumbers);
+  const minimapEnabled = useSettingsStore((s) => s.minimapEnabled);
+  return useMemo(
+    () => codeViewOptions({ fontSize, wordWrap, showLineNumbers, minimapEnabled }),
+    [fontSize, wordWrap, showLineNumbers, minimapEnabled],
+  );
+}

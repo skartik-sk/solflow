@@ -53,6 +53,8 @@ interface FlowState {
   compactSelectedNodes: (nodeIds: string[]) => void;
 
   setFlow: (nodes: Node[], edges: Edge[]) => void;
+  /** Load a project's saved flow: replaces the canvas and starts a fresh undo history. */
+  loadFlow: (nodes: Node[], edges: Edge[]) => void;
   clearFlow: () => void;
 
   regenerateCode: () => void;
@@ -125,6 +127,23 @@ function createId() {
   return crypto.randomUUID();
 }
 
+/** Give a node a fresh id if its id is already on the canvas (keeps the readable prefix). */
+function withUniqueId(node: Node, nodes: Node[]): Node {
+  if (!nodes.some((n) => n.id === node.id)) return node;
+  const prefix = node.type || node.id.replace(/-[^-]*$/, "") || "node";
+  return { ...node, id: `${prefix}-${createId()}` };
+}
+
+function isDragFrame(changes: Parameters<OnNodesChange>[0]): boolean {
+  return changes.some((c) => c.type === "position" && c.dragging === true);
+}
+
+function isDragEnd(changes: Parameters<OnNodesChange>[0]): boolean {
+  return changes.some(
+    (c) => (c.type === "position" && c.dragging !== true) || c.type === "remove",
+  );
+}
+
 /**
  * Compare two partialized states for structural equality.
  * Ignores: node.selected, node.measured, node.dragging, edge.selected
@@ -162,6 +181,9 @@ export const useFlowStore = create<FlowState>()(
   temporal(
     (set, get) => {
       const debouncedRegen = debounce(() => get().regenerateCode(), 300);
+      // While a node drag is in progress, history is paused so the whole drag
+      // becomes one undo entry (the pre-drag positions).
+      let dragActive = false;
 
       return {
         nodes: [],
@@ -190,7 +212,19 @@ export const useFlowStore = create<FlowState>()(
             .filter((n) => n.selected)
             .map((n) => n.id);
 
-          set({ nodes: newNodes, selectedNodeId: lastSelectedId, selectedNodeIds });
+          const history = useFlowStore.temporal.getState();
+          const next = { nodes: newNodes, selectedNodeId: lastSelectedId, selectedNodeIds };
+          if (!dragActive && isDragFrame(changes)) {
+            set(next); // records the pre-drag state once
+            dragActive = true;
+            history.pause();
+          } else if (dragActive && isDragEnd(changes)) {
+            set(next); // still paused: no extra entry for the final frame
+            dragActive = false;
+            history.resume();
+          } else {
+            set(next);
+          }
           get()._debouncedRegenerate();
           if (dirty) useProjectStore.getState().markDirty();
         },
@@ -226,7 +260,9 @@ export const useFlowStore = create<FlowState>()(
 
         // ─── Node mutations ───────────────────────────────────
         addNode: (node) => {
-          set({ nodes: [...get().nodes, node] });
+          // Never let a new node share an id with an existing one: edits and
+          // deletes are keyed by id and would hit both.
+          set({ nodes: [...get().nodes, withUniqueId(node, get().nodes)] });
           get()._debouncedRegenerate();
           useProjectStore.getState().markDirty();
         },
@@ -414,6 +450,11 @@ export const useFlowStore = create<FlowState>()(
           get().regenerateCode();
         },
 
+        loadFlow: (nodes, edges) => {
+          get().setFlow(nodes, edges);
+          useFlowStore.temporal.getState().clear();
+        },
+
         clearFlow: () => {
           set({ nodes: [], edges: [], selectedNodeId: null, selectedEdgeId: null, selectedNodeIds: [] });
           useCodeStore.getState().clear();
@@ -452,14 +493,44 @@ export const useFlowStore = create<FlowState>()(
   ),
 );
 
-// ─── Undo / Redo hooks ───────────────────────────────────────────────────────
+// ─── Undo / Redo ─────────────────────────────────────────────────────────────
+
+function applyHistory(kind: "undo" | "redo"): boolean {
+  const history = useFlowStore.temporal.getState();
+  const available = kind === "undo" ? history.pastStates.length : history.futureStates.length;
+  if (available === 0) return false;
+  history[kind]();
+
+  // Drop selection that points at nodes/edges the history step removed.
+  const state = useFlowStore.getState();
+  const nodeIds = new Set(state.nodes.map((n) => n.id));
+  const edgeIds = new Set(state.edges.map((e) => e.id));
+  useFlowStore.setState({
+    selectedNodeId: state.selectedNodeId && nodeIds.has(state.selectedNodeId) ? state.selectedNodeId : null,
+    selectedNodeIds: state.selectedNodeIds.filter((id) => nodeIds.has(id)),
+    selectedEdgeId: state.selectedEdgeId && edgeIds.has(state.selectedEdgeId) ? state.selectedEdgeId : null,
+  });
+
+  // The canvas changed: regenerate code and make sure the change gets saved.
+  state.regenerateCode();
+  useProjectStore.getState().markDirty();
+  return true;
+}
+
+export function undoFlow(): boolean {
+  return applyHistory("undo");
+}
+
+export function redoFlow(): boolean {
+  return applyHistory("redo");
+}
 
 export function useUndo() {
-  return useFlowStore.temporal.getState().undo;
+  return undoFlow;
 }
 
 export function useRedo() {
-  return useFlowStore.temporal.getState().redo;
+  return redoFlow;
 }
 
 export function useCanUndo() {

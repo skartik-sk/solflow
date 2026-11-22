@@ -6,9 +6,10 @@ SolStudio CLI is the terminal surface for SolStudio. It has two jobs:
 2. Control SolStudio Cloud workflows from a terminal, agent, CI job, hosted Cloud,
    or self-hosted Cloud instance.
 
-Version `0.1.5` adds the Cloud platform commands while keeping the existing local
-visualizer, parser, audit, test, patch, and CI commands in the same `solstudio`
-binary.
+Version `0.1.6` hardens the local visualizer server (loopback only, per-run
+session token, Host/Origin checks), makes Sync show a diff and back up files
+before writing, and fixes `init`, `patch`, `ci`, SARIF output and self-host
+secrets. See [CHANGELOG.md](./CHANGELOG.md).
 
 ## Install
 
@@ -78,6 +79,11 @@ solstudio view .
 solstudio view . --host 127.0.0.1 --port 6139
 ```
 
+`view` listens on loopback only (`--host` accepts `127.0.0.1`, `localhost` or
+`::1`) and prints a URL with a per-run token (`http://127.0.0.1:6139/#token=...`).
+Open that exact URL. Sync in the UI shows a diff and writes nothing until you
+confirm; overwritten files are backed up to `.solstudio/backups/<timestamp>/`.
+
 What local mode does:
 
 - Parses Anchor, Pinocchio, and Quasar projects into a visual graph.
@@ -85,7 +91,13 @@ What local mode does:
   tests.
 - Opens a local browser visualizer from the CLI package.
 - Runs framework-aware test/build checks.
-- Produces audit summaries, JSON, Markdown, SARIF, and optional generated tests.
+- Produces audit summaries, JSON, Markdown, SARIF (relative paths with line
+  numbers), and optional smoke-test scaffolds (`--generate-tests`; they check the
+  stress-case table and do not call your program yet).
+- `init --scaffold --framework anchor|pinocchio|quasar` creates a buildable
+  program with a fresh keypair and matching `declare_id!`.
+- `patch` maps generated files onto the crate that exists on disk.
+- `test` prints an install hint and exits `127` when a toolchain is missing.
 - Keeps local project metadata under `.solstudio/`.
 
 Supported framework defaults:
@@ -248,11 +260,16 @@ solstudio cloud self-host deploy ./solstudio-cloud --domain cloud.example.com --
 
 What deploy does:
 
-1. Creates `docker-compose.yml`, `.env.example`, `.env`, and `README.md`.
-2. Generates non-placeholder secrets for `AUTH_SECRET`,
+1. Creates `docker-compose.yml`, `.env.example`, `.env` (mode `0600`), and `README.md`.
+2. Generates random secrets for `POSTGRES_PASSWORD`, `AUTH_SECRET`,
    `ENCRYPTION_MASTER_KEY`, and `CLOUD_HEALTH_DETAILS_TOKEN`.
 3. Validates required env values.
-4. Runs Docker Compose pull/up/status unless `--dry-run` is used.
+4. Asks for confirmation (or needs `--yes`; non-interactive runs without it are
+   refused), then runs Docker Compose pull/up/status unless `--dry-run` is used.
+
+Upgrading a stack created by 0.1.5 or earlier: add `POSTGRES_PASSWORD=solstudio`
+(the old fixed password) to its `.env`, since `docker-compose.yml` now reads it
+from there, and rotate it afterwards.
 
 Self-host commands:
 
@@ -288,6 +305,7 @@ Important self-host env keys:
 | `AUTH_URL` | Public Cloud URL used by auth |
 | `NEXT_PUBLIC_APP_URL` | Public Cloud app URL |
 | `NEXT_PUBLIC_CLOUD_URL` | Public Cloud URL used by the frontend |
+| `POSTGRES_PASSWORD` | Postgres password used by the compose `postgres` service |
 | `DATABASE_URL` | Postgres connection string |
 | `REDIS_URL` | Redis connection string |
 | `AUTH_SECRET` | Auth/session signing secret |
@@ -338,7 +356,11 @@ Agent rules:
 - Local `parse`, `audit`, `test`, and `view` commands do not require uploading
   source code to SolStudio Cloud.
 - Cloud commands use bearer tokens against `/api/cli/v1`.
-- Cloud API tokens are stored server-side as hashes.
+- Cloud API tokens are stored server-side as hashes. Create and revoke them in
+  Cloud under **CLI tokens** (`/settings`).
+- The local visualizer server binds to loopback, requires the per-run token on
+  every API call, rejects foreign Host/Origin headers, and only accepts JSON
+  bodies on writes.
 - The local CLI stores Cloud tokens in `~/.solstudio/cloud.json`; protect that
   file like any other developer credential.
 - Self-hosted credentials and wallets depend on `ENCRYPTION_MASTER_KEY`.

@@ -2889,7 +2889,7 @@ export function CliLearnClient() {
         <div id="install-the-cli" className="scroll-mt-20 rounded-2xl border border-white/[0.07] bg-card p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
           <p className="text-[14.5px] font-medium text-foreground">Install the CLI</p>
           <CopyableCommand command="npm install -g @solstudio/cli" />
-          <p className="mt-2.5 text-[13.5px] leading-[1.6] text-muted-foreground">Requires Node.js 18+ or Bun. After install the <code className="rounded-[5px] border border-white/[0.08] bg-white/[0.04] px-[5px] py-px font-mono text-[0.86em] text-foreground">solstudio</code> binary is available globally.</p>
+          <p className="mt-2.5 text-[13.5px] leading-[1.6] text-muted-foreground">Requires Node.js 20+ (or Bun). After install the <code className="rounded-[5px] border border-white/[0.08] bg-white/[0.04] px-[5px] py-px font-mono text-[0.86em] text-foreground">solstudio</code> binary is available globally.</p>
         </div>
 
         <LessonSection

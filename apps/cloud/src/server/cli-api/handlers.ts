@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TRPCError } from "@trpc/server";
 import type { Prisma } from "@solflow/db";
 import { prisma } from "@solflow/db";
 import {
@@ -17,6 +18,25 @@ import { queueExecution, startExecutionWorker } from "../execution-worker/queue"
 import { getTriggerManager } from "../trigger-manager";
 import { startCronWorker } from "../trigger-manager/cron-worker";
 import { shouldApiStartEmbeddedWorkers } from "../runtime-mode";
+import { maybeSweepStaleExecutions } from "../execution-worker/stale-sweep";
+import {
+  manualExecutionRateLimit,
+  workflowLifecycleRateLimit,
+  type RateLimitResult,
+} from "../../lib/rate-limit";
+import {
+  parseInput,
+  testDataSchema,
+  workflowDefinitionSchema,
+  workflowDescriptionSchema,
+  workflowNameSchema,
+  workflowSettingsSchema,
+  workflowTagsSchema,
+} from "../workflow-input";
+import {
+  assertWalletOwnedBy,
+  assertWorkflowActivationQuota,
+} from "../workflow-guards";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
 import { encryptPrivateKey } from "@solflow/cloud-wallet";
 import { Keypair } from "@solana/web3.js";
@@ -53,19 +73,19 @@ export async function handleCloudCliRequest(
     }
 
     if (resource === "workflows") {
-      return handleWorkflowRequest(request, ctx.user.id, id, action);
+      return await handleWorkflowRequest(request, ctx.user.id, id, action);
     }
 
     if (resource === "executions") {
-      return handleExecutionRequest(request, ctx.user.id, id);
+      return await handleExecutionRequest(request, ctx.user.id, id);
     }
 
     if (resource === "credentials") {
-      return handleCredentialRequest(request, ctx.user.id, id);
+      return await handleCredentialRequest(request, ctx.user.id, id);
     }
 
     if (resource === "wallets") {
-      return handleWalletRequest(request, ctx.user.id, id);
+      return await handleWalletRequest(request, ctx.user.id, id);
     }
 
     if (request.method === "GET" && resource === "nodes") {
@@ -90,6 +110,9 @@ export async function handleCloudCliRequest(
   } catch (err) {
     if (err instanceof CloudCliAuthError) {
       return json({ error: err.message }, err.status);
+    }
+    if (err instanceof TRPCError) {
+      return json({ error: err.message }, trpcErrorStatus(err.code));
     }
     const message = err instanceof Error ? err.message : String(err);
     return json({ error: message }, 400);
@@ -177,11 +200,13 @@ async function handleWorkflowRequest(
     const workflow = await prisma.workflow.create({
       data: {
         user: { connect: { id: userId } },
-        name: readRequiredString(body.name, "name"),
-        description: readOptionalString(body.description),
+        name: parseInput(workflowNameSchema, readRequiredString(body.name, "name"), "name"),
+        description: readDescription(body.description),
         definition: (definition ?? { nodes: [], edges: [] }) as Prisma.InputJsonValue,
-        settings: (body.settings ?? DEFAULT_WORKFLOW_SETTINGS) as Prisma.InputJsonValue,
-        tags: readStringArray(body.tags),
+        settings: (body.settings === undefined
+          ? DEFAULT_WORKFLOW_SETTINGS
+          : parseInput(workflowSettingsSchema, body.settings, "settings")) as Prisma.InputJsonValue,
+        tags: readTags(body.tags),
       },
       select: workflowPublicSelect,
     });
@@ -207,24 +232,39 @@ async function handleWorkflowRequest(
   if (request.method === "PATCH" && !action) {
     const body = await readJsonObject(request);
     const data: Prisma.WorkflowUpdateInput = {};
-    if (body.name !== undefined) data.name = readRequiredString(body.name, "name");
-    if (body.description !== undefined) data.description = readOptionalString(body.description);
+    if (body.name !== undefined) data.name = parseInput(workflowNameSchema, readRequiredString(body.name, "name"), "name");
+    if (body.description !== undefined) data.description = readDescription(body.description);
     if (body.definition !== undefined) data.definition = readDefinition(body.definition) as Prisma.InputJsonValue;
-    if (body.settings !== undefined) data.settings = body.settings as Prisma.InputJsonValue;
-    if (body.tags !== undefined) data.tags = readStringArray(body.tags);
-    if (body.walletId !== undefined) data.wallet = body.walletId
-      ? { connect: { id: String(body.walletId) } }
-      : { disconnect: true };
+    if (body.settings !== undefined) data.settings = parseInput(workflowSettingsSchema, body.settings, "settings") as Prisma.InputJsonValue;
+    if (body.tags !== undefined) data.tags = readTags(body.tags);
+    if (body.walletId !== undefined) {
+      if (body.walletId) {
+        const walletId = String(body.walletId);
+        await assertWalletOwnedBy(prisma, userId, walletId);
+        data.wallet = { connect: { id: walletId } };
+      } else {
+        data.wallet = { disconnect: true };
+      }
+    }
 
-    const workflow = await prisma.workflow.update({
+    let workflow = await prisma.workflow.update({
       where: { id },
       data,
       select: workflowPublicSelect,
     });
+    // Editing an ACTIVE workflow reschedules its cron and moves its webhook path.
+    if (body.definition !== undefined) {
+      await getTriggerManager().syncIfActive(id);
+      workflow = await prisma.workflow.findFirstOrThrow({
+        where: { id },
+        select: workflowPublicSelect,
+      });
+    }
     return json({ workflow });
   }
 
   if (request.method === "DELETE" && !action) {
+    await getTriggerManager().removeSchedules(id);
     const workflow = await prisma.workflow.delete({
       where: { id },
       select: workflowPublicSelect,
@@ -233,6 +273,9 @@ async function handleWorkflowRequest(
   }
 
   if (request.method === "POST" && action === "activate") {
+    const limited = rateLimited(workflowLifecycleRateLimit(userId), "Workflow activation");
+    if (limited) return limited;
+    await assertWorkflowActivationQuota(prisma, userId, id);
     if (shouldApiStartEmbeddedWorkers()) startCronWorker();
     await getTriggerManager().activate(id);
     const workflow = await prisma.workflow.findFirst({
@@ -243,6 +286,8 @@ async function handleWorkflowRequest(
   }
 
   if (request.method === "POST" && action === "deactivate") {
+    const limited = rateLimited(workflowLifecycleRateLimit(userId), "Workflow deactivation");
+    if (limited) return limited;
     await getTriggerManager().deactivate(id);
     const workflow = await prisma.workflow.findFirst({
       where: { id, userId },
@@ -252,7 +297,12 @@ async function handleWorkflowRequest(
   }
 
   if (request.method === "POST" && action === "run") {
+    const limited = rateLimited(manualExecutionRateLimit(userId), "Execution");
+    if (limited) return limited;
     const body = await readJsonObject(request);
+    const testData = body.testData === undefined
+      ? undefined
+      : parseInput(testDataSchema, body.testData, "testData");
     const workflow = await prisma.workflow.findFirst({
       where: { id, userId },
       select: { id: true, definition: true },
@@ -264,7 +314,7 @@ async function handleWorkflowRequest(
         workflowId: workflow.id,
         status: "QUEUED",
         triggerType: "manual",
-        triggerData: body.testData === undefined ? undefined : (body.testData as Prisma.InputJsonValue),
+        triggerData: testData === undefined ? undefined : (testData as Prisma.InputJsonValue),
         definitionSnapshot: workflow.definition as Prisma.InputJsonValue,
       },
     });
@@ -281,6 +331,8 @@ async function handleExecutionRequest(
   userId: string,
   id?: string,
 ): Promise<NextResponse> {
+  if (request.method === "GET") await maybeSweepStaleExecutions();
+
   if (request.method === "GET" && !id) {
     const url = new URL(request.url);
     const limit = clampInt(url.searchParams.get("limit"), 50, 1, 100);
@@ -406,7 +458,41 @@ function readDefinition(value: unknown): { nodes: unknown[]; edges: unknown[] } 
   if (!Array.isArray(definition.nodes) || !Array.isArray(definition.edges)) {
     throw new Error("Workflow definition must include nodes[] and edges[]");
   }
-  return { nodes: definition.nodes, edges: definition.edges };
+  return parseInput(workflowDefinitionSchema, definition, "definition");
+}
+
+function readDescription(value: unknown): string | undefined {
+  const description = readOptionalString(value);
+  return description === undefined
+    ? undefined
+    : parseInput(workflowDescriptionSchema, description, "description");
+}
+
+function readTags(value: unknown): string[] {
+  return parseInput(workflowTagsSchema, readStringArray(value), "tags");
+}
+
+function rateLimited(rl: RateLimitResult, label: string): NextResponse | null {
+  if (rl.allowed) return null;
+  return json(
+    { error: `${label} rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.` },
+    429,
+  );
+}
+
+function trpcErrorStatus(code: TRPCError["code"]): number {
+  switch (code) {
+    case "UNAUTHORIZED":
+      return 401;
+    case "FORBIDDEN":
+      return 403;
+    case "NOT_FOUND":
+      return 404;
+    case "TOO_MANY_REQUESTS":
+      return 429;
+    default:
+      return 400;
+  }
 }
 
 function readRequiredString(value: unknown, name: string): string {

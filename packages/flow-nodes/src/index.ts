@@ -107,13 +107,24 @@ export function isValidNodeConnection(
 
 import type { Node } from "@xyflow/react";
 
-let _nodeCounter = 1;
+/**
+ * A collision-free node id with a readable prefix, e.g. "logic-3f2a…".
+ * A module counter restarted at 1 on every page load, so nodes created after
+ * reloading a saved flow reused ids already in it (and overwrote edges/data).
+ */
+export function newNodeId(prefix: string): string {
+  const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  const uuid = typeof c?.randomUUID === "function"
+    ? c.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}`;
+  return `${prefix}-${uuid}`;
+}
 
 export function createNodeFromType(
   type: NodeTypeName,
   position: { x: number; y: number }
 ): Node {
-  const id = `${type}-${_nodeCounter++}`;
+  const id = newNodeId(type);
 
   const defaults: Record<NodeTypeName, Record<string, unknown>> = {
     program: {

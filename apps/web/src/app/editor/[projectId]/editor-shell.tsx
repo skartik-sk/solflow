@@ -5,8 +5,11 @@
 
 import React, { useEffect, useRef, useCallback, useState } from "react";
 import dynamic from "next/dynamic";
-import { useFlowStore } from "@/store/flow-store";
+import { useFlowStore, undoFlow, redoFlow } from "@/store/flow-store";
 import { useProjectStore } from "@/store/project-store";
+import { installUnloadGuard, startAutoSave } from "@/store/save-guards";
+import { startPluginAuditRuleSync } from "@/store/plugin-store";
+import { isEditableShortcutTarget, resolveEditorShortcut } from "@/hooks/editor-shortcuts";
 import { useUIStore } from "@/store/ui-store";
 import { useCodeStore } from "@/store/code-store";
 import { useBuildStore } from "@/store/build-store";
@@ -36,6 +39,7 @@ import {
 } from "@solflow/ui";
 import { toast } from "sonner";
 import type { AuditExportFormat, AuditFinding, AuditReport } from "@solflow/audit";
+import { fixableRuleIds } from "@/components/editor/audit-fix";
 
 // React Flow can't be SSR'd — load it dynamically with no SSR.
 const FlowCanvas = dynamic(
@@ -51,17 +55,6 @@ interface EditorShellProps {
   projectName: string;
   framework: "anchor" | "pinocchio" | "quasar";
   flowData: { nodes: Node[]; edges: Edge[] } | null;
-}
-
-function isEditableShortcutTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  const tagName = target.tagName.toLowerCase();
-  return (
-    target.isContentEditable ||
-    tagName === "input" ||
-    tagName === "textarea" ||
-    tagName === "select"
-  );
 }
 
 function getEditorNodeLabel(node: Node | undefined): string | null {
@@ -103,7 +96,7 @@ export function EditorShell({
   framework,
   flowData,
 }: EditorShellProps) {
-  const { setFlow } = useFlowStore();
+  const loadFlow = useFlowStore((s) => s.loadFlow);
   const { setProject } = useProjectStore();
   const {
     paletteOpen,
@@ -123,6 +116,22 @@ export function EditorShell({
 
   // ─── Audit state ──────────────────────────────────────────────────
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
+  const [fixableIds, setFixableIds] = useState<Set<string>>(() => new Set());
+
+  // Only findings whose rule has an autoFix get an "Apply Fix" button.
+  useEffect(() => {
+    if (!auditReport) {
+      setFixableIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    void import("@solflow/audit").then(({ getRuleById }) => {
+      if (!cancelled) setFixableIds(fixableRuleIds(auditReport.findings, getRuleById));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [auditReport]);
 
   // ─── Bottom panel resize state ────────────────────────────────────
   const [bottomPanelHeight, setBottomPanelHeight] = useState(256);
@@ -199,15 +208,19 @@ export function EditorShell({
 
     setProject({ id: projectId, name: projectName, framework });
 
-    if (flowData) {
-      setFlow(flowData.nodes ?? [], flowData.edges ?? []);
-    }
+    // Always replace the canvas (even with an empty project) and start a
+    // fresh undo history, so undo can't step back into the previous project.
+    loadFlow(flowData?.nodes ?? [], flowData?.edges ?? []);
+
+    // A reload mid-deploy picks the deploy back up (and shows its progress).
+    void useBuildStore.getState().resumeDeploy(projectId);
 
     // Cleanup on unmount: disconnect WS, clear stale state
     return () => {
       import("@/lib/ws").then(({ disconnectWS }) => disconnectWS());
       useBuildStore.getState().reset();
-      useCodeStore.getState().clear();
+      useFlowStore.getState().clearFlow();
+      useFlowStore.temporal.getState().clear();
     };
     // Run once on mount only
   }, []);
@@ -228,73 +241,63 @@ export function EditorShell({
     }
   }, []);
 
-  // ─── Auto-save: debounced save whenever isDirty flips to true ──────
-  // Framework changes save fast (3s), normal edits save after 30s.
-  // Auto-save NEVER creates version snapshots — only Ctrl+S does that.
-  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
+  // ─── Auto-save + unload guard ──────────────────────────────────────
+  // Framework changes save fast (3s), normal edits after the interval set in
+  // Settings (0 = off). Auto-save NEVER creates version snapshots — only Ctrl+S does.
   useEffect(() => {
-    const unsub = useProjectStore.subscribe((state, prevState) => {
-      if (!state.isDirty || state.isDirty === prevState.isDirty) return;
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
-      const delay = state.urgentDirty ? 3_000 : 30_000;
-      autoSaveTimerRef.current = setTimeout(() => {
-        useProjectStore
-          .getState()
-          .save()
-          .catch(() => toast.error("Auto-save failed"));
-      }, delay);
-    });
+    const stopAutoSave = startAutoSave(() => toast.error("Auto-save failed"));
+    const removeUnloadGuard = installUnloadGuard();
     return () => {
-      unsub();
-      if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+      stopAutoSave();
+      removeUnloadGuard();
     };
   }, []);
 
+  // ─── Plugin audit rules: register enabled plugins' rules at load ───
+  useEffect(() => startPluginAuditRuleSync(), []);
+
   // ─── Keyboard shortcuts ────────────────────────────────────────────
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const mod = e.ctrlKey || e.metaKey;
-    if (!mod) return;
+    const action = resolveEditorShortcut(e, isEditableShortcutTarget(e.target));
+    if (!action) return;
 
-    const key = e.key.toLowerCase();
-
-    switch (key) {
-      case "c": {
-        if (isEditableShortcutTarget(e.target)) return;
-        const copied = useFlowStore.getState().copySelectedNodes();
-        if (copied) e.preventDefault();
+    switch (action) {
+      case "copy":
+        if (useFlowStore.getState().copySelectedNodes()) e.preventDefault();
         break;
-      }
-      case "v": {
-        if (isEditableShortcutTarget(e.target)) return;
-        const pasted = useFlowStore.getState().pasteCopiedNodes();
-        if (pasted) e.preventDefault();
+      case "paste":
+        if (useFlowStore.getState().pasteCopiedNodes()) e.preventDefault();
         break;
-      }
-      case "s":
+      case "save":
         e.preventDefault();
         useProjectStore
           .getState()
           .save({ snapshot: true })
           .catch(() => toast.error("Failed to save"));
         break;
-      case "a":
+      case "selectAll":
         e.preventDefault();
         useFlowStore.getState().selectAllNodes();
         break;
-      case "1":
+      case "undo":
+        e.preventDefault();
+        undoFlow();
+        break;
+      case "redo":
+        e.preventDefault();
+        redoFlow();
+        break;
+      case "codeTab":
         e.preventDefault();
         useUIStore.getState().openBottomPanelTab("code");
         break;
-      case "2":
+      case "consoleTab":
         e.preventDefault();
         useUIStore.getState().openBottomPanelTab("console");
         break;
-      case "b":
+      case "toggleBottomPanel":
         e.preventDefault();
         useUIStore.getState().toggleBottomPanel();
-        break;
-      default:
         break;
     }
   }, []);
@@ -432,6 +435,7 @@ export function EditorShell({
                   projectId={projectId}
                   framework={framework}
                   onRunInstantAudit={runInstantAudit}
+                  canFix={(finding) => fixableIds.has(finding.ruleId)}
                   onGoToNode={async (nodeId) => {
                     const store = useFlowStore.getState();
                     let targetId = store.nodes.find((node) => node.id === nodeId)?.id;
@@ -459,8 +463,10 @@ export function EditorShell({
                     const { getRuleById } = await import("@solflow/audit");
                     const rule = getRuleById(finding.ruleId);
                     const ir = useCodeStore.getState().irJson;
-                    if (!rule?.autoFix || !ir)
+                    if (!rule?.autoFix || !ir) {
+                      toast.error(`No automatic fix for ${finding.ruleId}`);
                       return;
+                    }
                     const patches = rule.autoFix(
                       ir,
                       finding,
@@ -570,6 +576,7 @@ function AuditPanel({
   onFix,
   onFullAuditResult,
   onRunInstantAudit,
+  canFix,
 }: {
   report: AuditReport | null;
   projectId: string;
@@ -579,6 +586,7 @@ function AuditPanel({
   onFix?: (finding: AuditFinding) => void;
   onFullAuditResult?: (report: AuditReport) => void;
   onRunInstantAudit?: () => void;
+  canFix?: (finding: AuditFinding) => boolean;
 }) {
   const [instantAuditLoading, setInstantAuditLoading] = React.useState(false);
   const [fullAuditLoading, setFullAuditLoading] = React.useState(false);
@@ -596,6 +604,8 @@ function AuditPanel({
   const runFullAudit = React.useCallback(async () => {
     setFullAuditLoading(true);
     try {
+      // The server audits the saved project: save pending edits first.
+      await useProjectStore.getState().saveIfDirty();
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
       const result = await client.audit.run.mutate({ projectId });
@@ -945,7 +955,7 @@ function AuditPanel({
                         Go to Code
                       </button>
                     )}
-                    {onFix && (
+                    {onFix && canFix?.(finding) && (
                       <button
                         onClick={() => onFix(finding)}
                         className={edx(edChipBtn, "mt-1.5 ml-1 text-green-400 shadow-[0_0_0_1px_rgba(74,222,128,0.3)] hover:text-green-300")}

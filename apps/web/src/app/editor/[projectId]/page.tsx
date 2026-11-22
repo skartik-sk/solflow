@@ -43,6 +43,8 @@ export default async function EditorPage({ params }: Props) {
 
   return (
     <EditorShell
+      // Remount per project so stores, undo history and timers never carry over.
+      key={project.id}
       projectId={project.id}
       projectName={project.name}
       framework={project.framework.toLowerCase() as "anchor" | "pinocchio" | "quasar"}

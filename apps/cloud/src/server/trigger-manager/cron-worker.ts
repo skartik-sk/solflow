@@ -4,6 +4,7 @@
 import { Worker, type Job } from "bullmq";
 import { prisma, type Prisma } from "@solflow/db";
 import { queueExecution } from "../execution-worker/queue";
+import { getTriggerManager } from "./index";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ export function startCronWorker(): void {
           triggerType: "cron",
           triggerData: {
             cronExpression: workflow.cronExpression,
+            timezone: workflow.cronTimezone ?? "UTC",
             triggeredAt: new Date().toISOString(),
           },
           definitionSnapshot: workflow.definition as Prisma.InputJsonValue,
@@ -49,14 +51,7 @@ export function startCronWorker(): void {
 
       await queueExecution(execution.id, workflow.id);
 
-      // Update nextRunAt
-      if (job.timestamp) {
-        // BullMQ provides the next run time
-        await prisma.workflow.update({
-          where: { id: workflowId },
-          data: { nextRunAt: new Date(job.timestamp) },
-        });
-      }
+      await getTriggerManager().refreshNextRun(workflowId);
 
       logCronWorkerEvent("workflow_triggered", {
         workflowId,

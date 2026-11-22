@@ -322,7 +322,7 @@ async function fetchBuildLog(runId: number, cfg: GhConfig): Promise<string> {
 }
 
 /** Extract the meaningful cargo-build-sbf error lines from a build log. */
-function extractCargoErrors(log: string): string[] {
+export function extractCargoErrors(log: string): string[] {
   return log
     .split("\n")
     .filter((l) => /\berror(\[E\d+\]|:)/i.test(l))
@@ -449,7 +449,7 @@ async function downloadTestLog(runId: number, cfg: GhConfig): Promise<string> {
 }
 
 /** Parse a cargo test log for pass/fail + the meaningful error lines. */
-function parseCargoTestLog(log: string): { success: boolean; errors: string[] } {
+export function parseCargoTestLog(log: string): { success: boolean; errors: string[] } {
   const lines = log.split("\n");
   const resultLine = lines.find((l) => l.includes("test result:"));
   const success = resultLine
@@ -552,4 +552,114 @@ export async function runGitHubActionsTest(
       duration: Date.now() - startedAt,
     };
   }
+}
+
+// ─── Async jobs: trigger now, poll later (each call stays well under 60 s) ───
+
+export type GhJobKind = "build" | "test";
+
+export interface GhJobHandle {
+  kind: GhJobKind;
+  branch: string;
+  commitSha: string;
+  runId: number | null;
+}
+
+const HANDLE_PREFIX = "gha-job:";
+
+/** Serialise a job handle for storage on the Compilation/TestRun row. */
+export function encodeGhHandle(h: GhJobHandle): string {
+  return `${HANDLE_PREFIX}${h.kind}|${h.branch}|${h.commitSha}|${h.runId ?? ""}`;
+}
+
+export function decodeGhHandle(stored: string | null | undefined): GhJobHandle | null {
+  if (!stored || !stored.startsWith(HANDLE_PREFIX)) return null;
+  const [kind, branch, commitSha, runId] = stored.slice(HANDLE_PREFIX.length).split("|");
+  if ((kind !== "build" && kind !== "test") || !branch || !/^[0-9a-f]{7,64}$/.test(commitSha ?? "")) return null;
+  const id = runId ? Number(runId) : null;
+  return { kind, branch, commitSha, runId: id && Number.isSafeInteger(id) ? id : null };
+}
+
+export type GhRunState = "queued" | "running" | "success" | "failure";
+
+/** Map a GitHub workflow run (or its absence) to our state. */
+export function mapRunState(run: { status?: string; conclusion?: string | null } | null): GhRunState {
+  if (!run) return "queued";
+  if (run.status !== "completed") return run.status === "in_progress" ? "running" : "queued";
+  return run.conclusion === "success" ? "success" : "failure";
+}
+
+/** Commit the files to a fresh build/<id> or test/<id> branch; the push starts the workflow. */
+export async function startGitHubActionsJob(
+  kind: GhJobKind,
+  files: { path: string; content: string }[],
+  onLog: (line: string, level: "info" | "warn" | "error") => void = () => undefined,
+): Promise<GhJobHandle> {
+  const cfg = loadConfig();
+  if (!cfg.configured) throw new Error("GitHub Actions compiler not configured");
+  const id = `${Date.now()}-${randomBytes(6).toString("hex")}`;
+  const branch = `${kind === "build" ? "build" : "test"}/${id}`;
+  const commitSha = await commitSourceFiles(
+    [...files, { path: "BUILD_ID", content: `solflow-${kind}-${id}\n` }],
+    cfg,
+    onLog,
+    branch,
+  );
+  return { kind, branch, commitSha, runId: null };
+}
+
+/** One short poll: find the run for the commit (if not known yet) and read its state. */
+export async function pollGitHubActionsJob(
+  handle: GhJobHandle,
+): Promise<{ handle: GhJobHandle; state: GhRunState; htmlUrl: string | null; conclusion: string | null }> {
+  const cfg = loadConfig();
+  if (!cfg.configured) throw new Error("GitHub Actions compiler not configured");
+  const { token, owner, repo } = cfg;
+  let runId = handle.runId;
+  if (runId === null) {
+    // List recent runs and match head_sha client-side (the ?head_sha= filter lags).
+    const data = await ghJson<{ workflow_runs: Array<{ id: number; head_sha: string }> }>(
+      `/repos/${owner}/${repo}/actions/runs?per_page=30&branch=${encodeURIComponent(handle.branch)}`,
+      token,
+      { signal: AbortSignal.timeout(15_000) },
+    );
+    runId = data.workflow_runs?.find((r) => r.head_sha === handle.commitSha)?.id ?? null;
+    if (runId === null) return { handle, state: "queued", htmlUrl: null, conclusion: null };
+  }
+  const run = await ghJson<{ status: string; conclusion: string | null; html_url: string }>(
+    `/repos/${owner}/${repo}/actions/runs/${runId}`,
+    token,
+    { signal: AbortSignal.timeout(15_000) },
+  );
+  return { handle: { ...handle, runId }, state: mapRunState(run), htmlUrl: run.html_url ?? null, conclusion: run.conclusion };
+}
+
+/** Download the compiled .so of a finished build run. */
+export async function fetchBuildArtifact(runId: number): Promise<Uint8Array> {
+  const { bytes } = await downloadSoArtifact(runId, loadConfig());
+  return bytes;
+}
+
+/** Cargo error lines from a failed build run (best-effort). */
+export async function fetchBuildErrors(runId: number): Promise<string[]> {
+  const logText = await fetchBuildLog(runId, loadConfig());
+  const errs = extractCargoErrors(logText);
+  return errs.length > 0 ? errs : logText ? [logText.slice(0, 1000)] : [];
+}
+
+/** Test log + parsed result of a finished test run. */
+export async function fetchTestOutcome(runId: number): Promise<{ success: boolean; errors: string[]; logs: string[] }> {
+  const logText = await downloadTestLog(runId, loadConfig());
+  const { success, errors } = parseCargoTestLog(logText);
+  return { success: success && !!logText, errors: logText ? errors : ["No test log was produced"], logs: logText ? logText.split("\n") : [] };
+}
+
+/** Best-effort cleanup of a job branch. */
+export async function deleteJobBranch(branch: string): Promise<void> {
+  const cfg = loadConfig();
+  if (!cfg.configured) return;
+  await ghRequest(`/repos/${cfg.owner}/${cfg.repo}/git/refs/heads/${branch}`, cfg.token, {
+    method: "DELETE",
+    signal: AbortSignal.timeout(10_000),
+  }).catch(() => undefined);
 }

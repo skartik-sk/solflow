@@ -2,11 +2,13 @@
 // Serves the static build from apps/standalone/out/ and provides REST API.
 
 import express from "express";
-import cors from "cors";
+import type { Request, Response, NextFunction } from "express";
 import { WebSocketServer, WebSocket } from "ws";
-import { createServer } from "http";
+import { createServer, type IncomingMessage } from "http";
+import type { AddressInfo } from "net";
+import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, statSync } from "fs";
-import { dirname, join, resolve as pathResolve, relative } from "path";
+import { dirname, join, resolve as pathResolve, relative, sep } from "path";
 import { execFile } from "child_process";
 import { readConfig, getProjectPath, getConfigDir } from "../utils/config";
 import { detectProjectType, type ProjectType } from "../utils/detect";
@@ -18,22 +20,105 @@ import {
 } from "../utils/framework-adapters";
 import { fileURLToPath } from "url";
 import type { SourceCoverageOptions } from "@solflow/rust-parser";
+import { createUnifiedDiff } from "../utils/diff";
+import { isPathInside, mapGeneratedPath, toPosixRelative } from "../utils/paths";
+import { missingToolMessage } from "../utils/tools";
 
 export interface ServerOptions {
+  /** Port to listen on. 0 picks a free port. */
   port: number;
   projectPath: string;
   staticDir?: string;
   watch?: boolean;
+  /** Loopback interface to bind. Anything other than a loopback address is refused. */
+  host?: string;
+  /** Session token required on every /api request. Random when omitted. */
+  token?: string;
 }
 
 export interface ServerHandle {
   close: () => Promise<void>;
+  /** Session token the UI must send in the `x-solstudio-token` header. */
+  token: string;
+  /** Port the server actually bound. */
+  port: number;
+  /** URL to open in the browser (carries the token in the fragment). */
+  url: string;
+}
+
+export const TOKEN_HEADER = "x-solstudio-token";
+export const LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "::1"] as const;
+
+/** Throws unless `host` is a loopback address; the server must never listen on the LAN. */
+export function assertLoopbackHost(host: string): string {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!(LOOPBACK_HOSTS as readonly string[]).includes(normalized)) {
+    throw new Error(`Refusing to bind ${host}: the local server only listens on loopback (127.0.0.1, localhost or ::1).`);
+  }
+  return normalized;
+}
+
+/** Host header check that defeats DNS rebinding: only loopback names with our port. */
+export function isAllowedHostHeader(hostHeader: string | undefined, port: number): boolean {
+  if (!hostHeader) return false;
+  const h = hostHeader.trim().toLowerCase();
+  return h === `localhost:${port}` || h === `127.0.0.1:${port}` || h === `[::1]:${port}`;
+}
+
+function isAllowedOrigin(origin: string, port: number): boolean {
+  return origin === `http://localhost:${port}` || origin === `http://127.0.0.1:${port}` || origin === `http://[::1]:${port}`;
+}
+
+function tokensMatch(given: unknown, expected: string): boolean {
+  if (typeof given !== "string" || given.length === 0) return false;
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
+}
+
+function isJsonContentType(value: string | undefined): boolean {
+  return (value ?? "").split(";")[0].trim().toLowerCase() === "application/json";
 }
 
 export function startServer(options: ServerOptions): Promise<ServerHandle> {
   return new Promise((resolve, reject) => {
+    let bindHost: string;
+    try {
+      bindHost = assertLoopbackHost(options.host ?? "127.0.0.1");
+    } catch (err) {
+      reject(err);
+      return;
+    }
+    const token = options.token ?? randomBytes(24).toString("base64url");
+    let boundPort = options.port;
+
     const app = express();
-    app.use(cors({ origin: /^http:\/\/localhost:\d+$/ }));
+    app.disable("x-powered-by");
+    // Same-origin UI only: no CORS headers. Every request must name our loopback host
+    // (DNS rebinding), cross-origin browser requests are refused, and /api needs the
+    // session token plus a JSON body type (blocks no-cors "simple" form/text posts).
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (!isAllowedHostHeader(req.headers.host, boundPort)) {
+        res.status(403).json({ error: "Forbidden host" });
+        return;
+      }
+      const origin = req.headers.origin;
+      if (origin && !isAllowedOrigin(origin, boundPort)) {
+        res.status(403).json({ error: "Cross-origin requests are not allowed" });
+        return;
+      }
+      if (req.path === "/api" || req.path.startsWith("/api/")) {
+        if (!tokensMatch(req.get(TOKEN_HEADER), token)) {
+          res.status(401).json({ error: "Missing or invalid session token. Open the URL printed by `solstudio view`." });
+          return;
+        }
+        if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method) && !isJsonContentType(req.headers["content-type"])) {
+          res.status(415).json({ error: "Content-Type must be application/json" });
+          return;
+        }
+      }
+      next();
+    });
     app.use(express.json({ limit: "5mb" }));
 
     const config = readConfig(options.projectPath);
@@ -246,14 +331,57 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
       }
     });
 
-    // POST /api/sync — force codegen + key sync (for explicit two-way sync)
-    app.post("/api/sync", async (_req, res) => {
+    // POST /api/sync/preview — what a sync would change, with diffs. Writes nothing.
+    app.post("/api/sync/preview", async (_req, res) => {
       try {
+        const plan = await planCodegenSync(options.projectPath);
+        res.json({ ok: plan.errors.length === 0, changes: plan.changes.map(publicChange), errors: plan.errors });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Sync preview failed";
+        res.status(400).json({ ok: false, changes: [], errors: [message] });
+      }
+    });
+
+    // POST /api/sync — write generated code to disk. Requires { confirm: true } and the
+    // hashes the user reviewed in the preview; every overwritten file is backed up first.
+    app.post("/api/sync", async (req, res) => {
+      try {
+        const body = req.body ?? {};
+        const plan = await planCodegenSync(options.projectPath);
+        if (plan.errors.length > 0) {
+          res.status(400).json({ ok: false, written: 0, errors: plan.errors });
+          return;
+        }
+        if (body.confirm !== true) {
+          res.status(409).json({
+            ok: false,
+            written: 0,
+            requiresConfirm: true,
+            changes: plan.changes.map(publicChange),
+            errors: ["Sync overwrites source files. Review the preview and confirm."],
+          });
+          return;
+        }
+        const expected = body.expected && typeof body.expected === "object" ? body.expected as Record<string, unknown> : null;
+        if (!expected) {
+          res.status(400).json({ ok: false, written: 0, errors: ["expected file hashes from the preview are required"] });
+          return;
+        }
+        const stale = plan.changes.filter((c) => (expected[c.path] ?? null) !== c.beforeHash || !(c.path in expected));
+        if (stale.length > 0) {
+          res.status(409).json({
+            ok: false,
+            written: 0,
+            changes: plan.changes.map(publicChange),
+            errors: [`Files changed since the preview: ${stale.map((c) => c.path).join(", ")}. Review again.`],
+          });
+          return;
+        }
         const projectType = detectProjectType(options.projectPath);
         const adapter = getFrameworkAdapter(projectType);
-        const result = await codegenToDisk(options.projectPath);
+        const result = applyCodegenSync(options.projectPath, plan.changes);
         const keyMsg = await syncKeys(options.projectPath, adapter);
-        res.json({ ok: true, written: result.written, errors: result.errors, keysSync: keyMsg });
+        res.json({ ok: true, written: result.written, backupDir: result.backupDir, errors: [], keysSync: keyMsg });
       } catch (err) {
         const message = err instanceof Error ? err.message : "Sync failed";
         res.status(400).json({ ok: false, written: 0, errors: [message] });
@@ -373,11 +501,16 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
           return;
         }
 
-        // Safety: only allow writing to .rs and .toml files, no path traversal
+        // Safety: only allow writing to .rs and .toml files, no path traversal, and nothing
+        // under hidden or build directories (.cargo/config.toml, .git, target/...).
         const normalizedPath = pathResolve(options.projectPath, filePath);
-        const projectRoot = pathResolve(options.projectPath) + "/";
-        if (!normalizedPath.startsWith(projectRoot) && normalizedPath !== projectRoot.slice(0, -1)) {
+        if (!isPathInside(options.projectPath, normalizedPath) || normalizedPath === pathResolve(options.projectPath)) {
           res.status(403).json({ error: "Path traversal not allowed" });
+          return;
+        }
+        const segments = relative(pathResolve(options.projectPath), normalizedPath).split(sep);
+        if (segments.some((seg) => seg.startsWith(".") || seg === "target" || seg === "node_modules")) {
+          res.status(403).json({ error: "Hidden and build directories cannot be edited" });
           return;
         }
         if (!normalizedPath.endsWith(".rs") && !normalizedPath.endsWith(".toml")) {
@@ -460,15 +593,26 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
     // ─── HTTP + WebSocket server ────────────────────────────────────────
 
     const server = createServer(app);
-    const wss = new WebSocketServer({ server, path: "/ws" });
+    const wss = new WebSocketServer({
+      server,
+      path: "/ws",
+      // Browsers can't set headers on WebSocket upgrades, so the token rides in the query.
+      verifyClient: (info: { origin: string; req: IncomingMessage }) => {
+        if (!isAllowedHostHeader(info.req.headers.host, boundPort)) return false;
+        if (info.origin && !isAllowedOrigin(info.origin, boundPort)) return false;
+        const query = new URL(info.req.url ?? "/", "http://localhost").searchParams;
+        return tokensMatch(query.get("token"), token);
+      },
+    });
 
     wss.on("connection", (ws) => {
-      ws.send(JSON.stringify({ type: "connected", port: options.port }));
+      ws.send(JSON.stringify({ type: "connected", port: boundPort }));
     });
 
     let watcher: { close: () => Promise<void> } | undefined;
 
-    server.listen(options.port, async () => {
+    server.listen(options.port, bindHost, async () => {
+      boundPort = (server.address() as AddressInfo).port;
       // Auto-parse on startup if project.json is empty or missing
       try {
         const hasData = existsSync(projectJsonPath)
@@ -497,9 +641,17 @@ export function startServer(options: ServerOptions): Promise<ServerHandle> {
         }
       }
 
+      const urlHost = bindHost === "::1" ? "[::1]" : bindHost;
       resolve({
+        token,
+        port: boundPort,
+        url: `http://${urlHost}:${boundPort}/#token=${encodeURIComponent(token)}`,
         close: () => new Promise<void>((res, rej) => {
-          const closeServer = () => server.close((err) => err ? rej(err) : res());
+          for (const client of wss.clients) client.terminate();
+          wss.close();
+          server.closeAllConnections?.();
+          const closeServer = () => server.close((err) =>
+            err && (err as NodeJS.ErrnoException).code !== "ERR_SERVER_NOT_RUNNING" ? rej(err) : res());
           if (watcher) {
             watcher.close().then(closeServer).catch(closeServer);
           } else {
@@ -524,9 +676,30 @@ function broadcast(wss: WebSocketServer, data: unknown): void {
   } catch { /* serialization failed */ }
 }
 
-// Generate code from flow data and write files to disk.
-// Returns { written: number, errors: string[] } or throws.
-async function codegenToDisk(projectPath: string): Promise<{ written: number; errors: string[] }> {
+interface SyncChange {
+  path: string; // project-relative, forward slashes
+  status: "new" | "modified";
+  beforeHash: string | null;
+  before: string | null;
+  after: string;
+}
+
+function publicChange(change: SyncChange) {
+  return {
+    path: change.path,
+    status: change.status,
+    beforeHash: change.beforeHash,
+    diff: createUnifiedDiff(change.path, change.before, change.after),
+  };
+}
+
+function sha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+// Generate code from the saved flow and work out which files it would create or change.
+// Writes nothing; generated paths are mapped onto the crate that exists on disk.
+async function planCodegenSync(projectPath: string): Promise<{ changes: SyncChange[]; errors: string[] }> {
   const pjPath = getProjectPath(projectPath);
   if (!existsSync(pjPath)) throw new Error("No project data found");
 
@@ -543,24 +716,52 @@ async function codegenToDisk(projectPath: string): Promise<{ written: number; er
   const cfg = readConfig(projectPath);
   const framework = resolveCodegenFramework(cfg.framework);
 
-  const ir = flowToIR(nodes, edges);
+  const ir = flowToIR(nodes, edges ?? []);
   const result = generateCode(ir, framework);
 
   if (result.errors.length > 0) {
-    return { written: 0, errors: result.errors.map((e) => e.message) };
+    return { changes: [], errors: result.errors.map((e) => e.message) };
   }
 
-  let written = 0;
+  const changes: SyncChange[] = [];
   for (const file of result.files) {
     if (file.language !== "rust" && file.language !== "toml") continue;
-    const absPath = pathResolve(projectPath, file.path);
-    const dir = dirname(absPath);
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(absPath, file.content, "utf-8");
+    const rel = mapGeneratedPath(projectPath, file.path);
+    const absPath = pathResolve(projectPath, rel);
+    if (!isPathInside(projectPath, absPath)) continue;
+    const before = existsSync(absPath) ? readFileSync(absPath, "utf-8") : null;
+    if (before === file.content) continue;
+    changes.push({
+      path: toPosixRelative(pathResolve(projectPath), absPath),
+      status: before === null ? "new" : "modified",
+      beforeHash: before === null ? null : sha256(before),
+      before,
+      after: file.content,
+    });
+  }
+  return { changes, errors: [] };
+}
+
+// Write a reviewed sync plan. Existing files are copied to .solstudio/backups/<ts>/ first.
+function applyCodegenSync(projectPath: string, changes: SyncChange[]): { written: number; backupDir: string | null } {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupRoot = join(getConfigDir(projectPath), "backups", stamp);
+  let backedUp = false;
+  for (const change of changes) {
+    if (change.before === null) continue;
+    const backupPath = join(backupRoot, ...change.path.split("/"));
+    mkdirSync(dirname(backupPath), { recursive: true });
+    writeFileSync(backupPath, change.before, "utf-8");
+    backedUp = true;
+  }
+  let written = 0;
+  for (const change of changes) {
+    const absPath = pathResolve(projectPath, ...change.path.split("/"));
+    mkdirSync(dirname(absPath), { recursive: true });
+    writeFileSync(absPath, change.after, "utf-8");
     written++;
   }
-
-  return { written, errors: [] };
+  return { written, backupDir: backedUp ? toPosixRelative(pathResolve(projectPath), backupRoot) : null };
 }
 
 function findStaticDir(): string | null {
@@ -824,15 +1025,16 @@ function runCommand(cmd: string, args: string[], cwd: string): Promise<{ stdout:
   return new Promise((resolve) => {
     // Cold anchor/cargo builds routinely take several minutes; 2 min killed first compiles.
     const proc = execFile(cmd, args, { cwd, timeout: 600_000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+      const notFound = (err as NodeJS.ErrnoException | null)?.code === "ENOENT";
       resolve({
         stdout: stdout || "",
-        stderr: stderr || "",
-        exitCode: err ? (err as NodeJS.ErrnoException).code === "ENOENT" ? -1 : 1 : 0,
+        stderr: notFound ? missingToolMessage(cmd) : stderr || "",
+        exitCode: err ? notFound ? -1 : 1 : 0,
       });
     });
     if (proc) {
       proc.on("error", () => {
-        resolve({ stdout: "", stderr: `Command not found: ${cmd}`, exitCode: -1 });
+        resolve({ stdout: "", stderr: missingToolMessage(cmd), exitCode: -1 });
       });
     }
   });

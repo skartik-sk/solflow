@@ -37,7 +37,9 @@ Optional (have defaults / features off):
 ```
 GEMINI_API_KEY=  GEMINI_MODEL=             # AI assistant (works without)
 CLOUD_BUILD_URL=                          # solpg build API (default https://api.solpg.io)
-SOLFLOW_TREASURY_WALLET=  NEXT_PUBLIC_SOLFLOW_TREASURY_WALLET=
+SOLFLOW_TREASURY_WALLET=                  # marketplace payments; unset = purchases refused
+SOLFLOW_PAYMENT_CLUSTER=  SOLFLOW_PAYMENT_RPC_URL=   # mainnet-beta (default) or devnet; optional RPC
+ADMIN_EMAILS=                             # comma-separated marketplace moderators
 NEXT_PUBLIC_SENTRY_DSN=  NEXT_PUBLIC_ERROR_REPORTING_ENDPOINT=
 AXIOM_TOKEN=  AXIOM_DATASET=  AUDIT_API_KEY=  AUDIT_API_URL=
 ```

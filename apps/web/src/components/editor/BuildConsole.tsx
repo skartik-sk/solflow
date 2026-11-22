@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { Search, X, Trash2, Copy } from "lucide-react";
 import { useBuildStore } from "@/store/build-store";
+import { useProjectStore } from "@/store/project-store";
+import { bufferBalanceSol, reclaimPrompt } from "./deploy-actions";
 import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { toast } from "sonner";
 import { edIconBtnSm, edx } from "@/components/ui-kit/editor-ui";
@@ -32,6 +34,81 @@ function formatTime(ts: number): string {
     minute: "2-digit",
     second: "2-digit",
   });
+}
+
+// ─── Abandoned deploy buffers ────────────────────────────────────────────────
+
+interface ReclaimableDeploy {
+  deploymentId: string;
+  programId: string;
+  network: string;
+  buffer: string | null;
+}
+
+async function getBalance(rpcUrl: string, address: string): Promise<number> {
+  const { Connection, PublicKey } = await import("@solana/web3.js");
+  return new Connection(rpcUrl, "confirmed").getBalance(new PublicKey(address));
+}
+
+/** Failed deploys whose buffer account still holds SOL, with a "Reclaim SOL" action each. */
+function ReclaimBuffers() {
+  const projectId = useProjectStore((s) => s.projectId);
+  const deployStatus = useBuildStore((s) => s.deployStatus);
+  const reclaimDeployBuffer = useBuildStore((s) => s.reclaimDeployBuffer);
+  const [items, setItems] = useState<ReclaimableDeploy[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) return;
+    try {
+      const { getVanillaClient } = await import("@/lib/trpc/client");
+      const { reclaimable } = await getVanillaClient().deploy.active.query({ projectId });
+      setItems(reclaimable as ReclaimableDeploy[]);
+    } catch {
+      setItems([]);
+    }
+  }, [projectId]);
+
+  // Re-check after each deploy settles (a failed one may leave a buffer behind).
+  useEffect(() => {
+    if (deployStatus === "deploying" || deployStatus === "confirming") return;
+    void refresh();
+  }, [deployStatus, refresh]);
+
+  const reclaim = async (item: ReclaimableDeploy) => {
+    setBusyId(item.deploymentId);
+    try {
+      const sol = await bufferBalanceSol(item.network, item.buffer, getBalance);
+      if (!window.confirm(reclaimPrompt(sol, item.programId))) return;
+      const message = await reclaimDeployBuffer(item.deploymentId);
+      toast.success(message);
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Reclaim failed");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (items.length === 0) return null;
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-amber-500/20 bg-amber-500/[0.06] px-3 py-1.5 text-[11.5px] text-amber-200">
+      <span>
+        {items.length} failed deploy{items.length === 1 ? "" : "s"} still hold{items.length === 1 ? "s" : ""} buffer SOL.
+      </span>
+      {items.map((item) => (
+        <button
+          key={item.deploymentId}
+          onClick={() => void reclaim(item)}
+          disabled={busyId !== null}
+          title={`Close buffer ${item.buffer ?? ""} (${item.network.toLowerCase()})`}
+          className="rounded-md border border-amber-400/30 px-2 py-0.5 text-amber-100 hover:bg-amber-400/10 disabled:opacity-50"
+        >
+          {busyId === item.deploymentId ? "Reclaiming…" : `Reclaim SOL · ${item.programId.slice(0, 6)}… (${item.network.toLowerCase()})`}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export function BuildConsole() {
@@ -82,7 +159,9 @@ export function BuildConsole() {
 
   if (isIdle && compileLogs.length === 0) {
     return (
-      <div className="flex h-full flex-col bg-[#0c0d10] px-3 py-2.5 font-mono text-[12px]">
+      <div className="flex h-full flex-col bg-[#0c0d10] font-mono text-[12px]">
+        <ReclaimBuffers />
+        <div className="px-3 py-2.5">
         <div className="flex h-[22px] items-center gap-2.5 text-muted-foreground/70">
           <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/20" />
           Console output will appear here during compile/deploy.
@@ -94,12 +173,14 @@ export function BuildConsole() {
           </span>
           <span aria-hidden className="h-3.5 w-[7px] animate-pulse bg-white/30 motion-reduce:animate-none" />
         </div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0c0d10] font-mono text-[12px]">
+      <ReclaimBuffers />
       {/* Status bar */}
       <div className="flex h-8 shrink-0 items-center gap-4 overflow-x-auto border-b border-white/[0.06] px-3 text-[11.5px] [scrollbar-width:none]">
         {compileStatus !== "idle" && (

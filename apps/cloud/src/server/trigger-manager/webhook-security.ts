@@ -1,10 +1,16 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { getExecutionQueue } from "../execution-worker/queue";
+import { BlockList, isIP } from "node:net";
 
 const DEFAULT_REPLAY_WINDOW_MS = 5 * 60_000;
 const seenReplayKeys = new Map<string, number>();
 
 export type WebhookSecurityHeaders = Record<string, string>;
+
+/**
+ * Durable "seen" check for replay keys, shared across serverless instances
+ * (the trigger manager checks stored executions). Returns true if already seen.
+ */
+export type ReplaySeenCheck = (replayKey: string, sinceMs: number) => Promise<boolean>;
 
 export type ReplayValidationResult =
   | { ok: true; replayKey: string }
@@ -44,6 +50,7 @@ export async function validateWebhookReplayProtection(options: {
   rawBody: string;
   now?: number;
   windowMs?: number;
+  seen?: ReplaySeenCheck;
 }): Promise<ReplayValidationResult> {
   const secret = options.secret;
   if (!secret) {
@@ -81,7 +88,7 @@ export async function validateWebhookReplayProtection(options: {
   }
 
   const replayKey = `${timestamp}:${signature}`;
-  const reserved = await reserveReplayKey(replayKey, windowMs, now);
+  const reserved = await reserveReplayKey(replayKey, windowMs, now, options.seen);
   if (!reserved) {
     return { ok: false, status: 409, error: "Webhook replay detected" };
   }
@@ -106,37 +113,100 @@ async function reserveReplayKey(
   replayKey: string,
   ttlMs: number,
   now: number,
+  seen?: ReplaySeenCheck,
 ): Promise<boolean> {
-  if (process.env.NODE_ENV === "test" || process.env.CLOUD_WEBHOOK_REPLAY_STORE === "memory") {
-    cleanupReplayKeys(now);
-    if (seenReplayKeys.has(replayKey)) {
-      return false;
-    }
-    seenReplayKeys.set(replayKey, now + ttlMs);
-    return true;
+  // In-memory first (same instance), then the durable check if given. Redis is
+  // not required: serverless instances share state through the database.
+  cleanupReplayKeys(now);
+  if (seenReplayKeys.has(replayKey)) {
+    return false;
   }
+  if (seen && (await seen(replayKey, now - ttlMs))) {
+    return false;
+  }
+  seenReplayKeys.set(replayKey, now + ttlMs);
+  return true;
+}
 
-  const queue = getExecutionQueue();
-  const client = await queue.client;
-  const redis = client as unknown as {
-    set: (
-      key: string,
-      value: string,
-      px: "PX",
-      ttl: number,
-      nx: "NX",
-    ) => Promise<"OK" | null>;
-  };
+/** Constant-time compare for the header-auth secret. */
+export function webhookSecretMatches(
+  provided: string | undefined,
+  expected: string | null | undefined,
+): boolean {
+  if (!provided || !expected) return false;
+  const left = Buffer.from(provided);
+  const right = Buffer.from(expected);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
-  const result = await redis.set(
-    `cloud:webhook:replay:${replayKey}`,
-    "1",
-    "PX",
-    ttlMs,
-    "NX",
-  );
+/**
+ * The real client IP. On Vercel `x-real-ip` and the first `x-forwarded-for`
+ * hop are set by the platform edge. Never Origin/Referer (caller-controlled).
+ */
+export function webhookClientIp(headers: WebhookSecurityHeaders): string | undefined {
+  const candidates = [
+    headers["x-real-ip"]?.trim(),
+    headers["x-forwarded-for"]?.split(",")[0]?.trim(),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const ip = normalizeIp(candidate);
+    if (ip) return ip;
+  }
+  return undefined;
+}
 
-  return result === "OK";
+function normalizeIp(value: string): string | undefined {
+  let ip = value.trim();
+  if (ip.startsWith("[") && ip.includes("]")) ip = ip.slice(1, ip.indexOf("]"));
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (mapped) ip = mapped[1];
+  return isIP(ip) ? ip : undefined;
+}
+
+/**
+ * Exact IP or CIDR match. Entries that aren't an IP or CIDR (hostnames,
+ * origins) never match, so a misconfigured allowlist fails closed.
+ */
+export function isIpAllowed(ip: string | undefined, allowlist: string[]): boolean {
+  if (!ip) return false;
+  const family = isIP(ip) === 6 ? "ipv6" : "ipv4";
+  const list = new BlockList();
+  for (const raw of allowlist) {
+    const entry = raw.trim();
+    const [address, prefixRaw] = entry.split("/");
+    const addressFamily = isIP(address);
+    if (!addressFamily) continue;
+    const type = addressFamily === 6 ? "ipv6" : "ipv4";
+    if (prefixRaw === undefined) {
+      list.addAddress(address, type);
+      continue;
+    }
+    const prefix = Number(prefixRaw);
+    const maxPrefix = addressFamily === 6 ? 128 : 32;
+    if (!/^\d+$/.test(prefixRaw) || prefix < 0 || prefix > maxPrefix) continue;
+    list.addSubnet(address, prefix, type);
+  }
+  return list.check(ip, family);
+}
+
+const EVENT_ID_HEADERS = [
+  "webhook-id", // Standard Webhooks
+  "x-webhook-id",
+  "x-event-id",
+  "x-webhook-event-id",
+  "x-github-delivery",
+  "x-shopify-webhook-id",
+  "x-helius-webhook-id",
+];
+
+/** Sender-provided delivery id, used to drop duplicate deliveries. */
+export function webhookEventId(headers: WebhookSecurityHeaders): string | undefined {
+  for (const name of EVENT_ID_HEADERS) {
+    const value = headers[name]?.trim();
+    if (value) return value.slice(0, 200);
+  }
+  return undefined;
 }
 
 function safeEqualHex(a: string, b: string): boolean {

@@ -66,6 +66,8 @@ export interface HandleDef {
   /** If true this is a target handle (receives connections), else source */
   isTarget?: boolean;
   style?: React.CSSProperties;
+  /** Overrides the tooltip text (e.g. "Then" / "Else" on an if-else node) */
+  label?: string;
 }
 
 // ─── BaseNodeShell props ─────────────────────────────────────────────
@@ -146,7 +148,7 @@ export const BaseNodeShell = memo(function BaseNodeShell({
       {/* Handles with hover tooltips */}
       {handles.map((h) => {
         const color = HANDLE_COLORS[h.kind];
-        const label = h.kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const label = h.label ?? h.kind.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
         // Tooltip position: away from the node center
         const labelStyle: React.CSSProperties =
           h.position === Position.Left
@@ -163,7 +165,7 @@ export const BaseNodeShell = memo(function BaseNodeShell({
             id={h.id}
             type={h.isTarget ? "target" : "source"}
             position={h.position}
-            title={HANDLE_LABELS[h.kind]}
+            title={h.label ?? HANDLE_LABELS[h.kind]}
             style={{
               background: color,
               border: "2px solid oklch(0.12 0.012 240)",

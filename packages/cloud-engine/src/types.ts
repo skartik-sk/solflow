@@ -77,3 +77,12 @@ export interface ExecutionObserver {
   onNodeStart?: (result: NodeExecutionResult) => void | Promise<void>;
   onNodeFinish?: (result: NodeExecutionResult) => void | Promise<void>;
 }
+
+export interface ExecuteOptions {
+  /** Hard cap on the run, applied on top of settings.timeout (e.g. 55 s on serverless). */
+  maxTimeoutMs?: number;
+  /** errorMessage used when the run times out. */
+  timeoutMessage?: string;
+  /** Checked between node batches; returning true aborts the run as cancelled. */
+  isCancelled?: () => boolean | Promise<boolean>;
+}

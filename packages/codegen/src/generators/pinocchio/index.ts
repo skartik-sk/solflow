@@ -19,6 +19,8 @@ import { addMissingCrateImports } from '../../utils/crate-imports';
 import { METADATA_TYPES } from '../../utils/external-accounts';
 import { solTransferKind, splitSignerSeeds } from '../../utils/signer-seeds';
 import { seedBytes } from '../../utils/seed-bytes';
+import { accountFlags, anchorIxDiscriminator, forEachOp, mintDecimalsExpr, sha256 } from '../../utils/logic';
+import { isBase58Address, rustStringContent } from '../../utils/escape';
 import type { ProgramIR, Instruction, Account, Field, Integration, LogicOperation, Seed } from '@solflow/ir';
 import type { GeneratedFile, CodegenWarning, CodegenError } from '../../index';
 import {
@@ -42,6 +44,9 @@ function pinocchioType(type: string | object): string {
 /** Warnings from account validation, collected per generatePinocchio() run. */
 let validationWarnings: string[] = [];
 
+/** The program's events, for encoding emit-event ops (set per generatePinocchio() run). */
+let currentEvents: ProgramIR['events'] = [];
+
 /** `State.field` for String/Vec fields: their accessor is `field_data` (a byte slice). */
 let dynamicStateFields = new Set<string>();
 
@@ -53,6 +58,7 @@ export function generatePinocchio(ir: ProgramIR): {
   errors: CodegenError[];
 } {
   validationWarnings = [];
+  currentEvents = ir.events;
   dynamicStateFields = new Set(
     ir.states.flatMap((st) => st.fields.filter((f) => isDynamic(f.type)).map((f) => `${st.name}.${f.name}`)),
   );
@@ -65,22 +71,20 @@ export function generatePinocchio(ir: ProgramIR): {
   const programId   = ir.program.programId; // base58 public key (may be undefined)
 
   // Determine if any instruction uses CPI operations (including init via CreateAccount)
-  const usesCpi = ir.instructions.some((ix) =>
-    ix.body.some((op) =>
-      op.type === 'transfer-sol' ||
-      op.type === 'transfer-token' ||
-      op.type === 'mint-to' ||
-      op.type === 'burn' ||
-      op.type === 'cpi'
-    ) ||
-    ix.accounts.some((a) =>
-      a.constraints.some((c) => c.type === 'init' || c.type === 'init-if-needed')
-    )
-  ) || ir.integrations.some((integration) =>
+  const usesCpi = ir.instructions.some((ix) => {
+    let cpi = false;
+    forEachOp(ix.body, (op) => {
+      if (['transfer-sol', 'transfer-token', 'mint-to', 'burn', 'cpi', 'close-account'].includes(op.type)) cpi = true;
+    });
+    return cpi || ix.accounts.some((a) =>
+      a.constraints.some((c) => c.type === 'init' || c.type === 'init-if-needed' || c.type === 'realloc')
+    );
+  }) || ir.integrations.some((integration) =>
     integration.pluginId === 'spl-token' || integration.pluginId === 'metaplex'
   );
 
   // Determine if any instruction references SPL tokens
+  const usesResize = ir.instructions.some((ix) => ix.accounts.some((a) => a.constraints.some((c) => c.type === 'realloc')));
   const usesSpl = ir.instructions.some((ix) =>
     ix.accounts.some((a) =>
       a.accountType === 'token-account' ||
@@ -100,13 +104,18 @@ export function generatePinocchio(ir: ProgramIR): {
   // Precompute discriminators (deterministic index-based)
   const discriminators = new Map<string, number[]>();
   for (let i = 0; i < instructions.length; i++) {
-    discriminators.set(instructions[i].name, pinocchioDiscriminator(i));
+    // A custom 8-byte discriminator (e.g. from an imported IDL) is kept as is.
+    const custom = instructions[i].discriminator;
+    discriminators.set(instructions[i].name, custom?.length === 8 ? custom : pinocchioDiscriminator(i));
+    if (custom && custom.length !== 8) {
+      warnings.push({ message: `Instruction "${instructions[i].name}": Pinocchio dispatch uses 8-byte discriminators; the ${custom.length}-byte custom one was replaced`, nodeId: instructions[i].id });
+    }
   }
 
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesCpi, usesSpl, ir.integrations),
+    content: generateCargoToml(programName, version, usesCpi, usesSpl, ir.integrations, usesResize),
     language: 'toml',
   });
 
@@ -145,7 +154,9 @@ export function generatePinocchio(ir: ProgramIR): {
     });
     for (let si = 0; si < states.length; si++) {
       const state = states[si];
-      const disc = pinocchioDiscriminator(si + 1000); // Offset to avoid collision with instruction discriminators
+      const disc = state.customDiscriminator?.length === 8
+        ? state.customDiscriminator
+        : pinocchioDiscriminator(si + 1000); // Offset to avoid collision with instruction discriminators
       files.push({
         path: `programs/${programName}/src/state/${state.name.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '')}.rs`,
         content: generateStateRs(state.name, state.fields, disc),
@@ -227,6 +238,7 @@ function generateCargoToml(
   usesCpi: boolean,
   usesSpl: boolean,
   integrations: Integration[],
+  usesResize = false,
 ): string {
   const kebab = toKebabCase(name);
 
@@ -247,8 +259,10 @@ function generateCargoToml(
     : '';
 
   // pinocchio version: 0.11 with pinocchio-token 0.6 (uses AccountView API)
-  const pinocchioDep = usesCpi
-    ? 'pinocchio = { version = "0.11", features = ["cpi"] }'
+  // realloc needs AccountView::resize (the "account-resize" feature).
+  const features = [...(usesCpi ? ['"cpi"'] : []), ...(usesResize ? ['"account-resize"'] : [])];
+  const pinocchioDep = features.length
+    ? `pinocchio = { version = "0.11", features = [${features.join(', ')}] }`
     : 'pinocchio = "0.11"';
 
   return `[package]
@@ -370,13 +384,24 @@ function generateInstructionRs(
     ix.accounts,
     pluginBlocks.flatMap((block) => block.accounts),
   );
+  // Creating a mint or token account invokes the Token Program: expect it last when the flow
+  // didn't list it (the same position the Anchor generator gives it).
+  const createsSpl = accounts.some((a) =>
+    (a.accountType === 'mint' || a.accountType === 'token-account') &&
+    a.constraints.some((c) => c.type === 'init' || c.type === 'init-if-needed'));
+  if (createsSpl && !accounts.some((a) => a.accountType === 'token-program')) {
+    accounts.push(pluginAccount('token_program', 'token-program'));
+  }
 
   if (accounts.length === 0) {
     warns.push({ message: `Instruction "${ix.name}" has no accounts`, nodeId: ix.id });
   }
 
-  const hasErrors = ir.errors.length > 0 &&
-    ix.body.some((op) => op.type === 'require' || op.type === 'return-error');
+  let usesErrorOps = false;
+  forEachOp(ix.body, (op) => {
+    if (op.type === 'require' || op.type === 'return-error') usesErrorOps = true;
+  });
+  const hasErrors = ir.errors.length > 0 && usesErrorOps;
 
   const errorEnum  = toPascalCase(ir.program.name) + 'Error';
 
@@ -759,6 +784,18 @@ function pinocchioSeedParts(seeds: Seed[], ix?: Instruction, accountToStateType?
   );
 }
 
+/**
+ * An address as `&Address`: an account's address, the program itself, a base58 literal,
+ * or (anything else) a path to an Address constant.
+ */
+function pinocchioAddressExpr(value: string, accounts: Account[]): string {
+  const v = value.trim();
+  if (accounts.some((a) => a.name === v)) return `${v}.address()`;
+  if (v === 'crate::ID' || v === 'ID' || v === 'program_id' || v === 'crate::id()' || v === 'id()') return 'program_id';
+  if (isBase58Address(v)) return `&Address::from_str_const("${rustStringContent(v)}")`;
+  return v.startsWith('&') ? v : `&${v}`;
+}
+
 function buildValidationChecks(accounts: Account[], errorEnum: string, accountToStateType?: Map<string, string>, ix?: Instruction): string {
   const lines: string[] = [];
 
@@ -819,13 +856,13 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
       }
       if (c.type === 'owner') {
         lines.push(`    // Validate ${a.name} owner is ${c.owner}`);
-        lines.push(`    if ${a.name}.owner() != ${c.owner}.address() {`);
+        lines.push(`    if ${a.name}.owner() != ${pinocchioAddressExpr(c.owner, accounts)} {`);
         lines.push(`        return Err(ProgramError::IncorrectProgramId);`);
         lines.push(`    }`);
       }
       if (c.type === 'address') {
         lines.push(`    // Validate ${a.name} address matches ${c.address}`);
-        lines.push(`    if ${a.name}.address() != &Address::from_str("${c.address}").unwrap() {`);
+        lines.push(`    if ${a.name}.address() != ${pinocchioAddressExpr(c.address, accounts)} {`);
         lines.push(`        return Err(ProgramError::InvalidArgument);`);
         lines.push(`    }`);
       }
@@ -887,11 +924,16 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         }
 
         const pad = ifNeeded ? '    ' : '';
+        // SPL mints and token accounts belong to the Token Program: create them owned by it, then
+        // initialize them with its InitializeMint2 / InitializeAccount3 instruction.
+        const splKind = a.accountType === 'mint' ? 'mint' : a.accountType === 'token-account' ? 'token' : undefined;
+        const space = splKind === 'mint' ? '82' : splKind === 'token' ? '165' : spaceStr;
+        const owner = splKind ? '&pinocchio_token::ID' : 'program_id';
         if (ifNeeded) lines.push(`    if ${a.name}.lamports() == 0 {`);
         lines.push(`${pad}    // Create account ${a.name} via system program (rent-exempt)`);
         lines.push(`${pad}    {`);
         lines.push(`${pad}        use pinocchio_system::instructions::CreateAccount;`);
-        lines.push(`${pad}        let create = CreateAccount::with_minimum_balance(${c.payer}, ${a.name}, ${spaceStr} as u64, program_id, None)?;`);
+        lines.push(`${pad}        let create = CreateAccount::with_minimum_balance(${c.payer}, ${a.name}, ${space} as u64, ${owner}, None)?;`);
         if (seedParts) {
           // A PDA can only be created with its own signature: sign with seeds + bump
           // Seeds are built inside the call so temporaries (e.g. `arg.to_le_bytes()`) live long enough.
@@ -900,17 +942,43 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         } else {
           lines.push(`${pad}        create.invoke()?;`);
         }
+        if (splKind === 'mint') {
+          const authority = a.constraints.find((x) => x.type === 'mint-authority');
+          const auth = authority?.type === 'mint-authority' && authority.authority ? authority.authority : c.payer;
+          const decimals = ix ? mintDecimalsExpr(a, ix) ?? '0' : '0';
+          lines.push(`${pad}        pinocchio_token::instructions::InitializeMint2 {`);
+          lines.push(`${pad}            mint: ${a.name},`);
+          lines.push(`${pad}            decimals: ${decimals},`);
+          lines.push(`${pad}            mint_authority: ${pinocchioAddressExpr(auth, accounts)},`);
+          lines.push(`${pad}            freeze_authority: None,`);
+          lines.push(`${pad}        }`);
+          lines.push(`${pad}        .invoke()?;`);
+        } else if (splKind === 'token') {
+          const mintC = a.constraints.find((x) => x.type === 'token-mint');
+          const ownerC = a.constraints.find((x) => x.type === 'token-authority');
+          const mint = mintC?.type === 'token-mint' ? mintC.mint : '';
+          const tokenOwner = ownerC?.type === 'token-authority' && ownerC.authority ? ownerC.authority : c.payer;
+          if (!accounts.some((x) => x.name === mint)) {
+            validationWarnings.push(`${a.name}: a new token account needs its mint (set the token mint to one of the instruction's accounts).`);
+          }
+          lines.push(`${pad}        pinocchio_token::instructions::InitializeAccount3 {`);
+          lines.push(`${pad}            account: ${a.name},`);
+          lines.push(`${pad}            mint: ${mint || 'mint'},`);
+          lines.push(`${pad}            owner: ${pinocchioAddressExpr(tokenOwner, accounts)},`);
+          lines.push(`${pad}        }`);
+          lines.push(`${pad}        .invoke()?;`);
+        }
         lines.push(`${pad}    }`);
-        if (stateType) {
+        if (stateType && !splKind) {
           lines.push(`${pad}    ${a.name}.try_borrow_mut()?[..8].copy_from_slice(&${stateType}::DISCRIMINATOR);`);
         }
         if (ifNeeded) {
           // Existing account: it must already be ours and hold this state type.
           lines.push(`    } else {`);
-          lines.push(`        if !${a.name}.owned_by(program_id) {`);
+          lines.push(`        if !${a.name}.owned_by(${owner}) {`);
           lines.push(`            return Err(ProgramError::IncorrectProgramId);`);
           lines.push(`        }`);
-          if (stateType) {
+          if (stateType && !splKind) {
             lines.push(`        if !${stateType}::validate_discriminator(&${a.name}.try_borrow()?) {`);
             lines.push(`            return Err(ProgramError::InvalidAccountData);`);
             lines.push(`        }`);
@@ -919,11 +987,19 @@ function buildValidationChecks(accounts: Account[], errorEnum: string, accountTo
         }
       }
       if (c.type === 'realloc') {
-        lines.push(`    // Realloc ${a.name} to ${c.space} bytes`);
+        // Top the account up to rent-exemption for its new size (from the payer), then resize.
+        // resize() zero-fills any new bytes.
+        lines.push(`    // Realloc ${a.name} to ${c.space} bytes, paid by ${c.payer}`);
         lines.push(`    {`);
-        lines.push(`        let new_len = ${c.space};`);
-        lines.push(`        let data = &mut ${a.name}.try_borrow_mut()?;`);
-        lines.push(`        data.resize(new_len, ${c.zeroInit ? 'true' : 'false'});`);
+        lines.push(`        use pinocchio::Resize;`);
+        lines.push(`        use pinocchio::sysvars::{rent::Rent, Sysvar};`);
+        lines.push(`        let new_len: usize = ${c.space};`);
+        lines.push(`        let needed = Rent::get()?.try_minimum_balance(new_len)?;`);
+        lines.push(`        let current = ${a.name}.lamports();`);
+        lines.push(`        if needed > current {`);
+        lines.push(`            pinocchio_system::instructions::Transfer { from: ${c.payer}, to: ${a.name}, lamports: needed - current }.invoke()?;`);
+        lines.push(`        }`);
+        lines.push(`        ${a.name}.resize(new_len)?;`);
         lines.push(`    }`);
       }
       if (c.type === 'custom') {
@@ -1400,72 +1476,67 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
       return result;
     }
 
-    case 'emit-event': {
-      const fieldEntries = Object.entries(op.fields);
-      const serializeLines = fieldEntries.map(([k, v]) =>
-        `        // ${k}: ${translatePinocchioValue(v)}`
-      );
-      return [
-        `// Event: ${op.event}`,
-        `{`,
-        `    // Fields: ${fieldEntries.map(([k]) => k).join(', ')}`,
-        ...serializeLines,
-        `    // sol_log_data event: ${op.event}`,
-        `}`,
-      ];
-    }
+    case 'emit-event':
+      return emitPinocchioEvent(op, accountToStateType, ix);
 
     case 'return-error':
       return [`return Err(${errorRef(errorEnum, op.errorCode, "ProgramError::InvalidArgument")}.into());`];
 
     case 'math': {
       const checked = op.checked;
-      const left = translateStateFieldExpr(translatePinocchioValue(op.left, undefined, undefined, accountToStateType), accountToStateType);
-      const right = op.right;
-      if (checked) {
-        const opMap: Record<string, string> = {
-          add: 'checked_add', sub: 'checked_sub',
-          mul: 'checked_mul', div: 'checked_div', mod: 'checked_rem',
-        };
+      const tr = (v: string) => translateStateFieldExpr(translatePinocchioValue(v, undefined, ix, accountToStateType), accountToStateType);
+      const left = tr(op.left);
+      const right = tr(op.right);
+      const opMap: Record<string, string> = {
+        add: 'checked_add', sub: 'checked_sub',
+        mul: 'checked_mul', div: 'checked_div', mod: 'checked_rem',
+      };
+      const opSym: Record<string, string> = { add: '+', sub: '-', mul: '*', div: '/', mod: '%' };
+      const expr = checked
+        ? `${left}.${opMap[op.operation] ?? 'checked_add'}(${right}).ok_or(ProgramError::InvalidArgument)?`
+        : `${left} ${opSym[op.operation] ?? '+'} ${right}`;
+      // `vault.total` as the result writes that state field through its setter.
+      const target = op.result.trim().match(/^(\w+)\.(\w+)$/);
+      const targetState = target ? accountToStateType?.get(target[1]) : undefined;
+      if (target && targetState) {
         return [
-          `let ${op.result} = ${left}.${opMap[op.operation] ?? 'checked_add'}(${right})`,
-          `    .ok_or(ProgramError::InvalidArgument)?;`,
+          `{`,
+          `    let value = ${expr};`,
+          `    let data = &mut ${target[1]}.try_borrow_mut()?;`,
+          `    ${targetState}::set_${target[2]}(data, value);`,
+          `}`,
         ];
       }
-      const opSym: Record<string, string> = { add: '+', sub: '-', mul: '*', div: '/', mod: '%' };
-      return [`let ${op.result} = ${left} ${opSym[op.operation] ?? '+'} ${right};`];
+      return [`let ${op.result} = ${expr};`];
     }
 
-    case 'cpi': {
-      const prog = op.targetProgram;
-      const ixName = op.instruction;
-      const hasSignerSeeds = op.signerSeeds && op.signerSeeds.length > 0;
-      const accountArgs = op.accounts
-        .map((a) => `            ${a.to}: ${a.from},`)
-        .join('\n');
-      const dataFields = op.data.map((d) => d.value).join(', ');
+    case 'cpi':
+      return emitPinocchioCpi(op, accountToStateType, ix);
 
-      const lines: string[] = [
-        `// CPI: ${prog}::${ixName}`,
-        `{`,
-        `    let cpi_program = ${prog};`,
-      ];
-
-      if (hasSignerSeeds) {
-        const seedParts = pinocchioSeedParts(op.signerSeeds!, ix, accountToStateType).map((p) => `Seed::from(${p})`);
-        lines.push(`    use pinocchio::cpi::{Signer, Seed};`);
-        lines.push(`    let seeds: [Seed; ${op.signerSeeds!.length}] = [${seedParts.join(', ')}];`);
-        lines.push(`    let pda_signer = Signer::from(&seeds);`);
+    case 'close-account': {
+      const type = ix?.accounts.find((a) => a.name === op.account)?.accountType;
+      if (type === 'token-account' || type === 'associated-token') {
+        return [
+          `pinocchio_token::instructions::CloseAccount {`,
+          `    account: ${op.account},`,
+          `    destination: ${op.destination},`,
+          `    authority: ${op.authority},`,
+          `    multisig_signers: &[] as &[AccountView],`,
+          `}`,
+          `.invoke()?;`,
+        ];
       }
-
-      lines.push(
-        `    // Build instruction data`,
-        `    let ix_data = [${dataFields || '0u8; 0'}];`,
-        `    // CPI invocation — adapt to target program's instruction layout`,
-        `    // pinocchio::cpi::invoke_signed(&instruction, &[...accounts...], &[pda_signer])?;`,
+      // Program-owned: wipe the data and move every lamport to the destination.
+      return [
+        `// Close ${op.account}: wipe its data and move all lamports to ${op.destination}`,
+        `{`,
+        `    ${op.account}.try_borrow_mut()?.fill(0);`,
+        `    let src_lamports = ${op.account}.lamports();`,
+        `    let dest_lamports = ${op.destination}.lamports();`,
+        `    ${op.destination}.set_lamports(dest_lamports.checked_add(src_lamports).ok_or(ProgramError::ArithmeticOverflow)?);`,
+        `    ${op.account}.set_lamports(0);`,
         `}`,
-      );
-      return lines;
+      ];
     }
 
     case 'custom-code':
@@ -1474,6 +1545,147 @@ function emitPinocchioOp(op: LogicOperation, errorEnum: string, accountToStateTy
     default:
       return [`// WARNING: unimplemented logic operation type — add a handler in codegen`];
   }
+}
+
+/** Little-endian bytes of a value of a fixed-size type, or undefined for an unsupported type. */
+function pinocchioValueBytes(type: unknown, value: string, local: string): { setup: string; bytes: string; size: number } | undefined {
+  const INTS: Record<string, number> = { u8: 1, i8: 1, u16: 2, i16: 2, u32: 4, i32: 4, u64: 8, i64: 8, u128: 16, i128: 16, f32: 4, f64: 8 };
+  if (typeof type === 'string' && INTS[type]) {
+    return { setup: `let ${local}: ${type} = ${value};`, bytes: `&${local}.to_le_bytes()`, size: INTS[type] };
+  }
+  if (type === 'bool') return { setup: `let ${local}: [u8; 1] = [(${value}) as u8];`, bytes: `&${local}`, size: 1 };
+  // Copied out in one statement: the value may borrow account data only for that statement.
+  if (type === 'Pubkey') return { setup: `let mut ${local} = [0u8; 32]; ${local}.copy_from_slice(AsRef::<[u8]>::as_ref(&${value}));`, bytes: `&${local}`, size: 32 };
+  return undefined;
+}
+
+/**
+ * Emit an event the way Anchor does: one `sol_log_data` entry holding
+ * sha256("event:<Name>")[..8] followed by the fields' little-endian bytes.
+ */
+function emitPinocchioEvent(op: Extract<LogicOperation, { type: 'emit-event' }>, accountToStateType?: Map<string, string>, ix?: Instruction): string[] {
+  const event = currentEvents.find((e) => e.name === op.event);
+  const disc = [...sha256(`event:${op.event}`).slice(0, 8)];
+  const setup: string[] = [];
+  const parts: Array<{ bytes: string; size: number }> = [{ bytes: '&disc', size: 8 }];
+  for (const field of event?.fields ?? []) {
+    const raw = op.fields[field.name];
+    if (raw === undefined) continue;
+    const value = translateStateFieldExpr(translatePinocchioValue(raw, undefined, ix, accountToStateType), accountToStateType);
+    const local = `ev_${field.name}`;
+    if (field.type === 'String') {
+      // Borsh string: u32 length, then the bytes.
+      setup.push(`let ${local}: &[u8] = ${value}.as_ref();`, `let ${local}_len = (${local}.len() as u32).to_le_bytes();`);
+      parts.push({ bytes: `&${local}_len`, size: 4 }, { bytes: local, size: -1 });
+      continue;
+    }
+    const enc = pinocchioValueBytes(field.type, value, local);
+    if (!enc) {
+      validationWarnings.push(`Event ${op.event}: field "${field.name}" has a type Pinocchio events don't encode yet; it was left out.`);
+      continue;
+    }
+    setup.push(enc.setup);
+    parts.push({ bytes: enc.bytes, size: enc.size });
+  }
+  const fixed = parts.every((p) => p.size >= 0);
+  const total = parts.reduce((n, p) => n + Math.max(p.size, 0), 0);
+  const lines = [
+    `// Emit ${op.event} (Anchor-compatible: discriminator + little-endian fields)`,
+    `{`,
+    `    let disc: [u8; 8] = [${disc.join(', ')}];`,
+    ...setup.map((l) => `    ${l}`),
+  ];
+  if (fixed) {
+    let offset = 0;
+    lines.push(`    let mut event_data = [0u8; ${total}];`);
+    for (const p of parts) {
+      lines.push(`    event_data[${offset}..${offset + p.size}].copy_from_slice(${p.bytes});`);
+      offset += p.size;
+    }
+    lines.push(`    let log_parts: [&[u8]; 1] = [&event_data];`);
+  } else {
+    lines.push(`    let log_parts: [&[u8]; ${parts.length}] = [${parts.map((p) => p.bytes).join(', ')}];`);
+  }
+  lines.push(
+    `    #[cfg(any(target_os = "solana", target_arch = "bpf"))]`,
+    `    unsafe {`,
+    `        pinocchio::syscalls::sol_log_data(log_parts.as_ptr() as *const u8, log_parts.len() as u64);`,
+    `    }`,
+    `    #[cfg(not(any(target_os = "solana", target_arch = "bpf")))]`,
+    `    let _ = log_parts;`,
+    `}`,
+  );
+  return lines;
+}
+
+/**
+ * A CPI to any program as a raw instruction: Anchor-style discriminator plus little-endian
+ * args (a flow names the target's instruction, not its layout), account metas from each
+ * account's mut/signer flags, signed with the PDA's seeds when given.
+ */
+function emitPinocchioCpi(op: Extract<LogicOperation, { type: 'cpi' }>, accountToStateType?: Map<string, string>, ix?: Instruction): string[] {
+  const pdaAuthority = op.accounts.map((a) => a.from).find((n) =>
+    ix?.accounts.find((a) => a.name === n)?.constraints.some((c) => c.type === 'seeds')) ?? '';
+  const seeds = op.signerSeeds?.length ? buildSignerSeeds(op.signerSeeds, pdaAuthority, ix, accountToStateType) : null;
+  const { pda } = op.signerSeeds?.length ? splitSignerSeeds(op.signerSeeds, pdaAuthority, ix) : { pda: undefined };
+  const signerLines = seeds ? [`    use pinocchio::cpi::{Signer, Seed};`, ...seeds.map((l) => `    ${l}`), `    let pda_signer = Signer::from(&seeds);`] : [];
+  if (ix?.accounts.find((a) => a.name === op.targetProgram)?.accountType === 'system-program' && op.instruction === 'transfer') {
+    const role = (r: string) => op.accounts.find((a) => a.to === r)?.from ?? r;
+    const amount = translateStateFieldExpr(translatePinocchioValue(op.data[0]?.value ?? '0', undefined, ix, accountToStateType), accountToStateType);
+    return [
+      `// CPI: system_program::transfer`,
+      `{`,
+      `    let amount: u64 = ${amount};`,
+      ...signerLines,
+      `    pinocchio_system::instructions::Transfer { from: ${role('from')}, to: ${role('to')}, lamports: amount }`,
+      seeds ? `        .invoke_signed(&[pda_signer])?;` : `        .invoke()?;`,
+      `}`,
+    ];
+  }
+  const setup: string[] = [];
+  const parts: Array<{ bytes: string; size: number }> = [];
+  op.data.forEach((d, i) => {
+    const arg = ix?.args.find((a) => a.name === d.value.trim());
+    const value = translateStateFieldExpr(translatePinocchioValue(d.value, undefined, ix, accountToStateType), accountToStateType);
+    const enc = pinocchioValueBytes(arg ? arg.type : 'u64', value, `cpi_arg_${i}`);
+    if (!enc) {
+      validationWarnings.push(`CPI ${op.targetProgram}::${op.instruction}: argument "${d.name}" has a type that isn't encoded yet; it was left out.`);
+      return;
+    }
+    setup.push(enc.setup);
+    parts.push(enc);
+  });
+  const total = 8 + parts.reduce((n, p) => n + p.size, 0);
+  const lines = [
+    `// CPI: ${op.targetProgram}::${op.instruction} (Anchor-style discriminator; change it for a non-Anchor program)`,
+    `{`,
+    `    use pinocchio::instruction::{InstructionAccount, InstructionView};`,
+    ...setup.map((l) => `    ${l}`),
+    `    let mut ix_data = [0u8; ${total}];`,
+    `    ix_data[0..8].copy_from_slice(&[${anchorIxDiscriminator(op.instruction).join(', ')}]);`,
+  ];
+  let offset = 8;
+  for (const p of parts) {
+    lines.push(`    ix_data[${offset}..${offset + p.size}].copy_from_slice(${p.bytes});`);
+    offset += p.size;
+  }
+  const metas = op.accounts.map(({ from }) => {
+    const { writable, signer } = accountFlags(ix?.accounts.find((a) => a.name === from));
+    return `InstructionAccount::new(${from}.address(), ${writable}, ${signer || from === pda})`;
+  });
+  lines.push(
+    `    let metas = [${metas.join(', ')}];`,
+    `    let cpi_ix = InstructionView { program_id: ${op.targetProgram}.address(), data: &ix_data, accounts: &metas };`,
+  );
+  const views = `&[${op.accounts.map((a) => `&*${a.from}`).join(', ')}]`;
+  if (seeds) {
+    lines.push(...signerLines);
+    lines.push(`    pinocchio::cpi::invoke_signed(&cpi_ix, ${views}, &[pda_signer])?;`);
+  } else {
+    lines.push(`    pinocchio::cpi::invoke(&cpi_ix, ${views})?;`);
+  }
+  lines.push(`}`);
+  return lines;
 }
 
 /// Collect state struct names actually used in instruction body ops

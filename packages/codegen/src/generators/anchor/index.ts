@@ -7,6 +7,8 @@ import { addMissingCrateImports } from "../../utils/crate-imports";
 import { isExternalType, METADATA_TYPES, usesMetadata } from "../../utils/external-accounts";
 import { solTransferKind, splitSignerSeeds } from "../../utils/signer-seeds";
 import { seedBytes } from "../../utils/seed-bytes";
+import { accountFlags, anchorIxDiscriminator, forEachOp, mintDecimalsExpr } from "../../utils/logic";
+import { isBase58Address } from "../../utils/escape";
 import type {
   ProgramIR,
   Instruction,
@@ -66,7 +68,7 @@ export function generateAnchor(ir: ProgramIR): {
   // ── Cargo.toml ─────────────────────────────────────────────────────────────
   files.push({
     path: `programs/${programName}/Cargo.toml`,
-    content: generateCargoToml(programName, version, usesSpl, ir.integrations, usesMetadata(ir)),
+    content: generateCargoToml(programName, version, usesSpl, ir.integrations, usesMetadata(ir), ir.states.some((st) => st.isZeroCopy)),
     language: "toml",
   });
 
@@ -112,6 +114,19 @@ export function generateAnchor(ir: ProgramIR): {
       language: "rust",
     });
     for (const state of states) {
+      if (state.isZeroCopy) {
+        for (const f of state.fields) {
+          const t = f.type;
+          const ok = (x: typeof t): boolean =>
+            typeof x === "string" ? x !== "bool" && x !== "String" : "array" in x && ok(x.array[0]);
+          if (!ok(t)) {
+            errors.push({
+              message: `Zero-copy state ${state.name}: field "${f.name}" has type ${JSON.stringify(t)}, which is not plain-old-data (use integers, Pubkey or fixed arrays; bool → u8)`,
+              nodeId: state.id,
+            });
+          }
+        }
+      }
       files.push({
         path: `programs/${programName}/src/state/${toSnakeFilename(state.name)}.rs`,
         content: generateStateRs(state.name, state.fields, state.isZeroCopy, state.customDiscriminator),
@@ -159,8 +174,11 @@ function generateCargoToml(
   usesSpl: boolean,
   integrations: Integration[],
   metadata = false,
+  zeroCopy = false,
 ): string {
   const kebab = toKebabCase(name);
+  // #[account(zero_copy)] derives bytemuck's Pod/Zeroable, which need the crate itself.
+  const bytemuck = zeroCopy ? '\nbytemuck = { version = "1.17", features = ["derive", "min_const_generics"] }' : "";
   const spl = usesSpl
     ? metadata
       ? '\nanchor-spl = { version = "0.32.1", features = ["metadata"] }'
@@ -189,7 +207,7 @@ default = []
 idl-build = ["anchor-lang/idl-build"]
 
 [dependencies]
-anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}${pyth}${metaplex}
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }${spl}${pyth}${metaplex}${bytemuck}
 
 [profile.release]
 opt-level = "z"
@@ -233,7 +251,9 @@ function generateLibRs(
       const argPass = ix.args.map((a) => a.name).join(", ");
       const extraArgs = args ? `, ${args}` : "";
       const extraPass = argPass ? `, ${argPass}` : "";
-      return `    pub fn ${ix.name}(ctx: Context<${ctx}>${extraArgs}) -> Result<()> {\n        instructions::${ix.name}::handler(ctx${extraPass})\n    }`;
+      // A custom discriminator (e.g. from an imported IDL) overrides sha256("global:<name>").
+      const disc = ix.discriminator?.length ? `    #[instruction(discriminator = [${ix.discriminator.join(", ")}])]\n` : "";
+      return `${disc}    pub fn ${ix.name}(ctx: Context<${ctx}>${extraArgs}) -> Result<()> {\n        instructions::${ix.name}::handler(ctx${extraPass})\n    }`;
     })
     .join("\n\n");
 
@@ -290,10 +310,10 @@ function generateInstructionRs(
   for (const a of ix.accounts) {
     if (a.stateType && !isExternalType(a.stateType, ir)) usedStates.add(a.stateType);
   }
-  for (const op of ix.body) {
+  forEachOp(ix.body, (op) => {
     if (op.type === "emit-event") usedEvents.add(op.event);
     if (op.type === "require" || op.type === "return-error") hasErrors = true;
-  }
+  });
 
   const errorEnum = toPascalCase(programName) + "Error";
   const pluginIntegrations = integrationsForInstruction(ir, ix);
@@ -322,7 +342,7 @@ function generateInstructionRs(
     .flatMap((block) => block.bodyLines);
   const bodyLines = [
     ...beforeBody,
-    ...generateInstructionBody(ix, programName),
+    ...generateInstructionBody(ix, programName, ir),
     ...afterBody,
   ];
 
@@ -711,7 +731,7 @@ function unique<T>(items: T[]): T[] {
 
 // ─── Instruction body builder ────────────────────────────────────────────────
 
-function generateInstructionBody(ix: Instruction, programName?: string): string[] {
+function generateInstructionBody(ix: Instruction, programName?: string, ir?: ProgramIR): string[] {
   const lines: string[] = [];
   const errorEnum = programName ? toPascalCase(programName) + "Error" : undefined;
 
@@ -722,6 +742,8 @@ function generateInstructionBody(ix: Instruction, programName?: string): string[
   function collectNeeded(ops: LogicOperation[]) {
     for (const op of ops) {
       if (op.type === "set-field") mutNeeded.add(op.account);
+      const resultAccount = op.type === "math" ? mathResultAccount(op.result, ix) : undefined;
+      if (resultAccount) mutNeeded.add(resultAccount);
       if (op.type === "if-else") {
         collectNeeded(op.thenBody);
         if (op.elseBody) collectNeeded(op.elseBody);
@@ -733,6 +755,17 @@ function generateInstructionBody(ix: Instruction, programName?: string): string[
 
   // Track which accounts have been bound
   const boundAccounts = new Set<string>();
+
+  // Zero-copy accounts are read through their loader: bind the loaded data once, up front.
+  for (const a of ix.accounts) {
+    if (!isZeroCopyAccount(a, ir) || !(mutNeeded.has(a.name) || allReferenced.has(a.name))) continue;
+    const init = a.constraints.some((c) => c.type === "init");
+    const writable = init || mutNeeded.has(a.name);
+    lines.push(writable
+      ? `let mut ${a.name} = ctx.accounts.${a.name}.${init ? "load_init" : "load_mut"}()?;`
+      : `let ${a.name} = ctx.accounts.${a.name}.load()?;`);
+    boundAccounts.add(a.name);
+  }
 
   // Collect accounts that need early read-only binding (referenced in require before any set-field)
   const needsEarlyReadOnly = new Set<string>();
@@ -780,6 +813,7 @@ function getAccessedAccounts(op: LogicOperation): Set<string> {
     case "math":
       collectAccountRefs(op.left, accounts);
       collectAccountRefs(op.right, accounts);
+      collectAccountRefs(op.result, accounts);
       break;
     case "require":
       collectAccountRefs(op.condition, accounts);
@@ -911,67 +945,120 @@ function emitLogicOp(op: LogicOperation, errorEnum?: string, boundAccounts?: Set
         div: checked ? "checked_div" : "/",
         mod: checked ? "checked_rem" : "%",
       };
-      if (checked) {
-        return [
-          `let ${op.result} = ${op.left}.${opMap[op.operation]}(${op.right}).ok_or(ProgramError::InvalidArgument)?;`,
-        ];
+      // Account fields are read through ctx.accounts unless the handler bound the account.
+      const left = qualifyAccountRefs(op.left, ix, boundAccounts);
+      const right = qualifyAccountRefs(op.right, ix, boundAccounts);
+      const expr = checked
+        ? `${left}.${opMap[op.operation]}(${right}).ok_or(ProgramError::InvalidArgument)?`
+        : `${left} ${opMap[op.operation]} ${right}`;
+      // `vault.total` as the result is an assignment to that field, not a new local.
+      if (ix && mathResultAccount(op.result, ix)) {
+        return [`${qualifyAccountRefs(op.result, ix, boundAccounts)} = ${expr};`];
       }
-      return [
-        `let ${op.result} = ${op.left} ${opMap[op.operation]} ${op.right};`,
-      ];
+      return [`let ${op.result} = ${expr};`];
     }
 
-    case "cpi": {
-      const prog = op.targetProgram;
-      const ixName = op.instruction;
-      const accountMappings = op.accounts
-        .map((a) => `${a.to}: ctx.accounts.${a.from}.to_account_info(),`)
-        .join("\n            ");
-      const dataArgs = op.data.map((d) => d.value).join(", ");
-      const seeds = op.signerSeeds?.length ? buildSignerSeeds(op.signerSeeds, "", ix, boundAccounts) : [];
-
-      const lines: string[] = [
-        `// CPI: ${prog}::${ixName}`,
-        `{`,
-        `    let cpi_program = ctx.accounts.${prog}.to_account_info();`,
-        `    let cpi_accounts = ${toPascalCase(ixName)}Cpi {`,
-        `            ${accountMappings}`,
-        `    };`,
-        ...seeds.map((l) => `    ${l}`),
-        seeds.length
-          ? `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts).with_signer(signer_seeds);`
-          : `    let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);`,
-        dataArgs ? `    ${ixName}(cpi_ctx, ${dataArgs})?;` : `    ${ixName}(cpi_ctx)?;`,
-        `}`,
-      ];
-      return lines;
-    }
+    case "cpi":
+      return emitAnchorCpi(op, boundAccounts, ix);
 
     case "custom-code":
       return op.code.split("\n");
 
     case "close-account": {
+      const acc = (name: string) => (boundAccounts?.has(name) ? name : `ctx.accounts.${name}`);
       const acct = op.account || "account";
       const dest = op.destination || "destination";
-      return [
-        `{`,
-        `    let acct_info = ctx.accounts.${acct}.to_account_info();`,
-        `    let dest_info = ctx.accounts.${dest}.to_account_info();`,
-        `    anchor_spl::token::close_account(CpiContext::new(`,
-        `        ctx.accounts.token_program.to_account_info(),`,
-        `        CloseAccount {`,
-        `            account: acct_info,`,
-        `            destination: dest_info,`,
-        `            authority: ctx.accounts.${op.authority || "authority"}.to_account_info(),`,
-        `        },`,
-        `    ))?;`,
-        `}`,
-      ];
+      const type = ix?.accounts.find((a) => a.name === acct)?.accountType;
+      if (type === "token-account" || type === "associated-token") {
+        return [
+          `anchor_spl::token::close_account(CpiContext::new(`,
+          `    ctx.accounts.token_program.to_account_info(),`,
+          `    anchor_spl::token::CloseAccount {`,
+          `        account: ${acc(acct)}.to_account_info(),`,
+          `        destination: ${acc(dest)}.to_account_info(),`,
+          `        authority: ${acc(op.authority || "authority")}.to_account_info(),`,
+          `    },`,
+          `))?;`,
+        ];
+      }
+      // A program-owned account: Anchor zeroes it and moves its lamports to the destination.
+      return [`${acc(acct)}.close(${acc(dest)}.to_account_info())?;`];
     }
 
     default:
       return [`// WARNING: unimplemented logic operation type — add a handler in codegen`];
   }
+}
+
+/** The account a math result like `vault.total` writes to (undefined for a plain local). */
+function mathResultAccount(result: string, ix?: Instruction): string | undefined {
+  const m = result.trim().match(/^([a-z_][a-z0-9_]*)\.[a-z_][a-z0-9_]*$/);
+  return m && ix?.accounts.some((a) => a.name === m[1]) ? m[1] : undefined;
+}
+
+function isZeroCopyAccount(account: Account, ir?: ProgramIR): boolean {
+  return account.accountType === "account" && !!account.stateType &&
+    !!ir?.states.find((st) => st.name === account.stateType)?.isZeroCopy;
+}
+
+/**
+ * A CPI to any program. The System Program's transfer has a typed helper; anything else is a raw
+ * instruction: Anchor discriminator (sha256("global:<ix>")[..8]) + Borsh-encoded args, with
+ * account metas taken from each account's mut/signer flags.
+ */
+function emitAnchorCpi(op: Extract<LogicOperation, { type: "cpi" }>, bound?: Set<string>, ix?: Instruction): string[] {
+  const acc = (name: string) => (bound?.has(name) ? name : `ctx.accounts.${name}`);
+  const prog = op.targetProgram;
+  const progAccount = ix?.accounts.find((a) => a.name === prog);
+  // Sign with the seeds of the PDA among the CPI's accounts (or the bump marker in the seeds).
+  const pdaAuthority = op.accounts.map((a) => a.from).find((n) =>
+    ix?.accounts.find((a) => a.name === n)?.constraints.some((c) => c.type === "seeds")) ?? "";
+  const seeds = op.signerSeeds?.length ? buildSignerSeeds(op.signerSeeds, pdaAuthority, ix, bound) : [];
+  const { pda } = op.signerSeeds?.length ? splitSignerSeeds(op.signerSeeds, pdaAuthority, ix) : { pda: undefined };
+
+  if (progAccount?.accountType === "system-program" && op.instruction === "transfer") {
+    const role = (r: string) => op.accounts.find((a) => a.to === r)?.from ?? r;
+    const amount = qualifyAccountRefs(op.data[0]?.value ?? "0", ix, bound);
+    return [
+      `// CPI: system_program::transfer`,
+      `{`,
+      ...seeds.map((l) => `    ${l}`),
+      `    let cpi_accounts = anchor_lang::system_program::Transfer {`,
+      `        from: ${acc(role("from"))}.to_account_info(),`,
+      `        to: ${acc(role("to"))}.to_account_info(),`,
+      `    };`,
+      seeds.length
+        ? `    let cpi_ctx = CpiContext::new_with_signer(${acc(prog)}.to_account_info(), cpi_accounts, signer_seeds);`
+        : `    let cpi_ctx = CpiContext::new(${acc(prog)}.to_account_info(), cpi_accounts);`,
+      `    anchor_lang::system_program::transfer(cpi_ctx, ${amount})?;`,
+      `}`,
+    ];
+  }
+
+  const metas = op.accounts.map(({ from }) => {
+    const { writable, signer } = accountFlags(ix?.accounts.find((a) => a.name === from));
+    const isSigner = signer || from === pda;
+    return `            anchor_lang::solana_program::instruction::AccountMeta::${writable ? "new" : "new_readonly"}(${acc(from)}.key(), ${isSigner}),`;
+  });
+  const infos = [...op.accounts.map((a) => `${acc(a.from)}.to_account_info()`), `${acc(prog)}.to_account_info()`];
+  return [
+    `// CPI: ${prog}::${op.instruction} (Anchor-style discriminator; change it for a non-Anchor program)`,
+    `{`,
+    `    let mut data: Vec<u8> = vec![${anchorIxDiscriminator(op.instruction).join(", ")}];`,
+    ...op.data.map((d) => `    AnchorSerialize::serialize(&(${qualifyAccountRefs(d.value, ix, bound)}), &mut data).map_err(|_| ProgramError::InvalidInstructionData)?;`),
+    `    let cpi_ix = anchor_lang::solana_program::instruction::Instruction {`,
+    `        program_id: ${acc(prog)}.key(),`,
+    `        accounts: vec![`,
+    ...metas,
+    `        ],`,
+    `        data,`,
+    `    };`,
+    ...seeds.map((l) => `    ${l}`),
+    seeds.length
+      ? `    anchor_lang::solana_program::program::invoke_signed(&cpi_ix, &[${infos.join(", ")}], signer_seeds)?;`
+      : `    anchor_lang::solana_program::program::invoke(&cpi_ix, &[${infos.join(", ")}])?;`,
+    `}`,
+  ];
 }
 
 /** `let signer_seeds = …;` for a PDA signing a CPI, with its bump appended. */
@@ -1030,7 +1117,9 @@ function buildAccountField(
     }
   }
 
-  const rustType = accountToRustType(account);
+  const rustType = isZeroCopyAccount(account, ir)
+    ? `AccountLoader<'info, ${account.stateType}>`
+    : accountToRustType(account);
   lines.push(`    pub ${account.name}: ${rustType},`);
   return lines.join("\n");
 }
@@ -1086,10 +1175,11 @@ function buildAccountAttributes(
         const kw = c.type === "init" ? "init" : "init_if_needed";
         // Anchor sizes SPL mints and token accounts itself and rejects an explicit space.
         // It only creates a mint given its decimals and authority: default to the payer, 0 decimals.
+        // A decimals arg written into the mint (`mint.decimals = decimals`) sets its decimals.
         const mintDefaults =
-          account.accountType === "mint" &&
-          !account.constraints.some((ac) => ac.type === "mint-authority" || ac.type === "mint-decimals")
-            ? `, mint::decimals = 0, mint::authority = ${c.payer}`
+          account.accountType === "mint"
+            ? (account.constraints.some((ac) => ac.type === "mint-decimals") ? "" : `, mint::decimals = ${mintDecimalsExpr(account, ix) ?? 0}`) +
+              (account.constraints.some((ac) => ac.type === "mint-authority") ? "" : `, mint::authority = ${c.payer}`)
             : "";
         if (isSplAccount(account)) {
           parts.push(`${kw}, payer = ${c.payer}${mintDefaults}`);
@@ -1097,7 +1187,9 @@ function buildAccountAttributes(
           const spaceStr =
             c.space === "auto"
               ? account.stateType
-                ? `8 + ${account.stateType}::INIT_SPACE`
+                ? isZeroCopyAccount(account, ir)
+                  ? `8 + std::mem::size_of::<${account.stateType}>()`
+                  : `8 + ${account.stateType}::INIT_SPACE`
                 : "8"
               : String(c.space);
           parts.push(`${kw}, payer = ${c.payer}, space = ${spaceStr}`);
@@ -1123,7 +1215,11 @@ function buildAccountAttributes(
         if (hasInit) {
           parts.push("bump");
         } else {
-          parts.push(c.bump ? `bump = ${c.bump}` : "bump");
+          // A zero-copy account's stored bump is read through its loader.
+          const bump = c.bump && isZeroCopyAccount(account, ir)
+            ? c.bump.replace(new RegExp(`^${account.name}\\.`), `${account.name}.load()?.`)
+            : c.bump;
+          parts.push(bump ? `bump = ${bump}` : "bump");
         }
         if (c.programId) parts.push(`seeds::program = ${c.programId}`);
         break;
@@ -1132,7 +1228,8 @@ function buildAccountAttributes(
         parts.push(`owner = ${c.owner}`);
         break;
       case "address":
-        parts.push(`address = ${c.address}`);
+        // A bare base58 address (e.g. from an IDL) needs the pubkey! macro; anything else is an expression.
+        parts.push(`address = ${isBase58Address(c.address) ? `pubkey!("${c.address}")` : c.address}`);
         break;
       case "token-authority":
         parts.push(`token::authority = ${c.authority}`);
@@ -1156,7 +1253,7 @@ function buildAccountAttributes(
         parts.push(`mint::authority = ${c.authority}`);
         break;
       case "mint-decimals":
-        parts.push(`mint::decimals = ${c.decimals}`);
+        parts.push(`mint::decimals = ${mintDecimalsExpr(account, ix) ?? c.decimals}`);
         break;
       case "associated-token-authority":
         parts.push(`associated_token::authority = ${c.authority}`);
@@ -1219,18 +1316,54 @@ function accountToRustType(account: Account): string {
 
 // ─── src/state/<name>.rs ──────────────────────────────────────────────────────
 
-function generateStateRs(name: string, fields: Field[], isZeroCopy?: boolean, customDiscriminator?: number[]): string {
-  let derive: string;
-  if (isZeroCopy) {
-    derive = "#[account(zero_copy)]\n#[derive(ZeroCopy)]";
-  } else {
-    derive = "#[account]\n#[derive(InitSpace)]";
+/**
+ * Zero-copy (bytemuck Pod) structs may not contain implicit padding: lay the fields out in order
+ * and make every gap an explicit `[u8; N]` field.
+ */
+function zeroCopyFields(fields: Field[]): Field[] {
+  const layout = (t: Field["type"]): [number, number] => {
+    if (typeof t === "string") {
+      const prim: Record<string, [number, number]> = {
+        u8: [1, 1], i8: [1, 1], u16: [2, 2], i16: [2, 2], u32: [4, 4], i32: [4, 4], f32: [4, 4],
+        u64: [8, 8], i64: [8, 8], f64: [8, 8], u128: [16, 16], i128: [16, 16], Pubkey: [32, 1],
+      };
+      return prim[t] ?? [0, 1];
+    }
+    if ("array" in t) {
+      const [size, align] = layout(t.array[0]);
+      return [size * t.array[1], align];
+    }
+    return [0, 1];
+  };
+  const out: Field[] = [];
+  let offset = 0;
+  let maxAlign = 1;
+  let pad = 0;
+  const padTo = (align: number) => {
+    const gap = (align - (offset % align)) % align;
+    if (gap) out.push({ name: `_padding${pad++}`, type: { array: ["u8", gap] } });
+    offset += gap;
+  };
+  for (const f of fields) {
+    const [size, align] = layout(f.type);
+    padTo(align);
+    out.push(f);
+    offset += size;
+    maxAlign = Math.max(maxAlign, align);
   }
+  padTo(maxAlign);
+  return out;
+}
 
-  // Custom discriminator support
-  const discriminatorAttr = customDiscriminator
-    ? `\n#[account(discriminator = [${customDiscriminator.join(", ")}])]`
-    : "";
+function generateStateRs(name: string, fields: Field[], isZeroCopy?: boolean, customDiscriminator?: number[]): string {
+  // One #[account(...)] attribute: zero_copy and a custom discriminator are its arguments.
+  const accountArgs = [
+    ...(isZeroCopy ? ["zero_copy"] : []),
+    ...(customDiscriminator ? [`discriminator = [${customDiscriminator.join(", ")}]`] : []),
+  ];
+  const derive = `#[account${accountArgs.length ? `(${accountArgs.join(", ")})` : ""}]${isZeroCopy ? "" : "\n#[derive(InitSpace)]"}`;
+  const discriminatorAttr = "";
+  if (isZeroCopy) fields = zeroCopyFields(fields);
 
   const hasDynamic = fields.some((f) => isDynamic(f.type));
   const fieldLines = fields

@@ -19,4 +19,7 @@ const handler = (req: Request) =>
         : undefined,
   });
 
+// Every request stays under the serverless limit; long work is split client-side (deploy.step, compile.status polling).
+export const maxDuration = 60;
+
 export { handler as GET, handler as POST };

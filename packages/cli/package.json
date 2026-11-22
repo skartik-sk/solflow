@@ -1,6 +1,6 @@
 {
   "name": "@solstudio/cli",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": false,
   "publishConfig": {
     "access": "public"
@@ -35,7 +35,8 @@
   "files": [
     "dist",
     "static",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
     "node": ">=20"

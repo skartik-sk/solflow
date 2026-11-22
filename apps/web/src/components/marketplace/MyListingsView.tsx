@@ -25,6 +25,8 @@ export type MyListing = {
   forks: number;
   rating: number | null;
   status: string;
+  /** Why the listing isn't live (failed certification checks or an admin note). */
+  reviewNote?: string | null;
   featured: boolean;
   publishedAt: Date | null;
   createdAt: Date;
@@ -97,11 +99,18 @@ function StatusChip({ status, featured }: { status: string; featured: boolean })
   );
 }
 
-function RejectedNote() {
+function hasReviewNote(listing: MyListing) {
+  return listing.status === "REJECTED" || (listing.status === "PENDING_REVIEW" && !!listing.reviewNote);
+}
+
+function ReviewNote({ listing }: { listing: MyListing }) {
+  const rejected = listing.status === "REJECTED";
   return (
-    <p className="flex items-center gap-1.5 text-[12px] text-red-300">
+    <p className={`flex items-center gap-1.5 text-[12px] ${rejected ? "text-red-300" : "text-amber-300"}`}>
       <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-      Your submission was rejected. Re-publish after making improvements.
+      {rejected
+        ? `Your submission was rejected.${listing.reviewNote ? ` ${listing.reviewNote}` : ""} Re-publish after making improvements.`
+        : listing.reviewNote}
     </p>
   );
 }
@@ -212,10 +221,10 @@ export function MyListingsView({ listings }: { listings: MyListing[] }) {
                           <Actions listing={listing} />
                         </td>
                       </tr>
-                      {listing.status === "REJECTED" && (
+                      {hasReviewNote(listing) && (
                         <tr className="!border-t-0">
                           <td colSpan={8} className="px-4 pb-3 pt-0">
-                            <RejectedNote />
+                            <ReviewNote listing={listing} />
                           </td>
                         </tr>
                       )}
@@ -243,7 +252,7 @@ export function MyListingsView({ listings }: { listings: MyListing[] }) {
                     {listing.rating != null && <span>{listing.rating.toFixed(1)} ★</span>}
                     <span>{new Date(listing.updatedAt).toLocaleDateString()}</span>
                   </p>
-                  {listing.status === "REJECTED" && <RejectedNote />}
+                  {hasReviewNote(listing) && <ReviewNote listing={listing} />}
                   <div className="-mx-2 flex flex-wrap">
                     <Actions listing={listing} />
                   </div>

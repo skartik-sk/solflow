@@ -22,8 +22,10 @@ interface AnchorIdlInstruction {
     isSigner: boolean;
     isOptional?: boolean;
     desc?: string;
+    relations?: string[];
+    address?: string;
     pda?: {
-      seeds: Array<{ kind: string; value?: string; path?: string }>;
+      seeds: Array<{ kind: string; value?: string; path?: string; seed?: { type: string; value: string } }>;
       program?: { value?: string };
     };
   }[];
@@ -39,6 +41,7 @@ interface AnchorIdl {
   accounts?: {
     name: string;
     docs?: string[];
+    discriminator?: number[];
     type: {
       kind: "struct" | "enum";
       fields?: { name: string; type: unknown; docs?: string[] }[];
@@ -72,15 +75,27 @@ type NewIdlAccount = {
   writable?: boolean;
   signer?: boolean;
   optional?: boolean;
+  relations?: string[];
+  address?: string;
   docs?: string[];
   pda?: { seeds?: Array<{ kind: string; value?: unknown; path?: string }> };
   accounts?: NewIdlAccount[];
 };
 
-function seedValue(value: unknown): string | undefined {
-  if (!Array.isArray(value)) return typeof value === "string" ? value : undefined;
-  const text = String.fromCharCode(...(value as number[]));
-  return /^[\x20-\x7e]+$/.test(text) ? text : `[${value.join(", ")}]`;
+/**
+ * A const seed's bytes. Text (valid UTF-8) stays a literal — codegen writes non-ASCII bytes as
+ * `\x` escapes; anything else becomes a byte-array expression, since a literal can't hold it.
+ */
+function constSeed(value: unknown): { type: string; value: string } | undefined {
+  if (!Array.isArray(value)) return typeof value === "string" ? { type: "literal", value } : undefined;
+  const bytes = Uint8Array.from(value as number[]);
+  try {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (!/[\u0000-\u001f\u007f]/.test(text)) return { type: "literal", value: text };
+  } catch {
+    // not UTF-8
+  }
+  return { type: "pubkey", value: `[${[...bytes].map((b) => `${b}u8`).join(", ")}].as_ref()` };
 }
 
 function flattenAccounts(accounts: NewIdlAccount[]): NewIdlAccount[] {
@@ -111,14 +126,17 @@ export function normalizeAnchorIdl(json: unknown): unknown {
         isSigner: acc.signer ?? false,
         isOptional: acc.optional,
         desc: acc.docs?.join(" "),
+        relations: acc.relations,
+        address: acc.address,
         pda: acc.pda
-          ? { seeds: (acc.pda.seeds ?? []).map((s) => ({ kind: s.kind, value: seedValue(s.value), path: s.path })) }
+          ? { seeds: (acc.pda.seeds ?? []).map((s) => (s.kind === "const" ? { kind: "const", seed: constSeed(s.value) } : { kind: s.kind, value: typeof s.value === "string" ? s.value : undefined, path: s.path })) }
           : undefined,
       })),
     })),
-    accounts: (raw.accounts ?? []).map((a: { name: string; docs?: string[] }) => ({
+    accounts: (raw.accounts ?? []).map((a: { name: string; docs?: string[]; discriminator?: number[] }) => ({
       name: a.name,
       docs: a.docs,
+      discriminator: a.discriminator,
       type: typeOf(a.name) ?? { kind: "struct", fields: [] },
     })),
     events: (raw.events ?? []).map((e: { name: string }) => ({
@@ -138,6 +156,14 @@ export function parseAnchorIdl(json: unknown): UnifiedIdl {
 
   const programId = idl.metadata?.address;
 
+  const warnings: string[] = [];
+  for (const ix of idl.instructions) {
+    for (const arg of ix.args ?? []) {
+      if (/"[ui]256"/.test(JSON.stringify(arg.type))) {
+        warnings.push(`${ix.name}.${arg.name}: 256-bit integers are imported as [u8; 32] (little-endian bytes).`);
+      }
+    }
+  }
   const instructions: UnifiedInstruction[] = idl.instructions.map((ix) => ({
     name: ix.name,
     args: (ix.args ?? []).map((arg) => ({
@@ -151,7 +177,7 @@ export function parseAnchorIdl(json: unknown): UnifiedIdl {
       isSigner: acc.isSigner ?? false,
       isOptional: acc.isOptional,
       description: acc.desc,
-      seeds: acc.pda?.seeds?.map((s) => ({
+      seeds: acc.pda?.seeds?.map((s) => s.seed ?? ({
         type: s.kind === "const"
           ? "literal"
           : s.kind === "arg"
@@ -160,12 +186,16 @@ export function parseAnchorIdl(json: unknown): UnifiedIdl {
         value: s.value ?? s.path ?? "",
       })),
       pdaBump: acc.pda?.program?.value,
+      relations: acc.relations,
+      address: acc.address,
     })),
     description: ix.docs?.join(" "),
+    discriminator: ix.discriminator,
   }));
 
   const accounts: UnifiedAccountState[] = (idl.accounts ?? []).map((acc) => ({
     name: acc.name,
+    discriminator: acc.discriminator,
     fields: (acc.type.fields ?? []).map((f) => ({
       name: f.name,
       type: mapType(f.type),
@@ -215,5 +245,6 @@ export function parseAnchorIdl(json: unknown): UnifiedIdl {
     errors,
     events,
     types,
+    warnings,
   };
 }

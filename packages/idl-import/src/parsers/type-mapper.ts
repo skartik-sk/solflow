@@ -13,6 +13,10 @@ export function mapType(raw: unknown): SolanaType {
       "f32", "f64",
     ]);
     if (primitives.has(lower)) return lower as SolanaType;
+    // Anchor's `bytes` is a Borsh Vec<u8>.
+    if (lower === "bytes") return { vec: "u8" };
+    // No 256-bit integer in the IR: keep the 32-byte layout (little-endian) as a byte array.
+    if (lower === "u256" || lower === "i256") return { array: ["u8", 32] };
     return { defined: raw };
   }
 

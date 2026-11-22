@@ -27,8 +27,18 @@ import {
 import { useFlowStore } from "@/web/store/flow-store";
 import { useUIStore } from "@/web/store/ui-store";
 import { toast } from "sonner";
-import { loadProject, saveProject, fetchSourceFiles, saveSourceFile, reparseProject } from "../lib/standalone-api";
-import type { ParseReport, SourceFile } from "../lib/standalone-api";
+import {
+  loadProject,
+  saveProject,
+  fetchSourceFiles,
+  saveSourceFile,
+  reparseProject,
+  apiFetch,
+  wsUrl as buildWsUrl,
+  previewSync,
+  confirmSync,
+} from "../lib/standalone-api";
+import type { ParseReport, SourceFile, SyncChange } from "../lib/standalone-api";
 import "../lib/tailwind-safelist";
 
 // React Flow can't be SSR'd
@@ -125,7 +135,7 @@ export default function StandalonePage() {
   useEffect(() => {
     Promise.all([
       loadProject(),
-      fetch(`${window.location.origin}/api/status`).then((r) => r.json()).catch(() => ({})),
+      apiFetch("/api/status").then((r) => r.json()).catch(() => ({})),
     ])
       .then(async ([data, statusData]) => {
         if (data.name) {
@@ -177,7 +187,7 @@ export default function StandalonePage() {
   // WebSocket listener
   useEffect(() => {
     if (!loaded) return;
-    const wsUrl = `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws`;
+    const wsUrl = buildWsUrl();
     let ws: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -262,20 +272,42 @@ export default function StandalonePage() {
     }
   }, [nodes, edges]);
 
-  // Sync handler — force codegen from flow to source files
+  // Sync handler — codegen from flow to source files. Shows a diff first; nothing is
+  // written until the user confirms, and the server backs up every file it overwrites.
+  const [syncPreview, setSyncPreview] = useState<SyncChange[] | null>(null);
+  const [syncWriting, setSyncWriting] = useState(false);
   const handleSync = useCallback(async () => {
     try {
-      const res = await fetch(`${window.location.origin}/api/sync`, { method: "POST" });
-      const data = await res.json();
+      await saveProject({ nodes, edges });
+      const data = await previewSync();
+      if (!data.ok) {
+        toast.error(data.errors?.join(", ") || "Sync failed");
+      } else if (data.changes.length === 0) {
+        toast.success("Source files already match the flow");
+      } else {
+        setSyncPreview(data.changes);
+      }
+    } catch {
+      toast.error("Sync failed");
+    }
+  }, [nodes, edges]);
+  const applySync = useCallback(async () => {
+    if (!syncPreview) return;
+    setSyncWriting(true);
+    try {
+      const data = await confirmSync(syncPreview);
       if (data.ok) {
-        toast.success(`Synced ${data.written} file(s) to disk`);
+        toast.success(`Synced ${data.written} file(s) to disk${data.backupDir ? ` (backup: ${data.backupDir})` : ""}`);
+        setSyncPreview(null);
       } else {
         toast.error(data.errors?.join(", ") || "Sync failed");
       }
     } catch {
       toast.error("Sync failed");
+    } finally {
+      setSyncWriting(false);
     }
-  }, []);
+  }, [syncPreview]);
 
   // Editable project name
   const commitName = () => {
@@ -297,7 +329,7 @@ export default function StandalonePage() {
     setBottomPanelTab("console");
     setConsoleOutput(prev => prev + `\n\n$ ${buildCmd}\n`);
     try {
-      const res = await fetch(`${window.location.origin}/api/compile`, { method: "POST" });
+      const res = await apiFetch("/api/compile", { method: "POST" });
       const data: BuildOutput = await res.json();
       const output = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "");
       setConsoleOutput(prev => prev + output + "\n");
@@ -315,7 +347,7 @@ export default function StandalonePage() {
     setBottomPanelTab("tests");
     setTestOutput(`$ ${testCmd}\n`);
     try {
-      const res = await fetch(`${window.location.origin}/api/test`, { method: "POST" });
+      const res = await apiFetch("/api/test", { method: "POST" });
       const data: BuildOutput = await res.json();
       const output = (data.stdout || "") + (data.stderr ? "\n[stderr]\n" + data.stderr : "");
       setTestOutput(output);
@@ -334,9 +366,8 @@ export default function StandalonePage() {
     setDeployStatus("running");
     setBottomPanelTab("console");
     try {
-      const res = await fetch(`${window.location.origin}/api/deploy`, {
+      const res = await apiFetch("/api/deploy", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ network }),
       });
       const data: BuildOutput = await res.json();
@@ -702,6 +733,86 @@ export default function StandalonePage() {
           <span className="text-muted-foreground/40 text-xs">Ctrl+B</span>
         </div>
       )}
+
+      {syncPreview && (
+        <SyncConfirmDialog
+          changes={syncPreview}
+          writing={syncWriting}
+          onCancel={() => setSyncPreview(null)}
+          onConfirm={applySync}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Sync confirm dialog ────────────────────────────────────────────────
+
+function SyncConfirmDialog({
+  changes,
+  writing,
+  onCancel,
+  onConfirm,
+}: {
+  changes: SyncChange[];
+  writing: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const modified = changes.filter((c) => c.status === "modified").length;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col rounded-lg border border-border bg-card shadow-xl">
+        <div className="border-b border-border px-4 py-3">
+          <h2 className="text-sm font-semibold text-foreground">Write generated code to disk?</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {changes.length} file(s): {changes.length - modified} new, {modified} overwritten.
+            {modified > 0 && " Generated code replaces hand-written handler logic in overwritten files. Originals are backed up to .solstudio/backups/."}
+          </p>
+        </div>
+        <div className="flex-1 space-y-3 overflow-auto p-4">
+          {changes.map((change) => (
+            <div key={change.path} className="rounded border border-border">
+              <div className="flex items-center justify-between border-b border-border px-2 py-1 text-xs">
+                <span className="font-mono text-foreground">{change.path}</span>
+                <span className={change.status === "new" ? "text-green-400" : "text-yellow-400"}>{change.status}</span>
+              </div>
+              <pre className="max-h-64 overflow-auto p-2 font-mono text-[11px] leading-4">
+                {change.diff.split("\n").map((line, i) => (
+                  <div
+                    key={i}
+                    className={
+                      line.startsWith("+") && !line.startsWith("+++")
+                        ? "text-green-400"
+                        : line.startsWith("-") && !line.startsWith("---")
+                          ? "text-red-400"
+                          : "text-muted-foreground"
+                    }
+                  >
+                    {line || " "}
+                  </div>
+                ))}
+              </pre>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border px-4 py-3">
+          <button
+            onClick={onCancel}
+            disabled={writing}
+            className="rounded border border-border px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={writing}
+            className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {writing ? "Writing..." : `Write ${changes.length} file(s)`}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -759,9 +870,8 @@ function StandaloneAuditPanel({ nodes, edges }: { nodes: Node[]; edges: Edge[] }
   const runAudit = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${window.location.origin}/api/audit`, {
+      const res = await apiFetch("/api/audit", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nodes, edges }),
       });
       if (!res.ok) throw new Error("Audit failed");

@@ -5,7 +5,7 @@ import { Zap } from "lucide-react";
 import type { CloudFlowNodeData, CloudNodeDefinition, CredentialOperations, WorkflowItem } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl, redactUrlSecrets } from "../security/outbound-url";
+import { assertSafeOutboundUrl, redactUrlSecrets, safeOutboundFetch } from "../security/outbound-url";
 
 type JitoRegion =
   | "mainnet"
@@ -144,7 +144,7 @@ async function jitoRpc(
   const credential = await getCredentialData(ctx.credentials, ctx.params.credentialId);
   const url = blockEngineUrl(ctx.params, credential, path);
   const headers = jitoHeaders(credential);
-  const response = await fetch(url.toString(), {
+  const response = await safeOutboundFetch(url.toString(), {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -154,7 +154,7 @@ async function jitoRpc(
       params,
     }),
     signal: ctx.signal,
-  });
+  }, { allowHttp: false });
   const responseText = await response.text();
   const payload = parseJsonText(responseText) as { error?: { message?: string } } | null;
   if (!response.ok) {
@@ -361,7 +361,7 @@ export const jitoTipFloorDef: CloudNodeDefinition = {
   component: JitoNode,
   async execute(ctx) {
     const url = assertSafeOutboundUrl(JITO_TIP_FLOOR_URL, { allowHttp: false });
-    const response = await fetch(url.toString(), { signal: ctx.signal });
+    const response = await safeOutboundFetch(url.toString(), { signal: ctx.signal }, { allowHttp: false });
     if (!response.ok) {
       throw new Error(`Jito tip floor failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
     }

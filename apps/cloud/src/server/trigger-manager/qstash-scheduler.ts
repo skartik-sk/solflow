@@ -6,6 +6,8 @@
 // Requires env:
 //   QSTASH_TOKEN          — Upstash QStash token
 //   CLOUD_PUBLIC_BASE_URL — public base URL of the deployed cloud app (e.g. https://cloud.example.com)
+//   QSTASH_CURRENT_SIGNING_KEY / QSTASH_NEXT_SIGNING_KEY — verify fires (see cron-auth.ts)
+//   CRON_SECRET (optional)  — also forwarded as X-Cron-Secret on every fire
 //
 // When these are NOT set, the trigger-manager falls back to BullMQ (dev/VM),
 // so this module is a no-op there.
@@ -23,7 +25,38 @@ function authHeaders(): Record<string, string> {
 }
 
 function fireEndpoint(workflowId: string): string {
-  return `${process.env.CLOUD_PUBLIC_BASE_URL}/api/cron/fire?workflowId=${encodeURIComponent(workflowId)}`;
+  const base = (process.env.CLOUD_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+  return `${base}/api/cron/fire?workflowId=${encodeURIComponent(workflowId)}`;
+}
+
+/** Stable schedule id per workflow, so re-creating a schedule replaces it. */
+export function qstashScheduleId(workflowId: string): string {
+  return `solstudio-wf-${workflowId}`;
+}
+
+/**
+ * Headers for POST /v2/schedules/<destination>. QStash reads the schedule from
+ * the `Upstash-Cron` header (a JSON body is forwarded as the message body, not
+ * read as the cron). A timezone is set with a `CRON_TZ=<tz> ` prefix.
+ * `Upstash-Forward-*` headers are forwarded to /api/cron/fire on every fire.
+ */
+export function buildQstashScheduleHeaders(opts: {
+  workflowId: string;
+  cron: string;
+  timezone?: string;
+  cronSecret?: string;
+}): Record<string, string> {
+  const tz = opts.timezone?.trim();
+  const headers: Record<string, string> = {
+    ...authHeaders(),
+    "Content-Type": "application/json",
+    "Upstash-Cron": tz ? `CRON_TZ=${tz} ${opts.cron}` : opts.cron,
+    "Upstash-Method": "POST",
+    "Upstash-Schedule-Id": qstashScheduleId(opts.workflowId),
+    "Upstash-Retries": "0",
+  };
+  if (opts.cronSecret) headers["Upstash-Forward-X-Cron-Secret"] = opts.cronSecret;
+  return headers;
 }
 
 /**
@@ -33,18 +66,22 @@ function fireEndpoint(workflowId: string): string {
 export async function qstashCreateSchedule(opts: {
   workflowId: string;
   cron: string;
+  timezone?: string;
 }): Promise<string> {
   if (!isQstashConfigured()) {
     throw new Error("QStash not configured (QSTASH_TOKEN / CLOUD_PUBLIC_BASE_URL missing)");
   }
-  // Replace any existing schedule for this workflow first (idempotent activate).
+  // Remove any older schedules for this workflow (ones created before stable ids).
   await qstashDeleteScheduleForWorkflow(opts.workflowId);
 
   const destination = fireEndpoint(opts.workflowId);
   const res = await fetch(`${QSTASH_BASE}/schedules/${encodeURIComponent(destination)}`, {
     method: "POST",
-    headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ cron: opts.cron }),
+    headers: buildQstashScheduleHeaders({
+      ...opts,
+      cronSecret: process.env.CRON_SECRET || undefined,
+    }),
+    body: JSON.stringify({ workflowId: opts.workflowId }),
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
@@ -55,24 +92,42 @@ export async function qstashCreateSchedule(opts: {
   return data.scheduleId;
 }
 
-/** Delete every QStash schedule whose destination targets this workflow. */
-export async function qstashDeleteScheduleForWorkflow(workflowId: string): Promise<void> {
-  if (!isQstashConfigured()) return;
-  const needle = `workflowId=${encodeURIComponent(workflowId)}`;
+/** Delete every QStash schedule whose destination targets this workflow. Throws if QStash can't be reached. */
+export async function qstashDeleteScheduleForWorkflow(workflowId: string): Promise<number> {
+  if (!isQstashConfigured()) return 0;
   const res = await fetch(`${QSTASH_BASE}/schedules`, { headers: authHeaders() });
-  if (!res.ok) return;
+  if (!res.ok) {
+    throw new Error(`QStash list schedules failed: HTTP ${res.status}`);
+  }
   const schedules = (await res.json()) as Array<{
     scheduleId: string;
     destination?: string;
   }>;
-  await Promise.all(
-    schedules
-      .filter((s) => s.destination?.includes(needle))
-      .map((s) =>
-        fetch(`${QSTASH_BASE}/schedules/${s.scheduleId}`, {
-          method: "DELETE",
-          headers: authHeaders(),
-        }).catch(() => undefined),
-      ),
+  const matches = schedules.filter(
+    (s) =>
+      s.scheduleId === qstashScheduleId(workflowId) ||
+      scheduleTargetsWorkflow(s.destination, workflowId),
   );
+  const results = await Promise.all(
+    matches.map((s) =>
+      fetch(`${QSTASH_BASE}/schedules/${encodeURIComponent(s.scheduleId)}`, {
+        method: "DELETE",
+        headers: authHeaders(),
+      }).then((r) => r.ok || r.status === 404, () => false),
+    ),
+  );
+  if (results.some((ok) => !ok)) {
+    throw new Error(`QStash delete schedule failed for workflow ${workflowId}`);
+  }
+  return matches.length;
+}
+
+/** Exact workflowId match (a substring match would also hit ids that share a prefix). */
+export function scheduleTargetsWorkflow(destination: string | undefined, workflowId: string): boolean {
+  if (!destination) return false;
+  try {
+    return new URL(destination).searchParams.get("workflowId") === workflowId;
+  } catch {
+    return false;
+  }
 }

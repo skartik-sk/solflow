@@ -33,7 +33,8 @@ function parseLines(lines: string[], ops: ParsedLogicOperation[], fullSource?: s
     const result = tryParseLine(line, trimmedLines, i, fullSource, visitedMethods);
     if (result) {
       ops.push(result.op);
-      i = result.nextLine;
+      // Always move forward: a parser that reports its own line as the next one would loop forever.
+      i = Math.max(result.nextLine, i + 1);
     } else {
       i++;
     }
@@ -309,6 +310,14 @@ function tryParseLine(line: string, lines: string[], currentLine: number, fullSo
     const matchOps: ParsedLogicOperation[] = [];
     parseLines(matchBody, matchOps, fullSource, visitedMethods);
     return { op: parserGroup(`match ${m[1]}`, matchOps), nextLine: matchEnd };
+  }
+
+  // 8a. one-line `if cond { stmt; }` (no else on the same line)
+  m = line.match(/^if\s+([^{]+?)\s*\{\s*(.*?)\s*\}\s*$/);
+  if (m && !/\belse\b/.test(m[2])) {
+    const thenOps: ParsedLogicOperation[] = [];
+    parseLines(m[2].split(/(?<=;)\s*/), thenOps, fullSource, visitedMethods);
+    return { op: { type: "if-else", condition: m[1], thenBody: thenOps, elseBody: undefined }, nextLine: currentLine + 1 };
   }
 
   // 8. if / if let statement

@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Pause,
   Play,
+  Square,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc/client";
 import { toast } from "sonner";
@@ -160,9 +161,16 @@ export default function ExecutionDetailPage() {
   const router = useRouter();
   const executionId = params.id as string;
 
-  const { data: execution, isLoading } = trpc.execution.get.useQuery({
-    id: executionId,
-  });
+  // Poll while the run is in flight; stop once it reaches a final status.
+  const { data: execution, isLoading } = trpc.execution.get.useQuery(
+    { id: executionId },
+    {
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        return status === "QUEUED" || status === "RUNNING" ? 1_500 : false;
+      },
+    },
+  );
   const replaySourceId = getReplaySourceId(execution?.triggerData);
   const { data: replaySource } = trpc.execution.get.useQuery(
     { id: replaySourceId ?? "" },
@@ -172,7 +180,23 @@ export default function ExecutionDetailPage() {
   const reRun = trpc.execution.run.useMutation();
   const replayExecution = trpc.execution.replay.useMutation();
   const approveReplay = trpc.execution.approveReplay.useMutation();
+  const cancelExecution = trpc.execution.cancel.useMutation();
+  const [confirmCancel, setConfirmCancel] = React.useState(false);
   const utils = trpc.useUtils();
+
+  const handleCancel = async () => {
+    try {
+      await cancelExecution.mutateAsync({ id: executionId });
+      toast.success("Execution cancelled");
+      setConfirmCancel(false);
+      utils.execution.get.invalidate({ id: executionId });
+      utils.execution.list.invalidate();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to cancel execution");
+      setConfirmCancel(false);
+      utils.execution.get.invalidate({ id: executionId });
+    }
+  };
 
   const handleReRun = async () => {
     if (!execution?.workflowId) return;
@@ -282,6 +306,34 @@ export default function ExecutionDetailPage() {
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-1.5">
+                {(overallStatus === "QUEUED" || overallStatus === "RUNNING") &&
+                  (confirmCancel ? (
+                    <>
+                      <button
+                        onClick={handleCancel}
+                        disabled={cancelExecution.isPending}
+                        className={edx(
+                          pageBtn,
+                          "bg-red-500/[0.06] text-red-400 shadow-[inset_0_1px_0_rgba(255,255,255,0.04),0_0_0_1px_rgba(248,113,113,0.22)] hover:bg-red-500/[0.12] hover:text-red-300",
+                        )}
+                      >
+                        <Square size={12} className={cancelExecution.isPending ? "animate-pulse motion-reduce:animate-none" : ""} />
+                        {cancelExecution.isPending ? "Cancelling..." : "Confirm cancel"}
+                      </button>
+                      <button
+                        onClick={() => setConfirmCancel(false)}
+                        disabled={cancelExecution.isPending}
+                        className={pageBtn}
+                      >
+                        Keep running
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => setConfirmCancel(true)} className={pageBtn}>
+                      <Square size={12} />
+                      Cancel
+                    </button>
+                  ))}
                 <button
                   onClick={handleReRun}
                   disabled={reRun.isPending}

@@ -1,10 +1,12 @@
 // GET /api/download/marketplace/:id?framework=anchor
 //
 // Generates a .zip archive of a marketplace template's generated Rust source.
-// No auth required — marketplace templates are public.
+// FREE templates are public; paid ones need the author or a purchase.
 
 import { NextResponse } from "next/server";
 import { prisma } from "@solflow/db";
+import { auth } from "@solflow/auth";
+import { canAccessTemplate } from "@/lib/marketplace/access";
 import type { ProgramIR } from "@solflow/ir";
 import { flowToIR } from "@solflow/ir";
 import { generateCode } from "@solflow/codegen";
@@ -40,6 +42,9 @@ export async function GET(
   const listing = await prisma.marketplaceListing.findFirst({
     where: { id, status: "PUBLISHED" },
     select: {
+      id: true,
+      authorId: true,
+      pricingModel: true,
       title: true,
       templateFlowData: true,
       templateIR: true,
@@ -48,6 +53,21 @@ export async function GET(
 
   if (!listing) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (listing.pricingModel !== "FREE") {
+    const session = await auth();
+    const userId = session?.user?.id;
+    if (!(await canAccessTemplate(prisma, listing, userId))) {
+      return NextResponse.json(
+        {
+          error: userId
+            ? "This is a paid template. Purchase it to download the source."
+            : "Sign in and purchase this template to download the source.",
+        },
+        { status: userId ? 403 : 401 },
+      );
+    }
   }
 
   // Use stored IR first, fall back to flowToIR

@@ -6,7 +6,7 @@
 
 import React, { useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc/client";
-import { useProjectStore } from "@/store/project-store";
+import { confirmDiscardUnsaved, useProjectStore } from "@/store/project-store";
 import { useFlowStore } from "@/store/flow-store";
 import { useUIStore } from "@/store/ui-store";
 import { toast } from "sonner";
@@ -188,6 +188,13 @@ export function VersionHistoryPanel({ projectId }: VersionHistoryPanelProps) {
   });
 
   const handleRestore = (snapshotId: string) => {
+    if (
+      !confirmDiscardUnsaved(
+        "You have unsaved changes. Restoring this version will replace them. Restore anyway?",
+      )
+    ) {
+      return;
+    }
     setRestoringId(snapshotId);
     restoreMutation.mutate({ snapshotId });
   };

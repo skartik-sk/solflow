@@ -11,6 +11,10 @@ import { getTriggerManager } from "@/server/trigger-manager";
 
 const DEFAULT_MAX_BODY_BYTES = 256 * 1024;
 
+// The run executes after the response via after(); it needs the function alive.
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ path: string }> }

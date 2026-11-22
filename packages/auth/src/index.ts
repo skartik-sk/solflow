@@ -1,2 +1,10 @@
 export { auth, handlers, signIn, signOut } from "./config";
-export { SolanaWalletProvider, consumeNonce, generateNonce, verifyNonce } from "./providers/solana-wallet";
+export {
+  SolanaWalletProvider,
+  allowedSiwsDomains,
+  consumeNonce,
+  generateNonce,
+  requestHostFrom,
+  siwsDomainMatches,
+  verifyNonce,
+} from "./providers/solana-wallet";

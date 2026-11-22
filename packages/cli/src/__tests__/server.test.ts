@@ -5,6 +5,20 @@ import { tmpdir } from "os";
 import WebSocket from "ws";
 import type { ServerHandle } from "../server/index";
 
+// The local server requires a session token and JSON bodies on every /api call.
+const TOKEN = "test-session-token";
+const realFetch = globalThis.fetch;
+const fetch = (url: string, init: RequestInit = {}) =>
+  realFetch(url, {
+    ...init,
+    headers: {
+      "x-solstudio-token": TOKEN,
+      ...(init.method && init.method !== "GET" ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
+
+
 let tempDir: string;
 let handle: ServerHandle;
 const PORT = 16339; // Use a non-standard port for testing
@@ -53,7 +67,7 @@ afterAll(async () => {
 describe("server startup", () => {
   it("starts without error", async () => {
     const { startServer } = await import("../server/index");
-    handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+    handle = await startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN });
   }, 10000);
 
   it("responds to GET /api/project", async () => {
@@ -161,7 +175,7 @@ describe("POST /api/parse", () => {
 describe("WebSocket connection", () => {
   it("connects and receives connected message", async () => {
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
+      const ws = new WebSocket(`ws://localhost:${PORT}/ws?token=${TOKEN}`);
 
       ws.on("message", (raw) => {
         const msg = JSON.parse(raw.toString());
@@ -182,7 +196,7 @@ describe("WebSocket connection", () => {
 
   it("receives project-saved broadcast after PUT", async () => {
     return new Promise<void>((resolve, reject) => {
-      const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
+      const ws = new WebSocket(`ws://localhost:${PORT}/ws?token=${TOKEN}`);
 
       ws.on("open", () => {
         // Send a PUT after connecting

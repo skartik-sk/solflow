@@ -58,8 +58,8 @@ export function assessCloudSafetyPolicy(
 }
 
 export function assertWalletSafety(input: WalletSafetyInput): void {
-  const safety = input.safety;
-  if (!safety) return;
+  // No policy means nothing was approved: fail closed (manual approval).
+  const safety: CloudSafetyControls = input.safety ?? { manualApprovalRequired: true };
   const oneTimeApproval = safety.oneTimeApproval === true;
 
   if (!oneTimeApproval && (safety.manualApprovalRequired === true || safety.walletAutomationAllowed !== true)) {

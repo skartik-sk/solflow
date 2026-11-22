@@ -10,6 +10,7 @@ import { useFlowStore } from "@/store/flow-store";
 import { getRFInstance } from "@/lib/rf-instance";
 import { useUIStore } from "@/store/ui-store";
 import { useFlowGraph } from "@/hooks/use-flow-graph";
+import { normalizeEditorNodeType } from "@/lib/plugins/editor-nodes";
 import { TypeEditor } from "./TypeEditor";
 import { edIconBtn, edIconBtnSm, edPanelHeader, edx } from "@/components/ui-kit/editor-ui";
 import type { ProgramNodeData } from "@solflow/flow-nodes";
@@ -108,7 +109,9 @@ const ACCOUNT_TYPE_RULES: Record<AccountType, AccountFlagRules> = {
   "token-account":      { mut: true,  signer: false, init: true,  close: true,  seeds: false, payer: true,  space: true,  stateType: false, specialFields: ["tokenAuthority", "tokenMint"] },
   "mint":               { mut: true,  signer: false, init: true,  close: true,  seeds: false, payer: true,  space: true,  stateType: false, specialFields: ["mintAuthority", "mintDecimals"] },
   "associated-token":   { mut: true,  signer: false, init: true,  close: true,  seeds: false, payer: true,  space: false, stateType: false, specialFields: ["associatedAuthority", "associatedMint"] },
-  "unchecked-account":  { mut: true,  signer: true,  init: false, close: false, seeds: false, payer: false, space: false, stateType: false, specialFields: ["safetyComment"] },
+  // stateType here is only a hint of what the account should hold; codegen keeps it
+  // an UncheckedAccount, and the audit (SOL-003) flags it unless an owner check is added.
+  "unchecked-account":  { mut: true,  signer: true,  init: false, close: false, seeds: false, payer: false, space: false, stateType: true,  specialFields: ["safetyComment"] },
   "system-program":     { mut: false, signer: false, init: false, close: false, seeds: false, payer: false, space: false, stateType: false, specialFields: [] },
   "token-program":      { mut: false, signer: false, init: false, close: false, seeds: false, payer: false, space: false, stateType: false, specialFields: [] },
   "associated-token-program": { mut: false, signer: false, init: false, close: false, seeds: false, payer: false, space: false, stateType: false, specialFields: [] },
@@ -1476,6 +1479,8 @@ export function PropertiesPanel() {
   const setSelectedNode = useFlowStore((s) => s.setSelectedNode);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+  // Plugin nodes are typed "<plugin>:<node>" on the canvas; they edit as integrations.
+  const formType = normalizeEditorNodeType(selectedNode?.type);
   const isMultiSelect = selectedNodeIds.length > 1;
 
   // Batch delete all selected nodes
@@ -1523,7 +1528,7 @@ export function PropertiesPanel() {
   if (!propertiesOpen) return null;
 
   const meta = selectedNode
-    ? TYPE_META[selectedNode.type ?? ""] ?? {
+    ? TYPE_META[formType] ?? {
         label: selectedNode.type ?? "Node",
         icon: <Settings size={13} />,
         color: "#6b7280",
@@ -1667,25 +1672,25 @@ export function PropertiesPanel() {
               Select a node to edit its properties
             </p>
           </div>
-        ) : selectedNode.type === "program" ? (
+        ) : formType === "program" ? (
           <ProgramForm nodeId={selectedNode.id} data={selectedNode.data as ProgramNodeData} />
-        ) : selectedNode.type === "instruction" ? (
+        ) : formType === "instruction" ? (
           <InstructionForm nodeId={selectedNode.id} data={selectedNode.data as InstructionNodeData} />
-        ) : selectedNode.type === "account" ? (
+        ) : formType === "account" ? (
           <AccountForm nodeId={selectedNode.id} data={selectedNode.data as AccountNodeData} />
-        ) : selectedNode.type === "state" ? (
+        ) : formType === "state" ? (
           <StateForm nodeId={selectedNode.id} data={selectedNode.data as StateNodeData} />
-        ) : selectedNode.type === "constraint" ? (
+        ) : formType === "constraint" ? (
           <ConstraintForm nodeId={selectedNode.id} data={selectedNode.data as ConstraintNodeData} />
-        ) : selectedNode.type === "error" ? (
+        ) : formType === "error" ? (
           <ErrorForm nodeId={selectedNode.id} data={selectedNode.data as ErrorNodeData} />
-        ) : selectedNode.type === "event" ? (
+        ) : formType === "event" ? (
           <EventForm nodeId={selectedNode.id} data={selectedNode.data as EventNodeData} />
-        ) : selectedNode.type === "logic" ? (
+        ) : formType === "logic" ? (
           <LogicForm nodeId={selectedNode.id} data={selectedNode.data as LogicNodeData} />
-        ) : selectedNode.type === "custom-code" ? (
+        ) : formType === "custom-code" ? (
           <CustomCodeForm nodeId={selectedNode.id} data={selectedNode.data as CustomCodeNodeData} />
-        ) : selectedNode.type === "integration" ? (
+        ) : formType === "integration" ? (
           <IntegrationForm nodeId={selectedNode.id} data={selectedNode.data as IntegrationNodeData} />
         ) : (
           <p className="text-[12px] text-muted-foreground">

@@ -1,7 +1,8 @@
 // Execution Queue + Worker — picks up workflow execution jobs via BullMQ.
 // SERVER ONLY — never import from client components.
 
-import { Queue, Worker, QueueEvents, type Job } from "bullmq";
+import { Queue, Worker, type Job } from "bullmq";
+import { after } from "next/server";
 import { prisma, type Prisma } from "@solflow/db";
 import { WorkflowExecutor } from "@solflow/cloud-engine";
 import { cloudNodeRegistry, registerBuiltinNodes } from "@solflow/cloud-nodes";
@@ -19,7 +20,11 @@ import type {
   WorkflowSettings,
 } from "@solflow/cloud-engine";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
-import { shouldRunWorkersInThisProcess } from "../runtime-mode";
+import { getCloudRuntimeMode } from "../runtime-mode";
+import {
+  buildEngineTriggerData,
+  isWalletAutomationApproved,
+} from "./trigger-data";
 
 // Ensure nodes are registered
 registerBuiltinNodes();
@@ -32,6 +37,11 @@ export interface ExecutionJobData {
 }
 
 const MAX_WORKFLOW_TIMEOUT_SECONDS = 15 * 60;
+
+/** Vercel functions get 60 s (maxDuration); leave 5 s to write the result. */
+export const SERVERLESS_RUN_TIMEOUT_MS = 55_000;
+export const SERVERLESS_TIMEOUT_MESSAGE =
+  "Workflow timed out after 55 seconds (Cloud runs on serverless are limited to 55 s).";
 
 function getRpcUrl(network: string): string {
   switch (network) {
@@ -220,28 +230,17 @@ export function getExecutionQueue(): Queue<ExecutionJobData> {
   return _queue;
 }
 
-let _queueEvents: QueueEvents | null = null;
-
-function getQueueEvents(): QueueEvents {
-  if (!_queueEvents) {
-    _queueEvents = new QueueEvents("cloud-execution", {
-      connection: getRedisConnectionConfig(),
-    });
-    _queueEvents.on("error", createRedisErrorLogger("execution-queue-events"));
-  }
-  return _queueEvents;
-}
-
 /**
- * Enqueue a workflow execution and return the job id.
+ * Start a workflow execution and return immediately.
  *
- * Serverless (api-only) mode has NO separate worker process to consume the
- * queue, so we execute inline: start a worker in THIS process, add the job, and
- * wait for it to finish before returning. This keeps the cloud app free of any
- * always-on worker — it runs on-demand on Vercel and scales to zero.
+ * Serverless ("api" mode, the production default): no Redis and no worker. The
+ * run executes in this same function after the response is sent, via
+ * `after()` from next/server, capped at 55 s so it ends inside Vercel's 60 s.
+ * Every route that calls this exports `maxDuration = 60`.
  *
- * In dev/VM ("all"/"worker" mode) a dedicated worker process consumes the
- * queue, so we just enqueue and return immediately (existing behavior).
+ * Long-running server/worker ("all"/"worker" mode, server.ts / worker.ts): the
+ * job goes on the BullMQ queue for the worker process. If Redis is unreachable
+ * we fall back to running in-process instead of failing the run.
  */
 const REDIS_REACHABLE_TIMEOUT_MS = 5_000;
 
@@ -260,45 +259,42 @@ export async function queueExecution(
   executionId: string,
   workflowId: string,
 ): Promise<string> {
-  const queue = getExecutionQueue();
-
-  // BullMQ connections retry forever (maxRetriesPerRequest: null), so a missing
-  // or deleted Redis would leave this request hanging and the run stuck in QUEUED.
-  // Check reachability first; on failure mark the run FAILED with a clear reason.
-  try {
-    const client = await withTimeout(queue.client, REDIS_REACHABLE_TIMEOUT_MS, "Redis connection timed out");
-    await withTimeout(client.ping(), REDIS_REACHABLE_TIMEOUT_MS, "Redis did not answer PING");
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    const errorMessage = `Execution queue unavailable (${reason}). Check REDIS_URL for the cloud app.`;
-    logExecutionWorkerEvent("queue_unavailable", { executionId, workflowId, reason }, "error");
-    await prisma.workflowExecution
-      .update({
-        where: { id: executionId },
-        data: { status: "FAILED", errorMessage, completedAt: new Date() },
-      })
-      .catch(() => undefined);
-    throw new Error(errorMessage);
+  if (getCloudRuntimeMode() !== "api") {
+    try {
+      const queue = getExecutionQueue();
+      const client = await withTimeout(queue.client, REDIS_REACHABLE_TIMEOUT_MS, "Redis connection timed out");
+      await withTimeout(client.ping(), REDIS_REACHABLE_TIMEOUT_MS, "Redis did not answer PING");
+      const job = await queue.add(
+        "execute",
+        { executionId, workflowId },
+        { jobId: executionId },
+      );
+      return job.id ?? executionId;
+    } catch (error) {
+      logExecutionWorkerEvent(
+        "queue_unavailable_running_inline",
+        { executionId, workflowId, reason: error instanceof Error ? error.message : String(error) },
+        "error",
+      );
+    }
   }
 
-  if (!shouldRunWorkersInThisProcess()) {
-    // Serverless: no dedicated worker — run inline and wait for completion.
-    startExecutionWorker(); // idempotent — boots a worker in this process
-    const job = await queue.add(
-      "execute",
-      { executionId, workflowId },
-      { jobId: executionId },
-    );
-    await job.waitUntilFinished(getQueueEvents());
-    return job.id ?? executionId;
-  }
-
-  const job = await queue.add(
-    "execute",
-    { executionId, workflowId },
-    { jobId: executionId },
+  runInBackground(() =>
+    runExecution(executionId, workflowId, {
+      maxTimeoutMs: SERVERLESS_RUN_TIMEOUT_MS,
+      timeoutMessage: SERVERLESS_TIMEOUT_MESSAGE,
+    }),
   );
-  return job.id ?? executionId;
+  return executionId;
+}
+
+/** Run after the response inside the request scope; outside one (scripts, worker) just start it. */
+function runInBackground(task: () => Promise<void>): void {
+  try {
+    after(task);
+  } catch {
+    void task();
+  }
 }
 
 function createWalletOperations(workflow: {
@@ -439,7 +435,214 @@ function createCredentialOperations(workflow: {
   };
 }
 
-// ─── Worker ───────────────────────────────────────────────────────────────────
+// ─── Run one execution ───────────────────────────────────────────────────────
+
+export interface RunExecutionOptions {
+  maxTimeoutMs?: number;
+  timeoutMessage?: string;
+}
+
+const ACTIVE_STATUSES = ["QUEUED", "RUNNING"] as const;
+
+async function isExecutionCancelled(executionId: string): Promise<boolean> {
+  const row = await prisma.workflowExecution.findUnique({
+    where: { id: executionId },
+    select: { status: true },
+  });
+  return row?.status === "CANCELLED";
+}
+
+/**
+ * Execute one workflow run and persist every state change. Never throws: any
+ * failure is written to the row as FAILED. A row that was cancelled (or swept)
+ * before or during the run keeps that status.
+ */
+export async function runExecution(
+  executionId: string,
+  workflowId: string,
+  options: RunExecutionOptions = {},
+): Promise<void> {
+  try {
+    await runExecutionUnsafe(executionId, workflowId, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logExecutionWorkerEvent("run_failed", { executionId, workflowId, error: message }, "error");
+    await prisma.workflowExecution
+      .updateMany({
+        where: { id: executionId, status: { in: [...ACTIVE_STATUSES] } },
+        data: { status: "FAILED", errorMessage: message, completedAt: new Date() },
+      })
+      .catch(() => undefined);
+  }
+}
+
+async function runExecutionUnsafe(
+  executionId: string,
+  workflowId: string,
+  options: RunExecutionOptions,
+): Promise<void> {
+  logExecutionWorkerEvent("started", { executionId, workflowId });
+
+  const workflow = await prisma.workflow.findFirst({
+    where: { id: workflowId },
+  });
+  if (!workflow) {
+    throw new Error(`Workflow ${workflowId} not found`);
+  }
+
+  const execution = await prisma.workflowExecution.findUnique({
+    where: { id: executionId },
+    select: { definitionSnapshot: true, triggerData: true, triggerType: true },
+  });
+  if (!execution) {
+    throw new Error(`Execution ${executionId} not found`);
+  }
+
+  const definition = (execution.definitionSnapshot ??
+    workflow.definition) as {
+    nodes: Array<{
+      id: string;
+      type: string;
+      data: Record<string, unknown>;
+      position: { x: number; y: number };
+    }>;
+    edges: Array<{
+      id: string;
+      source: string;
+      target: string;
+      sourceHandle?: string;
+      targetHandle?: string;
+    }>;
+  };
+
+  // QUEUED -> RUNNING only if nobody cancelled it while it waited.
+  const claimed = await prisma.workflowExecution.updateMany({
+    where: { id: executionId, status: "QUEUED" },
+    data: { status: "RUNNING", startedAt: new Date() },
+  });
+  if (claimed.count === 0) {
+    logExecutionWorkerEvent("skipped_not_queued", { executionId, workflowId });
+    return;
+  }
+
+  const walletOps = createWalletOperations(workflow);
+  const credentialOps = createCredentialOperations(workflow);
+
+  const executor = new WorkflowExecutor(
+    cloudNodeRegistry,
+    walletOps,
+    credentialOps,
+    {
+      async onNodeStart(nodeResult) {
+        await writeNodeExecution(executionId, nodeResult);
+      },
+      async onNodeFinish(nodeResult) {
+        await writeNodeExecution(executionId, nodeResult);
+      },
+    },
+  );
+
+  const settings = normalizeWorkflowSettings(workflow.settings);
+  if (isWalletAutomationApproved(execution.triggerType, execution.triggerData)) {
+    settings.safety = {
+      ...settings.safety,
+      manualApprovalRequired: false,
+      walletAutomationAllowed: true,
+      oneTimeApproval: true,
+    };
+  }
+
+  const result = await executor.execute(
+    {
+      id: workflowId,
+      version: 1,
+      nodes: definition.nodes,
+      edges: definition.edges,
+      settings,
+    },
+    executionId,
+    buildEngineTriggerData(execution.triggerType, execution.triggerData),
+    {
+      maxTimeoutMs: options.maxTimeoutMs,
+      timeoutMessage: options.timeoutMessage,
+      isCancelled: () => isExecutionCancelled(executionId),
+    },
+  );
+
+  const status =
+    result.status === "success"
+      ? "COMPLETED"
+      : result.status === "cancelled"
+        ? "CANCELLED"
+        : result.status === "timeout"
+          ? "TIMED_OUT"
+          : "FAILED";
+  const nodeCount = definition.nodes.length;
+  const successCount = Array.from(result.nodeResults.values()).filter(
+    (r) => r.status === "success",
+  ).length;
+  const errorCount = Array.from(result.nodeResults.values()).filter(
+    (r) => r.status === "error",
+  ).length;
+  const nodeTimeline = Array.from(result.nodeResults.entries()).map(
+    ([nodeId, nodeResult]) => ({
+      nodeId,
+      nodeType: nodeResult.nodeType,
+      status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
+      duration: nodeResult.duration,
+      attempts: nodeResult.attempts ?? 0,
+      error: nodeResult.error ?? null,
+      logCount: nodeResult.logs.length,
+      inputBytes: safeJsonByteLength(nodeResult.inputSnapshot),
+      outputBytes: safeJsonByteLength(nodeResult.outputSnapshot),
+    }),
+  );
+
+  const summary = {
+    duration: result.duration,
+    nodesExecuted: nodeCount,
+    nodesSucceeded: successCount,
+    nodesFailed: errorCount,
+    executionData: {
+      timeline: nodeTimeline,
+      retryPolicy: settings.retryPolicy,
+      onError: settings.onError,
+      safety: redactSafetyForTimeline(settings.safety),
+    } as Prisma.InputJsonValue,
+  };
+
+  // Final status write must not overwrite CANCELLED (or a sweep's TIMED_OUT).
+  const finished = await prisma.workflowExecution.updateMany({
+    where: { id: executionId, status: "RUNNING" },
+    data: {
+      ...summary,
+      status,
+      completedAt: new Date(),
+      errorMessage: result.error,
+    },
+  });
+  if (finished.count === 0) {
+    await prisma.workflowExecution.update({
+      where: { id: executionId },
+      data: summary,
+    });
+  }
+
+  // Write per-node execution results
+  for (const [nodeId, nodeResult] of result.nodeResults) {
+    await writeNodeExecution(executionId, { ...nodeResult, nodeId });
+  }
+
+  logExecutionWorkerEvent("finished", {
+    executionId,
+    workflowId,
+    status: finished.count === 0 ? "CANCELLED" : status,
+    nodesSucceeded: successCount,
+    nodesTotal: nodeCount,
+  });
+}
+
+// ─── Worker (long-running server.ts / worker.ts only) ───────────────────────
 
 let _worker: Worker<ExecutionJobData> | null = null;
 
@@ -449,151 +652,7 @@ export function startExecutionWorker(): void {
   _worker = new Worker<ExecutionJobData>(
     "cloud-execution",
     async (job: Job<ExecutionJobData>) => {
-      const { executionId, workflowId } = job.data;
-
-      logExecutionWorkerEvent("started", { executionId, workflowId });
-
-      // Fetch workflow definition from DB
-      const workflow = await prisma.workflow.findFirst({
-        where: { id: workflowId },
-      });
-
-      if (!workflow) {
-        throw new Error(`Workflow ${workflowId} not found`);
-      }
-
-      const execution = await prisma.workflowExecution.findUnique({
-        where: { id: executionId },
-        select: { definitionSnapshot: true, triggerData: true },
-      });
-
-      const definition = (execution?.definitionSnapshot ??
-        workflow.definition) as {
-        nodes: Array<{
-          id: string;
-          type: string;
-          data: Record<string, unknown>;
-          position: { x: number; y: number };
-        }>;
-        edges: Array<{
-          id: string;
-          source: string;
-          target: string;
-          sourceHandle?: string;
-          targetHandle?: string;
-        }>;
-      };
-
-      // Mark execution as running
-      await prisma.workflowExecution.update({
-        where: { id: executionId },
-        data: { status: "RUNNING", startedAt: new Date() },
-      });
-
-      const walletOps = createWalletOperations(workflow);
-      const credentialOps = createCredentialOperations(workflow);
-
-      const executor = new WorkflowExecutor(
-        cloudNodeRegistry,
-        walletOps,
-        credentialOps,
-        {
-          async onNodeStart(nodeResult) {
-            await writeNodeExecution(executionId, nodeResult);
-          },
-          async onNodeFinish(nodeResult) {
-            await writeNodeExecution(executionId, nodeResult);
-          },
-        },
-      );
-
-      const settings = normalizeWorkflowSettings(workflow.settings);
-      const triggerData =
-        execution?.triggerData && typeof execution.triggerData === "object"
-          ? (execution.triggerData as Record<string, unknown>)
-          : {};
-      if (triggerData.walletAutomationApproved === true) {
-        settings.safety = {
-          ...settings.safety,
-          manualApprovalRequired: false,
-          walletAutomationAllowed: true,
-          oneTimeApproval: true,
-        };
-      }
-
-      const result = await executor.execute(
-        {
-          id: workflowId,
-          version: 1,
-          nodes: definition.nodes,
-          edges: definition.edges,
-          settings,
-        },
-        executionId,
-        triggerData,
-      );
-
-      // Update execution record with results
-      const status =
-        result.status === "success"
-          ? "COMPLETED"
-          : result.status === "cancelled"
-            ? "CANCELLED"
-            : result.status === "timeout"
-              ? "TIMED_OUT"
-              : "FAILED";
-      const nodeCount = definition.nodes.length;
-      const successCount = Array.from(result.nodeResults.values()).filter(
-        (r) => r.status === "success",
-      ).length;
-      const errorCount = Array.from(result.nodeResults.values()).filter(
-        (r) => r.status === "error",
-      ).length;
-      const nodeTimeline = Array.from(result.nodeResults.entries()).map(
-        ([nodeId, nodeResult]) => ({
-          nodeId,
-          nodeType: nodeResult.nodeType,
-          status: mapNodeExecutionStatus(nodeResult.status, nodeResult.error),
-          duration: nodeResult.duration,
-          attempts: nodeResult.attempts ?? 0,
-          error: nodeResult.error ?? null,
-          logCount: nodeResult.logs.length,
-          inputBytes: safeJsonByteLength(nodeResult.inputSnapshot),
-          outputBytes: safeJsonByteLength(nodeResult.outputSnapshot),
-        }),
-      );
-
-      await prisma.workflowExecution.update({
-        where: { id: executionId },
-        data: {
-          status,
-          completedAt: new Date(),
-          duration: result.duration,
-          nodesExecuted: nodeCount,
-          nodesSucceeded: successCount,
-          nodesFailed: errorCount,
-          errorMessage: result.error,
-          executionData: {
-            timeline: nodeTimeline,
-            retryPolicy: settings.retryPolicy,
-            onError: settings.onError,
-            safety: redactSafetyForTimeline(settings.safety),
-          } as Prisma.InputJsonValue,
-        },
-      });
-
-      // Write per-node execution results
-      for (const [nodeId, nodeResult] of result.nodeResults) {
-        await writeNodeExecution(executionId, { ...nodeResult, nodeId });
-      }
-
-      logExecutionWorkerEvent("finished", {
-        executionId,
-        workflowId,
-        status,
-        nodesSucceeded: successCount,
-        nodesTotal: nodeCount,
-      });
+      await runExecution(job.data.executionId, job.data.workflowId);
     },
     {
       connection: getRedisConnectionConfig(),

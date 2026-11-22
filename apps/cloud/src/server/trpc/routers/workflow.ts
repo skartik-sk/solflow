@@ -1,71 +1,31 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import type { Prisma } from "@solflow/db";
-import { workflowLifecycleRateLimit } from "@/lib/rate-limit";
-import { router, protectedProcedure, type Context } from "../trpc";
+import { workflowLifecycleRateLimit } from "../../../lib/rate-limit";
+import { nanoid } from "nanoid";
+import { router, protectedProcedure } from "../trpc";
 import { getTriggerManager } from "../../trigger-manager";
 import { startCronWorker } from "../../trigger-manager/cron-worker";
 import { shouldApiStartEmbeddedWorkers } from "../../runtime-mode";
 import {
   buildAssistantWorkflowDraft,
   createSimulationReport,
-} from "@/lib/cloud-workflow-features";
+} from "../../../lib/cloud-workflow-features";
 import {
   workflowPublicSelect,
   workflowVersionPublicSelect,
 } from "../public-selects";
-
-function getPositiveIntEnv(name: string, fallback: number): number {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
-}
-
-async function assertWorkflowActivationQuota(ctx: {
-  session: { user: { id?: string } };
-  prisma: Context["prisma"];
-}, workflowId: string): Promise<void> {
-  if (process.env.CLOUD_QUOTA_ENFORCEMENT !== "true") return;
-
-  const userId = ctx.session.user.id;
-  if (!userId) {
-    throw new TRPCError({
-      code: "UNAUTHORIZED",
-      message: "Sign in before activating Cloud workflows.",
-    });
-  }
-  const [user, activeCount] = await Promise.all([
-    ctx.prisma.user.findUnique({
-      where: { id: userId },
-      select: { createdAt: true },
-    }),
-    ctx.prisma.workflow.count({
-      where: {
-        userId,
-        status: "ACTIVE",
-        NOT: { id: workflowId },
-      },
-    }),
-  ]);
-
-  const trialDays = getPositiveIntEnv("CLOUD_TRIAL_DAYS", 7);
-  const maxActiveWorkflows = getPositiveIntEnv("CLOUD_FREE_ACTIVE_WORKFLOWS", 1);
-  const trialStartedAt = user?.createdAt?.getTime?.() ?? Date.now();
-  const trialEndsAt = trialStartedAt + trialDays * 24 * 60 * 60 * 1000;
-
-  if (Date.now() > trialEndsAt) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: "Cloud trial quota expired. Upgrade is required to activate workflows.",
-    });
-  }
-
-  if (activeCount >= maxActiveWorkflows) {
-    throw new TRPCError({
-      code: "FORBIDDEN",
-      message: `Free Cloud quota allows ${maxActiveWorkflows} active workflow${maxActiveWorkflows === 1 ? "" : "s"}.`,
-    });
-  }
-}
+import {
+  workflowDefinitionSchema,
+  workflowDescriptionSchema,
+  workflowNameSchema,
+  workflowSettingsSchema,
+  workflowTagsSchema,
+} from "../../workflow-input";
+import {
+  assertWalletOwnedBy,
+  assertWorkflowActivationQuota,
+} from "../../workflow-guards";
 
 const DEFAULT_WORKFLOW_SETTINGS = {
   timeout: 300,
@@ -112,13 +72,11 @@ export const workflowRouter = router({
   create: protectedProcedure
     .input(
       z.object({
-        name: z.string().min(1).max(100),
-        description: z.string().optional(),
-        definition: z
-          .object({ nodes: z.array(z.any()), edges: z.array(z.any()) })
-          .optional(),
-        settings: z.any().optional(),
-        tags: z.array(z.string()).optional(),
+        name: workflowNameSchema,
+        description: workflowDescriptionSchema.optional(),
+        definition: workflowDefinitionSchema.optional(),
+        settings: workflowSettingsSchema.optional(),
+        tags: workflowTagsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -165,8 +123,8 @@ export const workflowRouter = router({
     .input(
       z.object({
         workflowId: z.string().optional(),
-        definition: z.object({ nodes: z.array(z.any()), edges: z.array(z.any()) }),
-        settings: z.any().optional(),
+        definition: workflowDefinitionSchema,
+        settings: workflowSettingsSchema.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -185,29 +143,38 @@ export const workflowRouter = router({
     .input(
       z.object({
         id: z.string(),
-        name: z.string().optional(),
-        description: z.string().optional(),
-        definition: z
-          .object({ nodes: z.array(z.any()), edges: z.array(z.any()) })
-          .optional(),
-        settings: z.any().optional(),
+        name: workflowNameSchema.optional(),
+        description: workflowDescriptionSchema.optional(),
+        definition: workflowDefinitionSchema.optional(),
+        settings: workflowSettingsSchema.optional(),
         walletId: z.string().nullable().optional(),
-        tags: z.array(z.string()).optional(),
+        tags: workflowTagsSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...data } = input;
       const existing = await ctx.prisma.workflow.findFirst({
         where: { id, userId: ctx.session.user.id },
-        select: { id: true },
+        select: { id: true, status: true },
       });
       if (!existing) throw new Error("Workflow not found");
+      await assertWalletOwnedBy(ctx.prisma, ctx.session.user.id!, data.walletId);
 
-      return ctx.prisma.workflow.update({
+      const updated = await ctx.prisma.workflow.update({
         where: { id },
-        data,
+        data: data as Prisma.WorkflowUncheckedUpdateInput,
         select: workflowPublicSelect,
       });
+
+      // Editing an ACTIVE workflow reschedules its cron and moves its webhook path.
+      if (existing.status === "ACTIVE" && data.definition !== undefined) {
+        await getTriggerManager().syncIfActive(id);
+        return ctx.prisma.workflow.findFirstOrThrow({
+          where: { id },
+          select: workflowPublicSelect,
+        });
+      }
+      return updated;
     }),
 
   delete: protectedProcedure
@@ -219,6 +186,7 @@ export const workflowRouter = router({
       });
       if (!existing) throw new Error("Workflow not found");
 
+      await getTriggerManager().removeSchedules(input.id);
       return ctx.prisma.workflow.delete({
         where: { id: input.id },
         select: workflowPublicSelect,
@@ -264,7 +232,7 @@ export const workflowRouter = router({
       });
       if (!workflow) throw new Error("Workflow not found");
 
-      await assertWorkflowActivationQuota(ctx, input.id);
+      await assertWorkflowActivationQuota(ctx.prisma, ctx.session.user.id, input.id);
 
       if (shouldApiStartEmbeddedWorkers()) {
         startCronWorker();
@@ -302,5 +270,41 @@ export const workflowRouter = router({
         where: { id: input.id },
         select: { id: true, status: true },
       });
+    }),
+
+  /** Owner-only: the webhook trigger's secret (header auth / HMAC replay protection). */
+  getWebhookSecret: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const workflow = await ctx.prisma.workflow.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+        select: { id: true, webhookPath: true, webhookSecret: true },
+      });
+      if (!workflow) throw new TRPCError({ code: "NOT_FOUND", message: "Workflow not found" });
+      return { webhookPath: workflow.webhookPath, webhookSecret: workflow.webhookSecret };
+    }),
+
+  /** Owner-only: replace the webhook secret. Senders must use the new value. */
+  rotateWebhookSecret: protectedProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const rl = workflowLifecycleRateLimit(ctx.session.user.id ?? "anonymous");
+      if (!rl.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+        });
+      }
+      const workflow = await ctx.prisma.workflow.findFirst({
+        where: { id: input.id, userId: ctx.session.user.id },
+        select: { id: true },
+      });
+      if (!workflow) throw new TRPCError({ code: "NOT_FOUND", message: "Workflow not found" });
+      const updated = await ctx.prisma.workflow.update({
+        where: { id: input.id },
+        data: { webhookSecret: nanoid(32) },
+        select: { webhookPath: true, webhookSecret: true },
+      });
+      return updated;
     }),
 });

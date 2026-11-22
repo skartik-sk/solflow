@@ -12,6 +12,7 @@ import dynamic from "next/dynamic";
 import type { editor as MonacoEditorTypes } from "monaco-editor";
 import type * as MonacoNamespace from "monaco-editor";
 import { useCodeStore } from "@/store/code-store";
+import { useCodeViewOptions } from "@/store/settings-store";
 import type { CodeFocusRequest, GeneratedFile } from "@/store/code-store";
 import { CodeCompareView } from "./CodeCompareView";
 import { ArrowLeftRight, FileCode2, FileCog, FileJson } from "lucide-react";
@@ -137,6 +138,7 @@ function toPascalCase(value: string): string {
 export function CodePreview() {
   const { generatedCode, activeFile, errors, focusRequest, setActiveFile } = useCodeStore();
   const [compareMode, setCompareMode] = useState(false);
+  const viewOptions = useCodeViewOptions();
   const [focusTarget, setFocusTarget] = useState<CodeFocusTarget | null>(null);
   const [monacoReadyPath, setMonacoReadyPath] = useState<string | null>(null);
   const editorRef = useRef<MonacoEditorTypes.ICodeEditor | null>(null);
@@ -320,12 +322,9 @@ export function CodePreview() {
                 }}
                 options={{
                   readOnly: true,
-                  minimap: { enabled: false },
                   scrollBeyondLastLine: false,
-                  fontSize: 12,
                   fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                  lineNumbers: "on",
-                  wordWrap: "off",
+                  ...viewOptions,
                   automaticLayout: true,
                   scrollbar: {
                     verticalScrollbarSize: 6,

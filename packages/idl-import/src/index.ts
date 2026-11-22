@@ -34,6 +34,8 @@ export interface ImportResult {
   nodes: Node[];
   edges: Edge[];
   format: IdlFormat;
+  /** What the import couldn't represent faithfully (custom types, optional accounts, …). */
+  warnings: string[];
   stats: {
     instructions: number;
     accounts: number;
@@ -72,7 +74,7 @@ export function idlToFlow(json: unknown): ImportResult {
   }
 
   // 3. Normalize to flow nodes + edges
-  const { nodes, edges } = normalizeIdl(unified);
+  const { nodes, edges, warnings } = normalizeIdl(unified);
 
   // 4. Apply auto-layout
   autoLayout(nodes, edges);
@@ -81,6 +83,7 @@ export function idlToFlow(json: unknown): ImportResult {
     nodes,
     edges,
     format: format === "unknown" ? "anchor" : format,
+    warnings,
     stats: {
       instructions: unified.instructions.length,
       accounts: unified.accounts.length,

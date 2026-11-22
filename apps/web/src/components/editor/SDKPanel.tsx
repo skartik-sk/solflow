@@ -44,6 +44,7 @@ export function SDKPanel() {
   const [result, setResult] = useState<SDKResult | null>(null);
   const [selectedFile, setSelectedFile] = useState<GeneratedFile | null>(null);
   const [copied, setCopied] = useState(false);
+  const saveIfDirty = useProjectStore((s) => s.saveIfDirty);
 
   const generate = trpc.sdk.generate.useMutation({
     onSuccess: (data) => {
@@ -64,8 +65,24 @@ export function SDKPanel() {
     },
   );
 
+  // The SDK is generated from the saved project: save pending edits first.
+  async function handleGenerate() {
+    if (!projectId) return;
+    try {
+      await saveIfDirty();
+    } catch {
+      toast.error("Save failed. Generating from the last saved version.");
+    }
+    generate.mutate({ projectId });
+  }
+
   async function handleDownload() {
     if (!projectId) return;
+    try {
+      await saveIfDirty();
+    } catch {
+      toast.error("Save failed. Downloading the last saved version.");
+    }
     const data = await download.refetch();
     if (!data.data) return;
     const { base64, filename } = data.data;
@@ -141,7 +158,7 @@ export function SDKPanel() {
             SDK Files
           </span>
           <button
-            onClick={() => generate.mutate({ projectId })}
+            onClick={() => void handleGenerate()}
             disabled={generate.isPending}
             className="inline-flex h-6 shrink-0 items-center justify-center gap-1 rounded-[5px] bg-primary px-2 text-[11px] font-semibold text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] transition-[background-color,transform] duration-150 ease-out hover:bg-[#7fe0e6] active:scale-[0.97] disabled:pointer-events-none disabled:opacity-40"
           >

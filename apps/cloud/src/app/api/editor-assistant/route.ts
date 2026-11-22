@@ -7,8 +7,14 @@ import {
   type EditorAssistantSurface,
 } from "@solflow/ui/editor-ai-assistant";
 import { NextResponse } from "next/server";
+import {
+  clientIpFromHeaders,
+  editorAssistantRateLimit,
+  rateLimitHeaders,
+} from "../../../lib/rate-limit";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 function isSurface(value: unknown): value is EditorAssistantSurface {
   return value === "web" || value === "cloud";
@@ -47,6 +53,16 @@ export async function POST(request: Request) {
   const session = await auth();
   if (!session?.user?.id && process.env.NODE_ENV === "production") {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const rl = editorAssistantRateLimit(
+    session?.user?.id ?? `ip:${clientIpFromHeaders(request.headers)}`,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many assistant requests. Try again in a minute." },
+      { status: 429, headers: rateLimitHeaders(rl) },
+    );
   }
 
   const input = parseAssistantInput(await request.json().catch(() => null));

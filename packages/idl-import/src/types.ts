@@ -34,6 +34,8 @@ export interface UnifiedIdl {
   errors: UnifiedError[];
   events: UnifiedEvent[];
   types: UnifiedTypeDef[];
+  /** Things the importer couldn't represent faithfully (shown to the user). */
+  warnings?: string[];
 }
 
 export interface UnifiedInstruction {
@@ -41,6 +43,8 @@ export interface UnifiedInstruction {
   args: { name: string; type: SolanaType; description?: string }[];
   accounts: UnifiedAccountRef[];
   description?: string;
+  /** Custom instruction discriminator from the IDL (Anchor >= 0.30). */
+  discriminator?: number[];
 }
 
 export interface UnifiedAccountRef {
@@ -51,10 +55,16 @@ export interface UnifiedAccountRef {
   description?: string;
   seeds?: { type: string; value: string }[];
   pdaBump?: string;
+  /** Accounts this one stores and must match (`relations` → has_one). */
+  relations?: string[];
+  /** Fixed address the account must have. */
+  address?: string;
 }
 
 export interface UnifiedAccountState {
   name: string;
+  /** Custom account discriminator from the IDL. */
+  discriminator?: number[];
   fields: { name: string; type: SolanaType; description?: string }[];
 }
 

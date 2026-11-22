@@ -4,14 +4,27 @@
 // required and the cloud app stays free / scales to zero.
 //
 // Schedules are created by the trigger-manager (qstash-scheduler) with a
-// destination of .../api/cron/fire?workflowId=<id>. Set CRON_SECRET and have
-// QStash forward it as the `x-cron-secret` header so third parties can't fire
-// arbitrary workflows.
+// destination of .../api/cron/fire?workflowId=<id>. Every call must carry a
+// valid Upstash-Signature (QSTASH_CURRENT_SIGNING_KEY / QSTASH_NEXT_SIGNING_KEY)
+// or the CRON_SECRET; in production with neither configured it fails closed.
+//
+// The run is created QUEUED and executed after the response with after()
+// (see queueExecution), so this returns at once and the run finishes inside
+// maxDuration.
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import { prisma, type Prisma } from "@solflow/db";
 import { queueExecution } from "@/server/execution-worker/queue";
+import { maybeSweepStaleExecutions } from "@/server/execution-worker/stale-sweep";
+import {
+  authenticateCronRequest,
+  subjectMatchesFire,
+} from "@/server/trigger-manager/cron-auth";
+import { getTriggerManager } from "@/server/trigger-manager";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   return fire(request);
@@ -22,16 +35,23 @@ export async function GET(request: NextRequest) {
 }
 
 async function fire(request: NextRequest) {
-  // Auth: shared secret forwarded by QStash as a header. Skip in dev.
-  const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("x-cron-secret") !== secret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const workflowId = request.nextUrl.searchParams.get("workflowId");
+  const rawBody = request.method === "GET" ? "" : await request.text();
+
+  const auth = authenticateCronRequest({
+    headers: request.headers,
+    rawBody,
+    checkSubject: (sub) => Boolean(workflowId) && subjectMatchesFire(sub, workflowId!),
+  });
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
-  const workflowId = request.nextUrl.searchParams.get("workflowId");
   if (!workflowId) {
     return NextResponse.json({ error: "Missing workflowId" }, { status: 400 });
   }
+
+  await maybeSweepStaleExecutions();
 
   const workflow = await prisma.workflow.findFirst({
     where: { id: workflowId, status: "ACTIVE" },
@@ -51,19 +71,17 @@ async function fire(request: NextRequest) {
       triggerType: "cron",
       triggerData: {
         cronExpression: workflow.cronExpression,
+        timezone: workflow.cronTimezone ?? "UTC",
         triggeredAt: new Date().toISOString(),
       },
       definitionSnapshot: workflow.definition as Prisma.InputJsonValue,
     },
   });
 
-  // Serverless: queueExecution runs inline + waits (no always-on worker).
   await queueExecution(execution.id, workflow.id);
+  await getTriggerManager()
+    .refreshNextRun(workflow.id)
+    .catch(() => undefined);
 
-  const refreshed = await prisma.workflowExecution.findUnique({
-    where: { id: execution.id },
-    select: { status: true },
-  });
-
-  return NextResponse.json({ ok: true, executionId: execution.id, status: refreshed?.status });
+  return NextResponse.json({ ok: true, executionId: execution.id, status: "QUEUED" });
 }

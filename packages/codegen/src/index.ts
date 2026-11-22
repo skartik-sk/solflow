@@ -8,6 +8,9 @@ import { generateAnchor } from "./generators/anchor/index";
 import { generatePinocchio } from "./generators/pinocchio/index";
 import { generateQuasar } from "./generators/quasar/index";
 import crypto from "./utils/sha256";
+import { validateIrForCodegen, sanitizeIrText } from "./utils/escape";
+
+export { validateIrForCodegen, isRustIdent, isSemver } from "./utils/escape";
 
 // ─── Public types ─────────────────────────────────────────────────────────────
 
@@ -50,6 +53,19 @@ export function generateCode(
   let files: GeneratedFile[];
   let warnings: CodegenWarning[];
   let errors: CodegenError[];
+
+  // Refuse names/versions/ids that can't be written safely, and escape free text.
+  const problems = validateIrForCodegen(ir);
+  if (problems.length > 0) {
+    return {
+      framework,
+      files: [],
+      warnings: [],
+      errors: problems.map((message) => ({ message })),
+      metadata: { generatedAt: new Date().toISOString(), irHash, solflowVersion: "0.1.0" },
+    };
+  }
+  ir = sanitizeIrText(ir);
 
   if (framework === "anchor") {
     const result = generateAnchor(ir);

@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: "/wallets", label: "Wallets" },
   { href: "/credentials", label: "Credentials" },
   { href: "/executions", label: "Runs" },
+  { href: "/settings", label: "CLI tokens" },
 ];
 
 const STUDIO_URL = process.env.NEXT_PUBLIC_STUDIO_URL ?? "https://solstudio.fun";

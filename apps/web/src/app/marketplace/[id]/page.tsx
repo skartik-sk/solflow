@@ -5,6 +5,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { prisma } from "@solflow/db";
 import { auth } from "@solflow/auth";
+import { canAccessTemplate, redactLockedTemplate } from "@/lib/marketplace/access";
 import {
   ListingDetailView,
   type ListingDetail,
@@ -128,26 +129,20 @@ export default async function MarketplaceDetailPage({ params }: PageProps) {
   })) as ListingDetail | null;
   if (!listing) notFound();
 
-  // Check if current user has already purchased this template
+  // Paid templates: only the author and buyers get the flow (FlowPreview is a
+  // client component, so anything passed here reaches the browser).
   const session = await auth();
-  let alreadyPurchased = false;
-  if (session?.user?.id && listing.pricingModel !== "FREE") {
-    const purchase = await prisma.marketplacePurchase.findUnique({
-      where: {
-        listingId_buyerId: {
-          listingId: listing.id,
-          buyerId: session.user.id,
-        },
-      },
-      select: { id: true },
-    });
-    alreadyPurchased = !!purchase;
-  }
+  const canAccess = await canAccessTemplate(
+    prisma,
+    { id: listing.id, authorId: listing.author.id, pricingModel: listing.pricingModel },
+    session?.user?.id,
+  );
+  const { locked: _locked, ...visibleListing } = redactLockedTemplate(listing, canAccess);
 
   return (
     <ListingDetailView
-      listing={listing}
-      alreadyPurchased={alreadyPurchased}
+      listing={visibleListing}
+      alreadyPurchased={listing.pricingModel !== "FREE" && canAccess}
       isAuthenticated={!!session?.user?.id}
     />
   );

@@ -4,7 +4,8 @@
 
 import React from "react";
 import Link from "next/link";
-import { X, Settings, Trash2, Copy, Plus } from "lucide-react";
+import { X, Settings, Trash2, Copy, Plus, Eye, EyeOff, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 import { useWorkflowStore } from "@/store/workflow-store";
 import { useEditorUIStore } from "@/store/editor-ui-store";
 import { trpc } from "@/lib/trpc/client";
@@ -265,6 +266,111 @@ function PropertyField({
   }
 }
 
+// ─── Webhook secret (owner-only reveal / copy / rotate) ─────────────────────
+
+function WebhookSecretSection({ workflowId }: { workflowId: string | null }) {
+  const [revealed, setRevealed] = React.useState(false);
+  const [confirmRotate, setConfirmRotate] = React.useState(false);
+  const utils = trpc.useUtils();
+  const { data, isLoading } = trpc.workflow.getWebhookSecret.useQuery(
+    { id: workflowId ?? "" },
+    { enabled: Boolean(workflowId), staleTime: 60_000 },
+  );
+  const rotate = trpc.workflow.rotateWebhookSecret.useMutation({
+    onSuccess: (next) => {
+      utils.workflow.getWebhookSecret.setData({ id: workflowId ?? "" }, next);
+      setConfirmRotate(false);
+      setRevealed(true);
+      toast.success("Webhook secret rotated. Update your sender.");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  if (!workflowId) return null;
+
+  const copy = async (value: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`${label} copied`);
+    } catch {
+      toast.error(`Could not copy ${label.toLowerCase()}`);
+    }
+  };
+
+  const url =
+    data?.webhookPath && typeof window !== "undefined"
+      ? `${window.location.origin}/api/webhook/${data.webhookPath}`
+      : null;
+  const secret = data?.webhookSecret ?? null;
+
+  return (
+    <div className="space-y-2 border-t border-border pt-3">
+      <p className={edLabel}>Webhook URL</p>
+      {url ? (
+        <div className="flex items-center gap-1.5">
+          <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/80">{url}</code>
+          <button className={edIconBtn} onClick={() => copy(url, "Webhook URL")} aria-label="Copy webhook URL" title="Copy">
+            <Copy size={12} />
+          </button>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/70">
+          {isLoading ? "Loading..." : "Activate the workflow to get a URL."}
+        </p>
+      )}
+
+      <p className={edLabel}>Secret</p>
+      {secret ? (
+        <div className="flex items-center gap-1.5">
+          <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-foreground/80">
+            {revealed ? secret : "•".repeat(24)}
+          </code>
+          <button
+            className={edIconBtn}
+            onClick={() => setRevealed((v) => !v)}
+            aria-label={revealed ? "Hide secret" : "Reveal secret"}
+            title={revealed ? "Hide" : "Reveal"}
+          >
+            {revealed ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
+          <button className={edIconBtn} onClick={() => copy(secret, "Secret")} aria-label="Copy secret" title="Copy">
+            <Copy size={12} />
+          </button>
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground/70">
+          {isLoading ? "Loading..." : "No secret yet. Activate the workflow or rotate to create one."}
+        </p>
+      )}
+      <p className="text-[11px] leading-relaxed text-muted-foreground/70">
+        Send it in the auth header (Header Auth), or use it as the HMAC key for X-Webhook-Signature (Replay Protection).
+      </p>
+      {confirmRotate ? (
+        <div className="flex gap-1.5">
+          <button
+            className={edx(edBtn, "h-7 flex-1 justify-center text-red-400")}
+            disabled={rotate.isPending}
+            onClick={() => rotate.mutate({ id: workflowId })}
+          >
+            {rotate.isPending ? "Rotating..." : "Rotate now"}
+          </button>
+          <button className={edx(edBtn, "h-7 flex-1 justify-center")} onClick={() => setConfirmRotate(false)}>
+            Keep
+          </button>
+        </div>
+      ) : (
+        <button className={edx(edBtn, "h-7 w-full justify-center")} onClick={() => setConfirmRotate(true)}>
+          <RefreshCw size={12} />
+          {secret ? "Rotate secret" : "Create secret"}
+        </button>
+      )}
+      {confirmRotate && secret && (
+        <p className="text-[11px] text-muted-foreground/70">The old secret stops working at once.</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Panel ──────────────────────────────────────────────────────────────
 
 export function CloudPropertiesPanel() {
@@ -275,6 +381,7 @@ export function CloudPropertiesPanel() {
   const updateNodeData = useWorkflowStore((s) => s.updateNodeData);
   const updateWorkflowSafety = useWorkflowStore((s) => s.updateWorkflowSafety);
   const removeNode = useWorkflowStore((s) => s.removeNode);
+  const workflowId = useWorkflowStore((s) => s.workflowId);
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId);
 
@@ -358,6 +465,10 @@ export function CloudPropertiesPanel() {
                 )}
               </FieldRow>
             ))}
+
+            {data.type === "trigger:webhook" && (
+              <WebhookSecretSection workflowId={workflowId} />
+            )}
 
             {/* Ports info */}
             {data.inputs.length > 0 && (
@@ -577,7 +688,7 @@ function WorkflowSafetySettings({
           rows={4}
           value={formatList(safety.webhookAllowlist)}
           onChange={(event) => onChange({ webhookAllowlist: parseList(event.target.value) })}
-          placeholder="IP, host, or origin per line"
+          placeholder="Client IP or CIDR per line (e.g. 203.0.113.7, 10.0.0.0/8)"
           spellCheck={false}
         />
       </FieldRow>

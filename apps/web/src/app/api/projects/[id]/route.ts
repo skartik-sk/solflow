@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@solflow/auth";
 import { prisma } from "@solflow/db";
+import { validateIrForBuild } from "@/server/ir-guard";
 
 export async function GET(
   _req: Request,
@@ -98,6 +99,14 @@ export async function PATCH(
     }
     if (fd.edges !== undefined && !Array.isArray(fd.edges)) {
       return NextResponse.json({ error: "flowData.edges must be an array" }, { status: 400 });
+    }
+  }
+
+  // IR names/versions reach Cargo.toml and Rust source built on a CI runner.
+  if (irData !== undefined && irData !== null) {
+    const guard = validateIrForBuild(irData);
+    if (!guard.ok) {
+      return NextResponse.json({ error: guard.message }, { status: 400 });
     }
   }
 

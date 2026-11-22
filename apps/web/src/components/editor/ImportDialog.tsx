@@ -148,6 +148,14 @@ export function ImportDialog({ onClose }: { onClose: () => void }) {
       toast.success(
         `Imported ${result.stats.instructions} instruction${result.stats.instructions !== 1 ? "s" : ""}`,
       );
+      // Parts of the IDL the graph can't express (custom types, optional accounts, wide ints)
+      const warnings = result.warnings ?? [];
+      if (warnings.length > 0) {
+        toast.warning(`${warnings.length} part${warnings.length !== 1 ? "s" : ""} of the IDL need attention`, {
+          description: warnings.slice(0, 4).join("\n") + (warnings.length > 4 ? `\n…and ${warnings.length - 4} more` : ""),
+          duration: 12000,
+        });
+      }
       onClose();
     } catch (err) {
       toast.error((err as Error).message ?? "Import failed");

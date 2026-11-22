@@ -64,11 +64,15 @@ export function PublishForm({ projects }: Props) {
 
   const publish = trpc.marketplace.publish.useMutation({
     onSuccess: (data) => {
-      toast.success(
-        data.certification?.certified
-          ? "Submitted for review with SolStudio certification ready."
-          : `Submitted for review. Certification missing: ${data.certification?.missing?.join(", ") || "checks"}.`,
-      );
+      if (data.status === "PUBLISHED") {
+        toast.success(
+          data.certification?.certified
+            ? "Published to the marketplace with SolStudio certification."
+            : "Published to the marketplace.",
+        );
+      } else {
+        toast.warning(data.reviewNote ?? "Held for review.");
+      }
       router.push(`/marketplace/my-listings`);
     },
     onError: (err) => {

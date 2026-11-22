@@ -108,7 +108,7 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
       totalAccounts++;
       // The properties panel and IR read payer from node data, not from the constraint list.
       const initConstraint = acc.constraints?.find((c) => c.type === "init" || c.type === "init-if-needed") as
-        | { payer?: string }
+        | { type: string; payer?: string }
         | undefined;
 
       nodes.push({
@@ -121,7 +121,9 @@ export function parsedProgramToFlow(parsed: ParsedProgram): ToFlowResult {
           stateType: acc.stateType,
           isMut: acc.isMut,
           isSigner: acc.isSigner,
-          isInit: acc.isInit,
+          // init_if_needed must survive as its own flag: `isInit` would turn it into a plain init.
+          isInit: acc.isInit && initConstraint?.type !== "init-if-needed",
+          ...(initConstraint?.type === "init-if-needed" ? { isInitIfNeeded: true } : {}),
           ...(initConstraint?.payer ? { payer: initConstraint.payer } : {}),
           isClose: acc.isClose,
           isExecutable: acc.isExecutable,
@@ -310,7 +312,8 @@ function logicOpToNodeData(op: ParsedLogicOperation): Record<string, unknown> {
     case "cpi":
       return { logicType: "cpi", cpiProgram: op.targetProgram, cpiInstruction: op.instruction };
     case "custom-code":
-      return { logicType: "custom-code", name: op.code };
+      // The code itself goes in customCode (what the IR reads); it used to land only in the label.
+      return { logicType: "custom-code", name: op.code, customCode: op.code };
     case "close-account":
       return { logicType: "close-account", closeAccount: op.account, closeDestination: op.destination, closeAuthority: op.authority };
     default:

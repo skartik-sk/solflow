@@ -12,13 +12,14 @@ import { doctorCommand } from "./commands/doctor";
 import { ciCommand } from "./commands/ci";
 import { patchCommand } from "./commands/patch";
 import { cloudCommand } from "./commands/cloud";
+import { CLI_VERSION } from "./version";
 
 const program = new Command();
 
 program
   .name("solstudio")
   .description("Visualize Solana projects locally and control SolStudio Cloud")
-  .version("0.1.5");
+  .version(CLI_VERSION);
 
 program.addCommand(parseCommand);
 program.addCommand(idlCommand);

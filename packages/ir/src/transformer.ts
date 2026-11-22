@@ -61,7 +61,7 @@ import type {
   Seed,
   SolanaType,
 } from "./schema";
-import { ProgramIRSchema } from "./schema";
+import { ProgramIRSchema, LogicOperationSchema } from "./schema";
 
 export const SOLFLOW_VERSION = "0.1.0";
 
@@ -133,43 +133,68 @@ function getConnectedNodesReverse(
   );
 }
 
+function isElseHandle(handle: string | null | undefined): boolean {
+  return handle === "else" || handle === "else-out";
+}
+
+function isIfElseNode(n: Node): boolean {
+  const d = n.data as Record<string, unknown>;
+  const op = d.operation as { type?: string } | undefined;
+  return n.type === "logic" && (d.logicType === "if-else" || op?.type === "if-else");
+}
+
 /**
- * Collect all logic + custom-code nodes reachable from a source node,
- * following chains (A→B→C). Excludes nodes reached via if-else "else"
- * handle (those are handled inside buildLogicBody for if-else children).
+ * Imported programs (rust-parser) embed an if-else's branches in the node data
+ * (thenBody/elseBody) and chain the next statement off its "logic-out" handle.
  */
-function collectAllLogicNodes(
-  sourceId: string,
+function hasEmbeddedBranches(n: Node): boolean {
+  const d = n.data as Record<string, unknown>;
+  const op = d.operation as { thenBody?: unknown[]; elseBody?: unknown[] } | undefined;
+  const nonEmpty = (v: unknown) => Array.isArray(v) && v.length > 0;
+  return nonEmpty(d.thenBody) || nonEmpty(d.elseBody) || nonEmpty(op?.thenBody) || nonEmpty(op?.elseBody);
+}
+
+/**
+ * Which part of an if-else an outgoing edge feeds: "then-out"/"else-out" are the
+ * branch handles. Any other handle (the legacy single "logic-out") is the then
+ * branch for editor-built nodes, and the next statement for imported nodes.
+ */
+function branchOf(ifNode: Node, e: Edge): "then" | "else" | "next" {
+  if (isElseHandle(e.sourceHandle)) return "else";
+  if (e.sourceHandle === "then" || e.sourceHandle === "then-out") return "then";
+  return hasEmbeddedBranches(ifNode) ? "next" : "then";
+}
+
+/**
+ * Collect the logic + custom-code nodes reachable through `startEdges`,
+ * following chains (A→B→C). An if-else node is collected but its branch
+ * children are NOT walked here: they belong to its then/else bodies (see
+ * buildLogicBody), so they must not also appear at this level.
+ */
+function collectLogicChain(
+  startEdges: Edge[],
   nodes: Node[],
   edges: Edge[],
+  visited: Set<string>,
 ): Node[] {
-  const visited = new Set<string>();
   const result: Node[] = [];
 
-  function walk(id: string) {
-    const targets = edges
-      .filter((e) => e.source === id)
-      .map((e) => e.target);
-
-    for (const targetId of targets) {
-      if (visited.has(targetId)) continue;
-      const targetNode = nodes.find((n) => n.id === targetId);
-      if (!targetNode) continue;
-
-      if (targetNode.type === "logic" || targetNode.type === "custom-code") {
-        visited.add(targetId);
-        result.push(targetNode);
-        // Follow the chain — but skip children reached via if-else else handle
-        // (those are handled recursively inside buildLogicBody)
-        const edge = edges.find((e) => e.source === id && e.target === targetId);
-        if (!(edge?.sourceHandle === "else" || edge?.sourceHandle === "else-out")) {
-          walk(targetId);
-        }
-      }
+  function visit(targetId: string) {
+    if (visited.has(targetId)) return;
+    const targetNode = nodes.find((n) => n.id === targetId);
+    if (!targetNode) return;
+    if (targetNode.type !== "logic" && targetNode.type !== "custom-code") return;
+    visited.add(targetId);
+    result.push(targetNode);
+    const ifElse = isIfElseNode(targetNode);
+    for (const e of edges) {
+      if (e.source !== targetId) continue;
+      if (ifElse && branchOf(targetNode, e) !== "next") continue;
+      visit(e.target);
     }
   }
 
-  walk(sourceId);
+  for (const e of startEdges) visit(e.target);
   return result;
 }
 
@@ -188,9 +213,10 @@ export function computeFlowHash(nodes: Node[], edges: Edge[]): string {
 // ─── Account Builder ───────────────────────────────────────────────
 
 function buildConstraints(constraintNodes: Node[]): Constraint[] {
-  return constraintNodes.map((n) => {
+  return constraintNodes.map((n): Constraint | null => {
     const d = n.data as Record<string, unknown>;
-    const t = (d.constraintType as string) ?? (d.type as string) ?? "signer";
+    // A new constraint node defaults to "mut" (the editor shows that default too).
+    const t = (d.constraintType as string) ?? (d.type as string) ?? "mut";
 
     switch (t) {
       case "signer":
@@ -303,9 +329,15 @@ function buildConstraints(constraintNodes: Node[]): Constraint[] {
           comment: (d.safetyComment as string) ?? (d.comment as string) ?? "",
         };
       default:
-        return { type: "signer" as const };
+        // Never guess: an unknown type used to silently become `signer`, which
+        // adds a signature requirement the user never asked for.
+        // globalThis lookup: this package also compiles under configs without DOM/node types (sdk-gen)
+        (globalThis as { console?: { warn: (...args: unknown[]) => void } }).console?.warn(
+          `[ir] ignoring constraint node ${n.id}: unknown constraintType "${t}"`,
+        );
+        return null;
     }
-  });
+  }).filter((c): c is Constraint => c !== null);
 }
 
 function buildConstraintsFromFlags(
@@ -395,6 +427,8 @@ function buildConstraintsFromFlags(
   return constraints;
 }
 
+const REPEATABLE_CONSTRAINTS = new Set<Constraint["type"]>(["has-one", "custom", "owner"]);
+
 function buildAccountIR(
   accNode: Node,
   constraintNodes: Node[],
@@ -406,18 +440,18 @@ function buildAccountIR(
     ? buildConstraints(constraintNodes)
     : [];
 
-  // Merge: flag-based constraints provide defaults, but explicit constraint
-  // nodes override them (the user explicitly configured those parameters).
+  // Merge: flag-based constraints provide defaults, and an explicit constraint
+  // node of the same type overrides the flag one (the user configured those
+  // parameters). Explicit nodes never override each other for types that can
+  // repeat (two has_one, two custom checks, ...): those are all kept.
   const merged: Constraint[] = [...flagConstraints];
-  const seenTypes = new Set(flagConstraints.map((c) => c.type));
+  const flagCount = flagConstraints.length;
   for (const c of explicitConstraints) {
     const existingIdx = merged.findIndex((m) => m.type === c.type);
-    if (existingIdx >= 0) {
-      // Override flag-based with explicit constraint node parameters
+    if (existingIdx >= 0 && (existingIdx < flagCount || !REPEATABLE_CONSTRAINTS.has(c.type))) {
       merged[existingIdx] = c;
     } else {
       merged.push(c);
-      seenTypes.add(c.type);
     }
   }
 
@@ -458,6 +492,7 @@ function buildLogicBody(
   logicNodes: Node[],
   allNodes: Node[],
   edges: Edge[],
+  visited: Set<string>,
 ): LogicOperation[] {
   return logicNodes
     .sort((a, b) => {
@@ -465,39 +500,56 @@ function buildLogicBody(
       const bOrder = ((b.data as Record<string, unknown>).order as number) ?? 0;
       return aOrder - bOrder;
     })
-    .map((n) => {
+    .flatMap((n): LogicOperation[] => {
       const data = n.data as Record<string, unknown>;
-      const rawOp = buildLogicOpFromNodeData(data);
+      const rawOp = n.type === "custom-code"
+        ? customCodeOpFromNodeData(data)
+        : buildLogicOpFromNodeData(data);
       const op = rawOp ? ({ ...rawOp, sourceNodeId: n.id } as LogicOperation) : null;
-      if (op && op.type === "if-else") {
-        // Collect child logic nodes connected to this if-else node
-        const childLogicNodes = getConnectedNodes(n.id, "logic", allNodes, edges);
-        const childCustomCodeNodes = getConnectedNodes(n.id, "custom-code", allNodes, edges);
-        const allChildren = [...childLogicNodes, ...childCustomCodeNodes];
-        // Separate children into then/else based on handle
-        const thenNodes: Node[] = [];
-        const elseNodes: Node[] = [];
-        for (const child of allChildren) {
-          const edge = edges.find(
-            (e) => e.source === n.id && e.target === child.id,
-          );
-          // Check which handle the connection comes from
-          const sourceHandle = edge?.sourceHandle;
-          if (sourceHandle === "else" || sourceHandle === "else-out") {
-            elseNodes.push(child);
-          } else {
-            thenNodes.push(child);
-          }
-        }
-        op.thenBody = buildLogicBody(thenNodes, allNodes, edges);
-        op.elseBody =
-          elseNodes.length > 0
-            ? buildLogicBody(elseNodes, allNodes, edges)
-            : undefined;
-      }
-      return op;
-    })
-    .filter((op): op is LogicOperation => op !== null);
+      if (!op) return [];
+      if (op.type !== "if-else") return [op];
+      // Each branch follows its own chain (then → A → B). A node reached from
+      // both branches is where they join: it runs after the if-else.
+      const out = edges.filter((e) => e.source === n.id);
+      const thenNodes = collectLogicChain(out.filter((e) => branchOf(n, e) === "then"), allNodes, edges, new Set(visited));
+      const elseNodes = collectLogicChain(out.filter((e) => branchOf(n, e) === "else"), allNodes, edges, new Set(visited));
+      const elseIds = new Set(elseNodes.map((x) => x.id));
+      const joinIds = new Set(thenNodes.filter((x) => elseIds.has(x.id)).map((x) => x.id));
+      for (const x of [...thenNodes, ...elseNodes]) visited.add(x.id);
+      const thenOnly = thenNodes.filter((x) => !joinIds.has(x.id));
+      const elseOnly = elseNodes.filter((x) => !joinIds.has(x.id));
+      op.thenBody = [...op.thenBody, ...buildLogicBody(thenOnly, allNodes, edges, visited)];
+      if (elseOnly.length > 0) op.elseBody = [...(op.elseBody ?? []), ...buildLogicBody(elseOnly, allNodes, edges, visited)];
+      const after = buildLogicBody(thenNodes.filter((x) => joinIds.has(x.id)), allNodes, edges, visited);
+      return [op, ...after];
+    });
+}
+
+/** The palette's "Rust Code Block" node stores code/inputs/outputs (no logicType). */
+function customCodeOpFromNodeData(data: Record<string, unknown>): LogicOperation | null {
+  if (data.logicType && data.logicType !== "custom-code") return buildLogicOpFromNodeData(data);
+  return {
+    type: "custom-code",
+    code: ((data.code ?? data.customCode) as string | undefined) ?? "",
+    inputs: ((data.inputs ?? data.customInputs) as string[] | undefined) ?? [],
+    outputs: ((data.outputs ?? data.customOutputs) as string[] | undefined) ?? [],
+  };
+}
+
+/** Branch ops embedded by an importer; anything that isn't a valid IR op is dropped. */
+function embeddedOps(v: unknown): LogicOperation[] {
+  if (!Array.isArray(v)) return [];
+  return v.flatMap((o) => {
+    const r = LogicOperationSchema.safeParse(o);
+    return r.success ? [r.data] : [];
+  });
+}
+
+/** Signer seeds only apply when the "sign with PDA seeds" box is ticked (undefined = legacy, on). */
+function signerSeedsOf(data: Record<string, unknown>): { signerSeeds?: Seed[] } {
+  if (data.useSignerSeeds === false) return {};
+  const seeds = data.signerSeeds;
+  return Array.isArray(seeds) && seeds.length > 0 ? { signerSeeds: seeds as Seed[] } : {};
 }
 
 function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation | null {
@@ -527,7 +579,7 @@ function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation
         to: (data.transferTo as string) ?? "",
         authority: (data.transferAuthority as string) ?? "",
         amount: (data.transferAmount as string) ?? "",
-        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+        ...signerSeedsOf(data),
       };
     case "mint-to":
       return {
@@ -536,7 +588,7 @@ function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation
         to: (data.transferTo as string) ?? "",
         authority: (data.mintAuthority as string) ?? "",
         amount: (data.transferAmount as string) ?? "",
-        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+        ...signerSeedsOf(data),
       };
     case "burn":
       return {
@@ -545,7 +597,7 @@ function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation
         from: (data.transferFrom as string) ?? "",
         authority: (data.burnAuthority as string) ?? "",
         amount: (data.transferAmount as string) ?? "",
-        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+        ...signerSeedsOf(data),
       };
     case "require":
       return {
@@ -565,14 +617,13 @@ function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation
         errorCode: (data.returnErrorCode as string) ?? "",
       };
     case "if-else":
-      // thenBody and elseBody are populated by buildLogicBodyFromTree when
-      // processing nested logic connections. Here we only store the condition.
-      // The caller will merge child nodes into these arrays.
+      // Editor-built nodes get their branches from the then/else edges (see
+      // buildLogicBody); imported ones carry them in thenBody/elseBody.
       return {
         type: "if-else",
         condition: (data.ifCondition as string) ?? "",
-        thenBody: [],
-        elseBody: undefined,
+        thenBody: embeddedOps(data.thenBody),
+        elseBody: embeddedOps(data.elseBody).length > 0 ? embeddedOps(data.elseBody) : undefined,
       };
     case "math":
       return {
@@ -590,7 +641,14 @@ function buildLogicOpFromNodeData(data: Record<string, unknown>): LogicOperation
         instruction: (data.cpiInstruction as string) ?? "",
         accounts: (data.cpiAccounts as Array<{ from: string; to: string }>) ?? [],
         data: (data.cpiData as Array<{ name: string; value: string }>) ?? [],
-        ...(data.signerSeeds ? { signerSeeds: data.signerSeeds as Seed[] } : {}),
+        ...signerSeedsOf(data),
+      };
+    case "close-account":
+      return {
+        type: "close-account",
+        account: (data.closeAccount as string) ?? "",
+        destination: (data.closeDestination as string) ?? "",
+        authority: (data.closeAuthority as string) ?? "",
       };
     case "custom-code":
       return {
@@ -633,8 +691,9 @@ function buildInstructionIR(
     const index = new Map(accountNodes.map((n, i) => [n.id, i]));
     accountNodes.sort((a, b) => (edgeOrder(a.id) ?? 1e6 + index.get(a.id)!) - (edgeOrder(b.id) ?? 1e6 + index.get(b.id)!));
   }
-  // Collect ALL logic + custom-code nodes, following chains (A→B→C)
-  const allLogicNodes = collectAllLogicNodes(ixNode.id, nodes, edges);
+  // Collect the top-level logic + custom-code nodes, following chains (A→B→C).
+  const visitedLogic = new Set<string>();
+  const allLogicNodes = collectLogicChain(edges.filter((e) => e.source === ixNode.id), nodes, edges, visitedLogic);
 
   const resolvedAccounts = accountNodes.map((accNode) => {
     const constraintNodes = getConnectedNodesReverse(
@@ -649,7 +708,7 @@ function buildInstructionIR(
     return buildAccountIR(accNode, constraintNodes, stateNode);
   });
 
-  const body = buildLogicBody(allLogicNodes, nodes, edges);
+  const body = buildLogicBody(allLogicNodes, nodes, edges, visitedLogic);
 
   // Post-process: fix init/init-if-needed constraints where payer name doesn't
   // match any account. Default to the first signer account in the instruction.
@@ -664,6 +723,29 @@ function buildInstructionIR(
         c.payer = firstSigner?.name ?? c.payer;
       }
     }
+  }
+
+  // Accounts whose lamports or token balances the body moves must be writable,
+  // or the transaction fails at runtime (e.g. a deposit's payer without `mut`).
+  const written = new Set<string>();
+  const collectWritten = (ops: LogicOperation[]) => {
+    for (const op of ops) {
+      if (op.type === "transfer-sol" || op.type === "transfer-token") written.add(op.from).add(op.to);
+      else if (op.type === "mint-to") written.add(op.mint).add(op.to);
+      else if (op.type === "burn") written.add(op.mint).add(op.from);
+      else if (op.type === "close-account") written.add(op.account).add(op.destination);
+      else if (op.type === "if-else") {
+        collectWritten(op.thenBody);
+        collectWritten(op.elseBody ?? []);
+      }
+    }
+  };
+  collectWritten(body);
+  const NEVER_MUT = new Set(["system-program", "token-program", "associated-token-program", "program", "rent", "clock"]);
+  for (const acc of resolvedAccounts) {
+    if (!written.has(acc.name) || NEVER_MUT.has(acc.accountType)) continue;
+    if (acc.constraints.some((c) => c.type === "mut" || c.type === "init" || c.type === "init-if-needed")) continue;
+    acc.constraints.push({ type: "mut" });
   }
 
   return {
@@ -840,7 +922,8 @@ export function flowToIR(nodes: Node[], edges: Edge[]): ProgramIR {
     program: {
       name: (data.name as string) ?? "my_program",
       description: data.description as string | undefined,
-      version: (data.version as string) ?? "0.1.0",
+      // An empty version field (the editor allows it) means the default.
+      version: ((data.version as string) || "").trim() || "0.1.0",
       programId: data.programId as string | undefined,
       license: (data.license as string) ?? "MIT",
     },

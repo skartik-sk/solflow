@@ -25,7 +25,8 @@ export function mergeConstraints(constraints: Constraint[]): Constraint[] {
       }
     }
     if (c.type === "init") {
-      const prev = out.find((x) => x.type === "init") as { payer?: string; space?: unknown } | undefined;
+      // `payer = …` / `space = …` arrive as init fragments; they belong to init_if_needed too.
+      const prev = out.find((x) => x.type === "init" || x.type === "init-if-needed") as { payer?: string; space?: unknown } | undefined;
       const cur = c as { payer?: string; space?: unknown };
       if (prev) {
         if (cur.payer) prev.payer = cur.payer;

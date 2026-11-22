@@ -14,8 +14,6 @@ export const editorNodeTypes: NodeTypes = {
   ...pluginRegistry.getNodeTypes(),
 };
 
-let pluginNodeCounter = 1;
-
 function isBuiltInNodeType(type: string): type is NodeTypeName {
   return Object.prototype.hasOwnProperty.call(nodeTypes, type);
 }
@@ -62,7 +60,9 @@ export function createEditorNodeFromType(
   const defaultData = { ...(node.defaultData ?? {}) };
 
   return {
-    id: `${type}-${pluginNodeCounter++}`,
+    // Random ids: a per-session counter restarts at 1 on reload and would
+    // collide with ids already saved in the project.
+    id: `${type}-${crypto.randomUUID()}`,
     type,
     position,
     data: {

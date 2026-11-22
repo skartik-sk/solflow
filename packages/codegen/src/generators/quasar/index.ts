@@ -22,6 +22,8 @@ import { addMissingCrateImports } from "../../utils/crate-imports";
 import { isExternalType, usesMetadata } from "../../utils/external-accounts";
 import { splitSignerSeeds } from "../../utils/signer-seeds";
 import { seedBytes } from "../../utils/seed-bytes";
+import { isBase58Address, rustByteStringContent } from "../../utils/escape";
+import { accountFlags, anchorIxDiscriminator, forEachOp, mintDecimalsExpr } from "../../utils/logic";
 import type {
   ProgramIR,
   Instruction,
@@ -150,13 +152,28 @@ export function generateQuasar(ir: ProgramIR): {
         a.accountType === "token-program" ||
         a.accountType === "associated-token-program",
     ) ||
-    ix.body.some(
-      (op) =>
-        op.type === "transfer-token" ||
-        op.type === "mint-to" ||
-        op.type === "burn",
-    )
+    (() => {
+      let spl = false;
+      forEachOp(ix.body, (op) => {
+        if (op.type === "transfer-token" || op.type === "mint-to" || op.type === "burn") spl = true;
+        if (op.type === "close-account" && ix.accounts.some((a) => a.name === op.account && (a.accountType === "token-account" || a.accountType === "associated-token"))) spl = true;
+      });
+      return spl;
+    })()
   ) || ir.integrations.some((integration) => integration.pluginId === "spl-token");
+
+  // Quasar's mint::decimals is fixed per account struct: a decimals arg can't set it.
+  for (const ix of ir.instructions) {
+    for (const a of ix.accounts) {
+      const dec = a.accountType === "mint" ? mintDecimalsExpr(a, ix) : undefined;
+      if (dec && !/^\d+$/.test(dec)) {
+        warnings.push({
+          message: `Quasar: mint "${a.name}" in ${ix.name} is created with the decimals set on its mint-decimals constraint; the "${dec}" argument isn't applied`,
+          nodeId: ix.id,
+        });
+      }
+    }
+  }
 
   // Sort everything deterministically
   const instructions = [...ir.instructions].sort((a, b) =>
@@ -453,6 +470,8 @@ function generateInstructionBody(ix: Instruction, ir: ProgramIR, programName: st
   function collectMutNeeded(ops: LogicOperation[]) {
     for (const op of ops) {
       if (op.type === "set-field") mutNeeded.add(op.account);
+      const resultAccount = op.type === "math" ? op.result.trim().match(/^(\w+)\.\w+$/)?.[1] : undefined;
+      if (resultAccount && accounts.some((a) => a.name === resultAccount)) mutNeeded.add(resultAccount);
       if (op.type === "if-else") {
         collectMutNeeded(op.thenBody);
         if (op.elseBody) collectMutNeeded(op.elseBody);
@@ -608,6 +627,7 @@ function getAccessedAccountsQuasar(op: LogicOperation): string[] {
     case "math":
       collectRefs(op.left);
       collectRefs(op.right);
+      collectRefs(op.result);
       break;
     // transfer-sol, transfer-token, mint-to, burn all use ctx.accounts.X directly
     // and should NOT trigger mutable borrows
@@ -731,51 +751,44 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
 
     case "math": {
       const checked = op.checked;
-      const left = renameAndPod ? renameAndPod(op.left) : translateQuasarValue(rename?.(op.left) ?? op.left);
-      const right = rename?.(op.right) ?? op.right;
-      if (checked) {
-        const opMap: Record<string, string> = {
-          add: "checked_add", sub: "checked_sub",
-          mul: "checked_mul", div: "checked_div", mod: "checked_rem",
-        };
-        return [
-          `let ${op.result} = ${left}.${opMap[op.operation] ?? "checked_add"}(${right}).ok_or(ProgramError::InvalidArgument)?;`,
-        ];
-      }
+      const tr = (v: string) => (renameAndPod ? renameAndPod(v) : translateQuasarValue(rename?.(v) ?? v));
+      const left = tr(op.left);
+      const right = tr(op.right);
+      const opMap: Record<string, string> = {
+        add: "checked_add", sub: "checked_sub",
+        mul: "checked_mul", div: "checked_div", mod: "checked_rem",
+      };
       const opSym: Record<string, string> = { add: "+", sub: "-", mul: "*", div: "/", mod: "%" };
-      return [`let ${op.result} = ${left} ${opSym[op.operation] ?? "+"} ${right};`];
+      const expr = checked
+        ? `${left}.${opMap[op.operation] ?? "checked_add"}(${right}).ok_or(ProgramError::InvalidArgument)?`
+        : `${left} ${opSym[op.operation] ?? "+"} ${right}`;
+      // `vault.total` as the result writes that field (Pod-wrapped like set-field does).
+      const target = op.result.trim().match(/^(\w+)\.(\w+)$/);
+      if (target && ix?.accounts.some((a) => a.name === target[1])) {
+        const fieldType = fieldTypeMap?.get(`${accountToStateType?.get(target[1])}.${target[2]}`);
+        const value = fieldType && POD_TYPES.has(fieldType) ? `${fieldType}::from(${expr})` : expr;
+        const lhs = accRef ? accRef(target[1]).replace(/^\*/, "") : `ctx.accounts.${target[1]}`;
+        return [`${lhs}.${target[2]} = ${value};`];
+      }
+      return [`let ${op.result} = ${expr};`];
     }
 
-    case "cpi": {
-      const prog = op.targetProgram;
-      const ix = op.instruction;
-      const accountMappings = op.accounts
-        .map((a) => `            ${a.to}: ctx.accounts.${a.from},`)
-        .join("\n");
-      const hasSignerSeeds = op.signerSeeds && op.signerSeeds.length > 0;
-      const seedParts = hasSignerSeeds
-        ? op.signerSeeds!.map((s) => {
-            if (s.type === "literal") return `b"${s.value}"`;
-            if (s.type === "pubkey") return s.value;
-            return s.value;
-          }).join(", ")
-        : null;
+    case "cpi":
+      return emitQuasarCpi(op, ix, ir, accRef, renameAndPod);
 
-      const dataArgs = op.data.map((d) => d.value).join(", ");
-      const lines: string[] = [
-        `// CPI: ${prog}::${ix}`,
-        `ctx.accounts.${prog}`,
-        `    .${ix}(${toPascalCase(ix)}Cpi {`,
-        `${accountMappings}`,
-        `    }${dataArgs ? `, ${dataArgs}` : ""})`,
-      ];
-
-      if (hasSignerSeeds) {
-        lines.push(`    .invoke_signed(&[${seedParts}])?;`);
-      } else {
-        lines.push(`    .invoke()?;`);
+    case "close-account": {
+      const acc = accRef ?? ((name: string) => `ctx.accounts.${name}`);
+      const view = (name: string) => `${acc(name).replace(/^\*/, "")}.to_account_view()`;
+      const type = ix?.accounts.find((a) => a.name === op.account)?.accountType;
+      if (type === "token-account" || type === "associated-token") {
+        return [
+          `ctx.accounts.token_program`,
+          `    .close_account(${acc(op.account)}, ${acc(op.destination)}, ${acc(op.authority)})`,
+          `    .invoke()?;`,
+        ];
       }
-      return lines;
+      // Program-owned: Quasar's close wipes the data, moves the lamports and hands it back to the System Program.
+      return [`${acc(op.account).replace(/^\*/, "")}.close(${view(op.destination)})?;`];
     }
 
     case "custom-code":
@@ -786,6 +799,88 @@ function emitLogicOp(op: LogicOperation, errorEnum: string, accountToStateType?:
   }
 }
 
+
+/** Little-endian bytes of a fixed-size value for CPI data, or undefined for an unsupported type. */
+function quasarValueBytes(type: unknown, value: string, local: string): { setup: string; bytes: string; size: number } | undefined {
+  const INTS: Record<string, number> = { u8: 1, i8: 1, u16: 2, i16: 2, u32: 4, i32: 4, u64: 8, i64: 8, u128: 16, i128: 16 };
+  if (typeof type === "string" && INTS[type]) return { setup: `let ${local}: ${type} = ${value};`, bytes: `&${local}.to_le_bytes()`, size: INTS[type] };
+  if (type === "bool") return { setup: `let ${local}: [u8; 1] = [(${value}) as u8];`, bytes: `&${local}`, size: 1 };
+  if (type === "Pubkey") return { setup: `let ${local}: Address = ${value};`, bytes: `${local}.as_ref()`, size: 32 };
+  return undefined;
+}
+
+/**
+ * A CPI as a raw CpiCall: Anchor-style discriminator plus little-endian args, account metas from
+ * each account's mut/signer flags. The System Program's transfer uses Quasar's typed helper.
+ */
+function emitQuasarCpi(
+  op: Extract<LogicOperation, { type: "cpi" }>,
+  ix?: Instruction,
+  ir?: ProgramIR,
+  accRef?: (name: string) => string,
+  renameAndPod?: (s: string) => string,
+): string[] {
+  const view = (name: string) => `${(accRef ? accRef(name) : `ctx.accounts.${name}`).replace(/^\*/, "")}.to_account_view()`;
+  const value = (v: string) => (renameAndPod ? renameAndPod(v) : v);
+  const pdaAuthority = op.accounts.map((a) => a.from).find((n) =>
+    ix?.accounts.find((a) => a.name === n)?.constraints.some((c) => c.type === "seeds")) ?? "";
+  const signer = op.signerSeeds?.length ? buildQuasarSignerSeeds(op.signerSeeds, pdaAuthority, ix, ir) : null;
+  const { pda } = op.signerSeeds?.length ? splitSignerSeeds(op.signerSeeds, pdaAuthority, ix) : { pda: undefined };
+  const signerSetup = signer ? [...signer.setup, `let seeds = ${signer.seeds};`] : [];
+  const invoke = signer ? `.invoke_signed(&seeds)?;` : `.invoke()?;`;
+
+  if (ix?.accounts.find((a) => a.name === op.targetProgram)?.accountType === "system-program" && op.instruction === "transfer") {
+    const role = (r: string) => op.accounts.find((a) => a.to === r)?.from ?? r;
+    return [
+      `// CPI: system_program::transfer`,
+      `{`,
+      `    let amount: u64 = ${value(op.data[0]?.value ?? "0")};`,
+      ...signerSetup.map((l) => `    ${l}`),
+      `    ctx.accounts.${op.targetProgram}.transfer(ctx.accounts.${role("from")}, ctx.accounts.${role("to")}, amount)${invoke}`,
+      `}`,
+    ];
+  }
+
+  const setup: string[] = [];
+  const parts: Array<{ bytes: string; size: number }> = [];
+  op.data.forEach((d, i) => {
+    const arg = ix?.args.find((a) => a.name === d.value.trim());
+    const enc = quasarValueBytes(arg ? arg.type : "u64", value(d.value), `cpi_arg_${i}`);
+    if (enc) {
+      setup.push(enc.setup);
+      parts.push(enc);
+    }
+  });
+  const total = 8 + parts.reduce((n, p) => n + p.size, 0);
+  const lines = [
+    `// CPI: ${op.targetProgram}::${op.instruction} (Anchor-style discriminator; change it for a non-Anchor program)`,
+    `{`,
+    ...setup.map((l) => `    ${l}`),
+    `    let mut ix_data = [0u8; ${total}];`,
+    `    ix_data[0..8].copy_from_slice(&[${anchorIxDiscriminator(op.instruction).join(", ")}]);`,
+  ];
+  let offset = 8;
+  for (const p of parts) {
+    lines.push(`    ix_data[${offset}..${offset + p.size}].copy_from_slice(${p.bytes});`);
+    offset += p.size;
+  }
+  const metas = op.accounts.map(({ from }) => {
+    const { writable, signer: isSigner } = accountFlags(ix?.accounts.find((a) => a.name === from));
+    return `quasar_lang::cpi::InstructionAccount::new(${view(from)}.address(), ${writable}, ${isSigner || from === pda})`;
+  });
+  lines.push(
+    ...signerSetup.map((l) => `    ${l}`),
+    `    quasar_lang::cpi::CpiCall::new(`,
+    `        ${view(op.targetProgram)}.address(),`,
+    `        [${metas.join(", ")}],`,
+    `        [${op.accounts.map((a) => view(a.from)).join(", ")}],`,
+    `        ix_data,`,
+    `    )`,
+    `    ${invoke}`,
+    `}`,
+  );
+  return lines;
+}
 
 /**
  * PDA seeds that read the PDA's own data (`seeds = [b"escrow", escrow.maker.as_ref()]`).
@@ -808,7 +903,7 @@ function quasarFieldTypes(ir: ProgramIR): Map<string, string> {
  * struct, `ctx.accounts.` in a handler). Returns an owned value to bind, if one is needed.
  */
 function quasarSelfSeed(seed: Seed, ix: Instruction, ir: ProgramIR, at: string): { owned?: string; bytes: (v: string) => string; expr: string } {
-  if (seed.type === "literal") return { bytes: () => "", expr: `b"${seed.value}" as &[u8]` };
+  if (seed.type === "literal") return { bytes: () => "", expr: `b"${rustByteStringContent(seed.value)}" as &[u8]` };
   const value = seed.value.trim().replace(/\.key\(\)(?:\.to_bytes\(\))?(?:\.as_ref\(\))?$/, "").replace(/\.as_ref\(\)$/, "");
   if (/^[A-Z][A-Z0-9_]*$/.test(value)) return { bytes: () => "", expr: value };
   const account = ix.accounts.find((a) => a.name === value);
@@ -1215,7 +1310,13 @@ function buildQuasarAccountField(
     }
   }
 
-  const rustType = accountToQuasarType(account);
+  // A state with String/Vec fields borrows the account data (`Vault<'a>`).
+  const state = ir.states.find((st) => st.name === account.stateType);
+  const borrows = state?.fields.some((f) => solanaTypeToQuasarAccount(f.type, f.maxLen).includes("'a"));
+  // Quasar takes such accounts by value (`Account<Vault<'info>>`), not by reference.
+  const rustType = borrows
+    ? accountToQuasarType(account).replace(new RegExp(`&'info (?:mut )?Account<${account.stateType}>`), `Account<${account.stateType}<'info>>`)
+    : accountToQuasarType(account);
   lines.push(`    pub ${account.name}: ${rustType},`);
   return lines.join("\n");
 }
@@ -1310,11 +1411,19 @@ function buildQuasarAccountAttributes(
         if (c.programId) parts.push(`seeds::program = ${c.programId}`);
         break;
       }
-      case "owner":
-        parts.push(`owner = ${c.owner}`);
+      case "owner": {
+        // Quasar has no `owner =` attribute: check it as a constraint.
+        const o = c.owner.trim();
+        const expected = ix.accounts.some((a) => a.name === o)
+          ? `${o}.to_account_view().address()`
+          : o === "crate::ID" || o === "ID" || o === "program_id" || o === "crate::id()"
+            ? "&crate::ID"
+            : isBase58Address(o) ? `&Address::from_str_const("${o}")` : o.startsWith("&") ? o : `&${o}`;
+        parts.push(`constraint = ${account.name}.to_account_view().owner() == ${expected}`);
         break;
+      }
       case "address":
-        parts.push(`address = ${c.address}`);
+        parts.push(`address = ${isBase58Address(c.address) ? `Address::from_str_const("${c.address}")` : c.address}`);
         break;
       // Quasar only takes token::* when creating the account; existing ones are checked by constraint.
       case "token-authority":
@@ -1329,9 +1438,9 @@ function buildQuasarAccountAttributes(
         break;
       case "realloc": {
         const z = c.zeroInit ? "true" : "false";
-        parts.push(
-          `realloc = ${c.space}, realloc::payer = ${c.payer}, realloc::zero = ${z}`,
-        );
+        // Quasar has no realloc::zero: new bytes are always zeroed.
+        void z;
+        parts.push(`realloc = ${c.space}, realloc::payer = ${c.payer}`);
         break;
       }
       case "custom": {

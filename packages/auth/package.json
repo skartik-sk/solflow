@@ -15,8 +15,8 @@
   },
   "dependencies": {
     "@solflow/db": "workspace:*",
-    "next-auth": "^5.0.0-beta.28",
-    "@auth/prisma-adapter": "^2.0.0",
+    "next-auth": "5.0.0-beta.32",
+    "@auth/prisma-adapter": "^2.11.3",
     "@solana/web3.js": "^1.98.0",
     "tweetnacl": "^1.0.3",
     "bs58": "^6.0.0"
@@ -24,7 +24,7 @@
   "devDependencies": {
     "@solflow/tsconfig": "workspace:*",
     "@types/react": "^19.0.0",
-    "next": "^15.3.0",
+    "next": "^15.5.29",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
   }

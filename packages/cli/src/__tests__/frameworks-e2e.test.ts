@@ -9,6 +9,20 @@ import { idlToFlow } from "@solflow/idl-import";
 import { detectProjectType } from "../utils/detect";
 import { writeConfig, readConfig, getConfigDir, getProjectPath } from "../utils/config";
 
+// The local server requires a session token and JSON bodies on every /api call.
+const TOKEN = "test-session-token";
+const realFetch = globalThis.fetch;
+const fetch = (url: string, init: RequestInit = {}) =>
+  realFetch(url, {
+    ...init,
+    headers: {
+      "x-solstudio-token": TOKEN,
+      ...(init.method && init.method !== "GET" ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
+
+
 // ─── Helper: create temp project dir ─────────────────────────────────
 
 function createTempProject(setup: (dir: string) => void): string {
@@ -164,7 +178,7 @@ pub enum CounterError {
 
     writeConfig(tempDir, { name: "my_anchor", framework: "anchor", mode: "rust", port: PORT });
 
-    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN });
     try {
       // Parse first
       const parseRes = await fetch(`http://localhost:${PORT}/api/parse`, {
@@ -263,7 +277,7 @@ pinocchio = "0.2"
 
     writeConfig(tempDir, { name: "my-pinocchio", framework: "pinocchio", mode: "rust", port: PORT });
 
-    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN });
     try {
       // Use IDL-based flow data for codegen
       const idl = {
@@ -386,7 +400,7 @@ describe("Quasar: full e2e pipeline", () => {
     try {
       writeConfig(tempDir, { name: "my-quasar", framework: "quasar", mode: "rust", port: PORT });
 
-      const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+      const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN });
       try {
         const idl = {
           version: "1.0.0",

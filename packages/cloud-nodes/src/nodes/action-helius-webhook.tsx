@@ -5,7 +5,7 @@ import { Radio } from "lucide-react";
 import type { CloudFlowNodeData, CloudNodeDefinition, CredentialOperations, WorkflowItem } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl, redactUrlSecrets } from "../security/outbound-url";
+import { assertSafeOutboundUrl, redactUrlSecrets, safeOutboundFetch } from "../security/outbound-url";
 
 const HELIUS_WEBHOOK_BASE_URL = "https://api-mainnet.helius-rpc.com";
 const MAX_RESPONSE_CHARS = 20_000;
@@ -258,12 +258,12 @@ export const heliusWebhookCreateDef: CloudNodeDefinition = {
     if (encoding) body.encoding = encoding;
     if (txnStatus) body.txnStatus = txnStatus;
 
-    const response = await fetch(url, {
+    const response = await safeOutboundFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: ctx.signal,
-    });
+    }, { allowHttp: false });
     if (!response.ok) {
       throw new Error(`Helius webhook create failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
     }
@@ -302,7 +302,7 @@ export const heliusWebhookListDef: CloudNodeDefinition = {
   async execute(ctx) {
     const credential = await credentialData(ctx.credentials, ctx.params.credentialId);
     const url = webhookUrl(heliusBaseUrl(ctx.params, credential), heliusApiKey(credential));
-    const response = await fetch(url, { signal: ctx.signal });
+    const response = await safeOutboundFetch(url, { signal: ctx.signal }, { allowHttp: false });
     if (!response.ok) {
       throw new Error(`Helius webhook list failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
     }
@@ -344,7 +344,7 @@ export const heliusWebhookDeleteDef: CloudNodeDefinition = {
     if (!webhookId) throw new Error("Webhook ID is required");
     const credential = await credentialData(ctx.credentials, ctx.params.credentialId);
     const url = webhookUrl(heliusBaseUrl(ctx.params, credential), heliusApiKey(credential), `/v0/webhooks/${encodeURIComponent(webhookId)}`);
-    const response = await fetch(url, { method: "DELETE", signal: ctx.signal });
+    const response = await safeOutboundFetch(url, { method: "DELETE", signal: ctx.signal }, { allowHttp: false });
     if (!response.ok) {
       throw new Error(`Helius webhook delete failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
     }

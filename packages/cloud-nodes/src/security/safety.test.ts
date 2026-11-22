@@ -97,3 +97,11 @@ describe("assessCloudSafetyPolicy", () => {
     ).toBe("ready");
   });
 });
+
+describe("assertWalletSafety without a policy", () => {
+  it("fails closed (manual approval) when safety controls are missing", () => {
+    expect(() =>
+      assertWalletSafety({ action: "Token transfer", simulationAvailable: true }),
+    ).toThrow(/manual approval/i);
+  });
+});

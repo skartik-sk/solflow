@@ -290,6 +290,22 @@ function nodeLocation(
     : { instructionName: ix.name, nodeId: instructionNodeId(ix) };
 }
 
+/** Rough serialized size of a state account (discriminator + fields; dynamic fields at their max length). */
+function stateSizeEstimate(state: ProgramIR["states"][number]): number {
+  const SIZES: Record<string, number> = {
+    bool: 1, u8: 1, i8: 1, u16: 2, i16: 2, u32: 4, i32: 4, f32: 4, u64: 8, i64: 8, f64: 8, u128: 16, i128: 16, Pubkey: 32,
+  };
+  const size = (t: unknown, maxLen?: number): number => {
+    if (typeof t === "string") return t === "String" ? 4 + (maxLen ?? 64) : SIZES[t] ?? 0;
+    const o = t as Record<string, any>;
+    if (o?.option) return 1 + size(o.option);
+    if (o?.vec) return 4 + size(o.vec) * (maxLen ?? 0);
+    if (o?.array) return size(o.array[0]) * o.array[1];
+    return 0;
+  };
+  return 8 + state.fields.reduce((n, f) => n + size(f.type, f.maxLen), 0);
+}
+
 // ─── Rules ───────────────────────────────────────────────────────────────────
 
 export const RULES: AuditRule[] = [
@@ -306,6 +322,7 @@ export const RULES: AuditRule[] = [
       const findings: AuditFinding[] = [];
       for (const ix of ir.instructions) {
         const flatOps = flattenOps(ix.body);
+        const reported = new Set<string>(); // one finding per account, not per write
         for (const op of flatOps) {
           if (!isMutableOperation(op)) continue;
 
@@ -317,7 +334,12 @@ export const RULES: AuditRule[] = [
             const acc = ix.accounts.find((a) => a.name === op.account);
             const isProgramOwned =
               acc?.accountType === "account" || !!acc?.stateType;
-            if (acc && !hasSigner(acc) && hasMut(acc) && !isProgramOwned) {
+            // An account created in this instruction (e.g. a new mint) is written by its
+            // initializer, and SPL accounts are only changed through Token Program CPIs.
+            const isNew = !!acc && acc.constraints.some((c) => c.type === "init" || c.type === "init-if-needed");
+            const isSpl = acc?.accountType === "mint" || acc?.accountType === "token-account" || acc?.accountType === "associated-token";
+            if (acc && !hasSigner(acc) && hasMut(acc) && !isProgramOwned && !isNew && !isSpl && !reported.has(acc.name)) {
+              reported.add(acc.name);
               findings.push({
                 ruleId: "SOL-001",
                 severity: "critical",
@@ -336,7 +358,8 @@ export const RULES: AuditRule[] = [
           if (op.type === "transfer-sol") {
             const fromAcc = ix.accounts.find((a) => a.name === op.from);
             const isPda = !!fromAcc && hasConstraint(fromAcc, "seeds");
-            if (fromAcc && !hasSigner(fromAcc) && !isPda) {
+            if (fromAcc && !hasSigner(fromAcc) && !isPda && !reported.has(`transfer:${fromAcc.name}`)) {
+              reported.add(`transfer:${fromAcc.name}`);
               findings.push({
                 ruleId: "SOL-001",
                 severity: "critical",
@@ -1164,30 +1187,26 @@ export const RULES: AuditRule[] = [
     category: "data-validation",
     check: (ir: ProgramIR): AuditFinding[] => {
       const findings: AuditFinding[] = [];
+      // Every generated close path (Anchor `close`, the close-account op, and the Pinocchio and
+      // Quasar equivalents) wipes the data. What can leak is a hand-written close: custom code
+      // that drains an account's lamports without zeroing it.
       for (const ix of ir.instructions) {
-        for (const acc of ix.accounts) {
-          const closeConstraint = acc.constraints.find(
-            (c) => c.type === "close",
-          );
-          if (!closeConstraint) continue;
-
-          // Check if there's an explicit zero-init after close (custom-code or set-field zeroing)
-          const flatOps = flattenOps(ix.body);
-          const hasZeroOp = flatOps.some(
-            (op) =>
-              op.type === "custom-code" &&
-              op.code.toLowerCase().includes("zero"),
-          );
-
-          if (!hasZeroOp) {
+        for (const op of flattenOps(ix.body)) {
+          if (op.type !== "custom-code") continue;
+          const code = op.code;
+          const drains =
+            /set_lamports\(\s*0\s*\)/.test(code) ||
+            /lamports[^;\n]*=\s*0\s*;/.test(code);
+          const wipes = /fill\(\s*0\s*\)|zero|\.close\(|realloc\(\s*0|resize\(\s*0/i.test(code);
+          if (drains && !wipes) {
             findings.push({
               ruleId: "SOL-051",
               severity: "low",
-              title: `Account "${acc.name}" closed without zeroing data`,
-              description: `Account "${acc.name}" in "${ix.name}" uses a close constraint but residual data is not explicitly zeroed. This may leak information.`,
-              location: nodeLocation(ix, acc),
+              title: `Account closed by custom code in "${ix.name}" without zeroing data`,
+              description: `A custom code block in "${ix.name}" moves an account's lamports out but doesn't wipe its data. The stale data stays readable until the runtime garbage-collects the account, and the account can be revived within the same transaction.`,
+              location: { ...nodeLocation(ix), nodeId: operationNodeId(op, ix) },
               recommendation:
-                "Use Anchor's close constraint which zeros data automatically, or add explicit zeroing in a custom code block.",
+                "Zero the data (`data.fill(0)`) or use the Close Account logic block / a close constraint, which do it for you.",
             });
           }
         }
@@ -1289,13 +1308,21 @@ export const RULES: AuditRule[] = [
           );
           if (!reallocConstraint || reallocConstraint.type !== "realloc")
             continue;
-          // Solana limits realloc to 10KB per instruction
-          if (reallocConstraint.space > 10_240) {
+          // `space` is the account's NEW total size. Solana caps an account at 10 MiB and lets one
+          // instruction grow it by at most 10,240 bytes (MAX_PERMITTED_DATA_INCREASE).
+          const space = reallocConstraint.space;
+          const state = ir.states.find((st) => st.name === acc.stateType);
+          const current = state ? stateSizeEstimate(state) : undefined;
+          const growth = current !== undefined ? space - current : undefined;
+          const tooBig = space > 10 * 1024 * 1024;
+          if (tooBig || (growth !== undefined && growth > 10_240)) {
             findings.push({
               ruleId: "SOL-061",
               severity: "low",
-              title: `Realloc of ${reallocConstraint.space} bytes on "${acc.name}" may fail`,
-              description: `Account "${acc.name}" in "${ix.name}" requests a realloc of ${reallocConstraint.space} bytes, which exceeds the 10KB per-instruction realloc limit.`,
+              title: `Realloc of "${acc.name}" to ${space} bytes may fail`,
+              description: tooBig
+                ? `Account "${acc.name}" in "${ix.name}" is resized to ${space} bytes, over Solana's 10 MiB account limit.`
+                : `Account "${acc.name}" in "${ix.name}" grows from about ${current} to ${space} bytes in one instruction; Solana allows at most 10,240 bytes of growth per instruction.`,
               location: nodeLocation(ix, acc),
               recommendation:
                 "Realloc in increments ≤ 10,240 bytes across multiple instructions, or reconsider the account structure.",

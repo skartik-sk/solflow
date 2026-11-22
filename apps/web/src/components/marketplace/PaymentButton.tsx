@@ -1,20 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useWallet, useConnection } from "@solana/wallet-adapter-react";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
 import {
+  Connection,
   Transaction,
   SystemProgram,
   PublicKey,
   LAMPORTS_PER_SOL,
+  clusterApiUrl,
 } from "@solana/web3.js";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc/client";
 import { Loader2, Wallet, GitFork } from "lucide-react";
-
-const TREASURY_WALLET = process.env.NEXT_PUBLIC_SOLFLOW_TREASURY_WALLET ?? "";
 
 interface PaymentButtonProps {
   listingId: string;
@@ -28,8 +28,16 @@ export function PaymentButton({
   alreadyPurchased = false,
 }: PaymentButtonProps) {
   const router = useRouter();
-  const { connection } = useConnection();
   const { publicKey, sendTransaction, connected } = useWallet();
+  // Treasury + cluster come from the server, which verifies against the same
+  // values. The payment cluster can differ from the editor's (devnet) wallet
+  // connection, so build a connection for it.
+  const paymentConfig = trpc.marketplace.paymentConfig.useQuery();
+  const cluster = paymentConfig.data?.cluster;
+  const connection = useMemo(
+    () => (cluster ? new Connection(clusterApiUrl(cluster), "confirmed") : null),
+    [cluster],
+  );
   const { setVisible } = useWalletModal();
   const [step, setStep] = useState<
     "idle" | "sending" | "verifying" | "forking"
@@ -52,7 +60,9 @@ export function PaymentButton({
       fork.mutate({ listingId });
     },
     onError: (err) => {
-      toast.error(`Payment verification failed: ${err.message}`);
+      toast.error(
+        `Payment verification failed: ${err.message}. If SOL left your wallet, keep the transaction signature and contact support.`,
+      );
       setStep("idle");
     },
   });
@@ -93,15 +103,20 @@ export function PaymentButton({
   }
 
   const handlePurchase = async () => {
-    if (!TREASURY_WALLET) {
-      toast.error("Payments are not configured on this instance.");
+    const treasuryAddress = paymentConfig.data?.treasury;
+    if (!connection || !treasuryAddress) {
+      toast.error(
+        paymentConfig.isLoading
+          ? "Loading payment settings. Try again in a moment."
+          : "Payments are not configured on this instance.",
+      );
       return;
     }
 
     setStep("sending");
     try {
       const lamports = Math.round(priceSOL * LAMPORTS_PER_SOL);
-      const treasury = new PublicKey(TREASURY_WALLET);
+      const treasury = new PublicKey(treasuryAddress);
 
       const transaction = new Transaction().add(
         SystemProgram.transfer({
@@ -139,7 +154,7 @@ export function PaymentButton({
   };
 
   const stepLabels: Record<typeof step, string> = {
-    idle: `Pay ${priceSOL} SOL and fork`,
+    idle: `Pay ${priceSOL} SOL${cluster === "devnet" ? " (devnet)" : ""} and fork`,
     sending: "Sending transaction…",
     verifying: "Verifying on-chain…",
     forking: "Forking template…",

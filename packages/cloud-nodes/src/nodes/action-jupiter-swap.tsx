@@ -6,8 +6,9 @@ import { Transaction, VersionedTransaction } from "@solana/web3.js";
 import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl } from "../security/outbound-url";
+import { assertSafeOutboundUrl, safeOutboundFetch } from "../security/outbound-url";
 import { assertWalletSafety } from "../security/safety";
+import { assertSimulationLogs, inspectSwapTransaction } from "../security/swap-transaction";
 
 const DEFAULT_JUPITER_API_BASE = "https://api.jup.ag";
 const SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -54,13 +55,6 @@ function getEnv(name: string): string | undefined {
   return env?.[name];
 }
 
-function requireFetch(): typeof fetch {
-  if (typeof fetch !== "function") {
-    throw new Error("Global fetch is not available in this runtime");
-  }
-  return fetch;
-}
-
 function jupiterHeaders(apiKey?: string): Record<string, string> {
   return {
     Accept: "application/json",
@@ -85,13 +79,13 @@ async function fetchJupiterJson<T>(
   const baseUrl = config.baseUrl || getEnv("JUPITER_API_BASE") || DEFAULT_JUPITER_API_BASE;
   const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
   const url = assertSafeOutboundUrl(`${normalizedBaseUrl}${path}`, { allowHttp: false });
-  const response = await requireFetch()(url.toString(), {
+  const response = await safeOutboundFetch(url.toString(), {
     ...init,
     headers: {
       ...jupiterHeaders(config.apiKey ?? getEnv("JUPITER_API_KEY")),
       ...(init.headers as Record<string, string> | undefined),
     },
-  });
+  }, { allowHttp: false });
 
   if (!response.ok) {
     throw new Error(
@@ -370,7 +364,90 @@ async function fetchJupiterSwapBuild(ctx: JupiterExecuteContext, config: { apiKe
   return { payload, params, taker };
 }
 
-async function signAndExecuteJupiterOrder(ctx: JupiterExecuteContext, config: { apiKey?: string; baseUrl?: string }, order: JupiterOrderResponse) {
+interface DeclaredSwap {
+  inputMint?: string;
+  outputMint?: string;
+  amount?: bigint;
+  slippageBps?: number;
+}
+
+function optionalBigInt(params: Record<string, unknown>, key: string): bigint | undefined {
+  const value = params[key];
+  if (value === undefined || value === null || value === "") return undefined;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text)) throw new Error(`${key} must be a whole number in smallest units`);
+  return BigInt(text);
+}
+
+function optionalNumber(params: Record<string, unknown>, key: string): number | undefined {
+  const value = params[key];
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) throw new Error(`${key} must be a number`);
+  return parsed;
+}
+
+/**
+ * Decode the order transaction and apply the workflow's wallet policy before
+ * anything is signed. The transaction can come from an expression, so it is
+ * treated as untrusted input.
+ */
+async function assertSwapTransactionSafe(
+  ctx: JupiterExecuteContext,
+  walletId: string,
+  transactionBase64: string,
+  declared: DeclaredSwap,
+) {
+  const walletPublicKey = await ctx.wallet.getPublicKey(walletId);
+  const inspection = inspectSwapTransaction(versionedTransactionFromBase64(transactionBase64), walletPublicKey);
+
+  // Jupiter moves tokens inside its own program; a top-level token transfer
+  // signed by the wallet is only accepted when it stays within the declared
+  // input amount and mint.
+  let tokenOut = BigInt(0);
+  for (const transfer of inspection.walletTokenTransfers) {
+    if (declared.amount === undefined || !declared.inputMint || declared.inputMint === SOL_MINT) {
+      throw new Error("Swap transaction transfers tokens out of the wallet outside the swap; refusing to sign.");
+    }
+    if (transfer.mint && transfer.mint !== declared.inputMint) {
+      throw new Error(`Swap transaction transfers mint ${transfer.mint}, not the input mint; refusing to sign.`);
+    }
+    tokenOut += transfer.amount;
+  }
+  if (declared.amount !== undefined && tokenOut > declared.amount) {
+    throw new Error("Swap transaction transfers more tokens than the swap amount; refusing to sign.");
+  }
+
+  const spendLimitSet =
+    typeof ctx.safety?.spendLimitLamports === "number" && Number.isFinite(ctx.safety.spendLimitLamports);
+  const declaredSol = declared.inputMint === SOL_MINT && declared.amount !== undefined ? declared.amount : BigInt(0);
+  const amountLamports =
+    inspection.lamportTransfers > BigInt(0) || declaredSol > BigInt(0) || spendLimitSet
+      ? (inspection.totalLamports > declaredSol ? inspection.totalLamports : declaredSol)
+      : undefined;
+
+  const tokenMints = [
+    ...new Set([declared.inputMint, declared.outputMint, ...inspection.mints].filter((m): m is string => !!m)),
+  ];
+
+  assertWalletSafety({
+    safety: ctx.safety,
+    action: "Jupiter swap execute",
+    amountLamports,
+    tokenMints,
+    slippageBps: declared.slippageBps,
+    simulationAvailable: !!ctx.wallet.simulate,
+  });
+
+  return inspection;
+}
+
+async function signAndExecuteJupiterOrder(
+  ctx: JupiterExecuteContext,
+  config: { apiKey?: string; baseUrl?: string },
+  order: JupiterOrderResponse,
+  declared: DeclaredSwap,
+) {
   const walletId = stringParam(ctx.params, "walletId", "Wallet");
   if (!ctx.wallet.signTransaction) {
     throw new Error("Jupiter Swap API V2 execute requires wallet signTransaction support");
@@ -386,6 +463,8 @@ async function signAndExecuteJupiterOrder(ctx: JupiterExecuteContext, config: { 
   if (!transactionBase64) throw new Error("Jupiter order transaction is required for execute");
   if (!requestId) throw new Error("Jupiter requestId is required for execute");
 
+  await assertSwapTransactionSafe(ctx, walletId, transactionBase64, declared);
+
   let simulation: { err: unknown; logs?: string[] | null } | undefined;
   if (ctx.wallet.simulate) {
     const simulationTx = versionedTransactionFromBase64(transactionBase64);
@@ -393,6 +472,7 @@ async function signAndExecuteJupiterOrder(ctx: JupiterExecuteContext, config: { 
     if (simulation?.err) {
       throw new Error(`Jupiter Swap API V2 transaction simulation failed: ${JSON.stringify(simulation.err)}`);
     }
+    assertSimulationLogs(simulation?.logs);
   }
 
   const transaction = versionedTransactionFromBase64(transactionBase64);
@@ -747,7 +827,12 @@ export const jupiterSwapDef: CloudNodeDefinition = {
         lastValidBlockHeight: optionalPositiveInteger(ctx.params, "lastValidBlockHeight"),
       };
       const { execute, simulation, requestId, lastValidBlockHeight } =
-        await signAndExecuteJupiterOrder(ctx, jupiterConfig, order);
+        await signAndExecuteJupiterOrder(ctx, jupiterConfig, order, {
+          inputMint: optionalString(ctx.params, "inputMint"),
+          outputMint: optionalString(ctx.params, "outputMint"),
+          amount: optionalBigInt(ctx.params, "amount"),
+          slippageBps: optionalNumber(ctx.params, "slippageBps"),
+        });
       return attachJupiterOutput(inputItems, operation, execute, {
         requestId,
         signature: execute.signature,
@@ -777,7 +862,12 @@ export const jupiterSwapDef: CloudNodeDefinition = {
 
     const { payload: order, params, taker } = await fetchJupiterSwapOrder(ctx, jupiterConfig);
     const { execute, simulation, requestId, lastValidBlockHeight } =
-      await signAndExecuteJupiterOrder(ctx, jupiterConfig, order);
+      await signAndExecuteJupiterOrder(ctx, jupiterConfig, order, {
+        inputMint,
+        outputMint,
+        amount: BigInt(amount),
+        slippageBps,
+      });
     const swap = {
       provider: "jupiter",
       operation,
@@ -1242,6 +1332,42 @@ export const jupiterSwapExecuteDef: CloudNodeDefinition = {
       supportsExpressions: true,
     },
     {
+      key: "inputMint",
+      label: "Input Mint",
+      type: "text",
+      required: false,
+      description: "Input mint from the order. Checked against the allowed mint list before signing.",
+      placeholder: "{{ $json.jupiter.payload.inputMint }}",
+      supportsExpressions: true,
+    },
+    {
+      key: "outputMint",
+      label: "Output Mint",
+      type: "text",
+      required: false,
+      description: "Output mint from the order. Checked against the allowed mint list before signing.",
+      placeholder: "{{ $json.jupiter.payload.outputMint }}",
+      supportsExpressions: true,
+    },
+    {
+      key: "amount",
+      label: "Input Amount",
+      type: "text",
+      required: false,
+      description: "Input amount in smallest units. Checked against the spend limit before signing.",
+      placeholder: "{{ $json.jupiter.payload.inAmount }}",
+      supportsExpressions: true,
+    },
+    {
+      key: "slippageBps",
+      label: "Slippage Bps",
+      type: "text",
+      required: false,
+      description: "Order slippage. Checked against the max slippage before signing.",
+      placeholder: "{{ $json.jupiter.payload.slippageBps }}",
+      supportsExpressions: true,
+    },
+    {
       key: "walletId",
       label: "Wallet",
       type: "wallet-select",
@@ -1257,6 +1383,10 @@ export const jupiterSwapExecuteDef: CloudNodeDefinition = {
     transactionBase64: "{{ $json.jupiter.payload.transaction }}",
     requestId: "{{ $json.jupiter.payload.requestId }}",
     lastValidBlockHeight: "",
+    inputMint: "{{ $json.jupiter.payload.inputMint }}",
+    outputMint: "{{ $json.jupiter.payload.outputMint }}",
+    amount: "{{ $json.jupiter.payload.inAmount }}",
+    slippageBps: "{{ $json.jupiter.payload.slippageBps }}",
     walletId: "",
     credentialId: "",
   },

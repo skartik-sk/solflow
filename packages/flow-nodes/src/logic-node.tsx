@@ -112,13 +112,35 @@ export const LogicNode = memo(function LogicNode({
           position: Position.Top,
           isTarget: true,
         },
-        // ↓ bottom: connects to next logic block
-        {
-          id: "logic-out",
-          kind: "logic-out",
-          position: Position.Bottom,
-          isTarget: false,
-        },
+        // ↓ bottom: connects to next logic block. An if-else node has two
+        // outputs instead; the IR maps "then-out"/"else-out" to its branches.
+        ...(ltype === "if-else"
+          ? [
+              {
+                id: "then-out",
+                kind: "logic-out" as const,
+                position: Position.Bottom,
+                isTarget: false,
+                label: "Then",
+                style: { left: "30%" },
+              },
+              {
+                id: "else-out",
+                kind: "logic-out" as const,
+                position: Position.Bottom,
+                isTarget: false,
+                label: "Else",
+                style: { left: "70%", background: "#dc2626" },
+              },
+            ]
+          : [
+              {
+                id: "logic-out",
+                kind: "logic-out" as const,
+                position: Position.Bottom,
+                isTarget: false,
+              },
+            ]),
         // → right: reference accounts
         {
           id: "account-out",

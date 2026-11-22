@@ -5,7 +5,7 @@ import { Database } from "lucide-react";
 import type { CloudFlowNodeData, CloudNodeDefinition, CredentialOperations, WorkflowItem } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl, redactUrlSecrets } from "../security/outbound-url";
+import { assertSafeOutboundUrl, redactUrlSecrets, safeOutboundFetch } from "../security/outbound-url";
 
 const PUBLIC_MAINNET_RPC = "https://api.mainnet-beta.solana.com";
 const PUBLIC_DEVNET_RPC = "https://api.devnet.solana.com";
@@ -293,7 +293,7 @@ export const solanaRpcDef: CloudNodeDefinition = {
       : String(ctx.params.method || "getHealth");
     if (!method) throw new Error("Custom RPC method is required");
     const params = parseParams(ctx.params.params);
-    const response = await fetch(rpcUrl.toString(), {
+    const response = await safeOutboundFetch(rpcUrl.toString(), {
       method: "POST",
       headers: rpcHeaders(credential),
       body: JSON.stringify({
@@ -303,7 +303,7 @@ export const solanaRpcDef: CloudNodeDefinition = {
         params,
       }),
       signal: ctx.signal,
-    });
+    }, { allowHttp: false });
 
     const payload = await parseRpcResponse(response) as {
       result?: unknown;

@@ -10,7 +10,7 @@ import {
   createSolanaRpc,
 } from "@solana/kit";
 import { useCodeStore } from "@/store/code-store";
-import { useProjectStore, resolveRpcUrl } from "@/store/project-store";
+import { useProjectStore, resolveRpcUrl, normalizeNetwork } from "@/store/project-store";
 import { useWallet } from "@solana/wallet-adapter-react";
 import {
   Connection,
@@ -29,7 +29,7 @@ type SimulateResult = {
   error?: string;
 };
 
-type Network = "devnet" | "mainnet-beta" | "localnet" | string;
+type Network = "devnet" | "mainnet" | "localnet" | string;
 
 function typeLabel(type: unknown): string {
   if (typeof type === "string") return type;
@@ -44,97 +44,6 @@ function typeLabel(type: unknown): string {
   return "unknown";
 }
 
-/** Anchor's instruction discriminator: the first 8 bytes of sha256("global:<name>"). */
-async function anchorDiscriminator(ixName: string): Promise<Uint8Array> {
-  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`global:${ixName}`));
-  return new Uint8Array(hash).slice(0, 8);
-}
-
-/** Encode instruction arguments into a Uint8Array discriminator + args. */
-async function encodeInstructionData(
-  ixName: string,
-  allInstructions: Instruction[],
-  ixArgs: InstructionArg[],
-  argValues: Record<string, string>,
-  framework: string,
-): Promise<Uint8Array> {
-  const ixIndex = allInstructions.findIndex((i: any) => i.name === ixName);
-
-  // Anchor dispatches on a hashed discriminator; the Pinocchio codegen uses the 8-byte LE index.
-  let discriminator: Uint8Array = new Uint8Array(8);
-  if (framework === "anchor") {
-    discriminator = await anchorDiscriminator(ixName);
-  } else {
-    new DataView(discriminator.buffer).setUint32(0, ixIndex >= 0 ? ixIndex : 0, true);
-  }
-
-  const argParts: Uint8Array[] = [discriminator];
-
-  for (const arg of ixArgs ?? []) {
-    const val = argValues[arg.name] ?? "0";
-    if (typeof arg.type === "string") {
-      switch (arg.type) {
-        case "u8": {
-          const b = new Uint8Array(1);
-          new DataView(b.buffer).setUint8(0, parseInt(val) || 0);
-          argParts.push(b);
-          break;
-        }
-        case "u16": {
-          const b = new Uint8Array(2);
-          new DataView(b.buffer).setUint16(0, parseInt(val) || 0, true);
-          argParts.push(b);
-          break;
-        }
-        case "u32": {
-          const b = new Uint8Array(4);
-          new DataView(b.buffer).setUint32(0, parseInt(val) || 0, true);
-          argParts.push(b);
-          break;
-        }
-        case "u64": {
-          const b = new Uint8Array(8);
-          new DataView(b.buffer).setBigUint64(0, /^\d+$/.test(val.trim()) ? BigInt(val.trim()) : BigInt(0), true);
-          argParts.push(b);
-          break;
-        }
-        case "i8": {
-          const b = new Uint8Array(1);
-          new DataView(b.buffer).setInt8(0, parseInt(val) || 0);
-          argParts.push(b);
-          break;
-        }
-        case "i32": {
-          const b = new Uint8Array(4);
-          new DataView(b.buffer).setInt32(0, parseInt(val) || 0, true);
-          argParts.push(b);
-          break;
-        }
-        case "bool": {
-          argParts.push(new Uint8Array([val === "true" || val === "1" ? 1 : 0]));
-          break;
-        }
-        default: {
-          argParts.push(new Uint8Array(8));
-          break;
-        }
-      }
-    } else {
-      argParts.push(new Uint8Array(8));
-    }
-  }
-
-  // Concat all parts
-  const totalLen = argParts.reduce((s, p) => s + p.length, 0);
-  const result = new Uint8Array(totalLen);
-  let offset = 0;
-  for (const part of argParts) {
-    result.set(part, offset);
-    offset += part.length;
-  }
-  return result;
-}
-
 // ─── TxBuilderPanel ──────────────────────────────────────────────────────────
 
 export function TransactionBuilderPanel() {
@@ -145,12 +54,9 @@ export function TransactionBuilderPanel() {
   const wallet = useWallet();
 
   const [selectedIx, setSelectedIx] = useState<string>("");
+  // Same ids as the top bar ("mainnet", not "mainnet-beta") so resolveRpcUrl maps them.
   const [selectedNetwork, setSelectedNetwork] = useState<Network>(
-    network === "mainnet"
-      ? "mainnet-beta"
-      : network === "localnet"
-        ? "localnet"
-        : "devnet",
+    customEndpoints.some((e) => e.id === network) ? network : normalizeNetwork(network),
   );
   const [programId, setProgramId] = useState<string>(
     irJson?.program?.programId ?? "",
@@ -206,9 +112,10 @@ export function TransactionBuilderPanel() {
 
   /** Build instruction data bytes shared by both simulate and send. */
   async function buildData(ix: Instruction): Promise<Buffer> {
-    return Buffer.from(
-      await encodeInstructionData(ix.name, allInstructions, ix.args ?? [], args, framework),
-    );
+    // Loaded on demand: it pulls in @solflow/sdk-gen for the shared discriminators.
+    const { encodeInstructionData } = await import("./tx-encoding");
+    const ixIndex = allInstructions.findIndex((i) => i.name === ix.name);
+    return Buffer.from(encodeInstructionData(framework, ix.name, ixIndex, ix.args ?? [], args));
   }
 
   // ─── Simulate using @solana/kit RPC ─────────────────────────────

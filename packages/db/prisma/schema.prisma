@@ -233,7 +233,7 @@ model Deployment {
   projectId String
   project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   userId    String
-  user      User   @relation(fields: [userId], references: [id])
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   network        Network
   programId      String
@@ -326,9 +326,9 @@ enum AuditType {
 model MarketplaceListing {
   id        String  @id @default(cuid())
   projectId String  @unique
-  project   Project @relation(fields: [projectId], references: [id])
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   authorId  String
-  author    User    @relation(fields: [authorId], references: [id])
+  author    User    @relation(fields: [authorId], references: [id], onDelete: Cascade)
 
   title           String
   description     String
@@ -351,6 +351,8 @@ model MarketplaceListing {
   templateIR       Json
 
   status   ListingStatus @default(PENDING_REVIEW)
+  // Why the listing is not live yet (missing certification checks or an admin note). Shown to the author.
+  reviewNote String?
   featured Boolean       @default(false)
 
   publishedAt DateTime?
@@ -395,11 +397,11 @@ enum ListingStatus {
 model MarketplacePurchase {
   id        String             @id @default(cuid())
   listingId String
-  listing   MarketplaceListing @relation(fields: [listingId], references: [id])
+  listing   MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   buyerId   String
-  buyer     User               @relation(fields: [buyerId], references: [id])
+  buyer     User               @relation(fields: [buyerId], references: [id], onDelete: Cascade)
 
-  txSignature String?
+  txSignature String?            @unique
   amount      Float?
   currency    String?
 
@@ -412,7 +414,7 @@ model MarketplacePurchase {
 model MarketplaceReview {
   id         String             @id @default(cuid())
   listingId  String
-  listing    MarketplaceListing @relation(fields: [listingId], references: [id])
+  listing    MarketplaceListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   reviewerId String
   rating     Int
   comment    String?

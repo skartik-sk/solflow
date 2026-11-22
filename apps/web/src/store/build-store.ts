@@ -24,6 +24,45 @@ const logLevel = (line: string): BuildLogLine["level"] =>
       ? "warn"
       : "info";
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Server-side limits for completeBrowserBuild; clamp here too so a huge log never fails the upload.
+const MAX_UPLOAD_LOG_LINES = 500;
+const MAX_UPLOAD_LINE_CHARS = 10_000;
+const MAX_UPLOAD_ERROR_CHARS = 20_000;
+
+export function clampForUpload(lines: string[]): string[] {
+  const clipped = lines.map((l) =>
+    l.length > MAX_UPLOAD_LINE_CHARS ? `${l.slice(0, MAX_UPLOAD_LINE_CHARS)}… [truncated]` : l,
+  );
+  if (clipped.length <= MAX_UPLOAD_LOG_LINES) return clipped;
+  return [
+    `… ${clipped.length - (MAX_UPLOAD_LOG_LINES - 1)} earlier line(s) truncated`,
+    ...clipped.slice(-(MAX_UPLOAD_LOG_LINES - 1)),
+  ];
+}
+
+/** RPC the user's wallet funds the deployer through: must be the network being deployed to. */
+export function fundingRpcUrl(
+  network: "DEVNET" | "MAINNET" | "LOCALNET",
+  env: { mainnet?: string; devnet?: string } = {
+    mainnet: process.env.NEXT_PUBLIC_MAINNET_RPC_URL,
+    devnet: process.env.NEXT_PUBLIC_DEVNET_RPC_URL ?? process.env.NEXT_PUBLIC_SOLANA_RPC_URL,
+  },
+): string {
+  if (network === "MAINNET") return env.mainnet || "https://api.mainnet-beta.solana.com";
+  if (network === "LOCALNET") return "http://localhost:8899";
+  return env.devnet || "https://api.devnet.solana.com";
+}
+
+/** Save the open project first if it has unsaved edits, so server actions read current state. */
+async function saveIfDirty(): Promise<void> {
+  const { useProjectStore } = await import("./project-store");
+  if (useProjectStore.getState().isDirty) {
+    await useProjectStore.getState().save();
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface BuildLogLine {
@@ -110,6 +149,10 @@ interface BuildState {
       connected: boolean;
     } | null,
   ) => Promise<void>;
+  /** Pick up a deploy that was in flight when the page reloaded (call on editor load). */
+  resumeDeploy: (projectId: string) => Promise<void>;
+  /** Close a failed deploy's buffer account and return its SOL to the deployer. */
+  reclaimDeployBuffer: (deploymentId: string) => Promise<string>;
   resetProgramKeypair: (projectId: string) => Promise<string>;
   addLog: (log: BuildLogLine) => void;
   clearLogs: () => void;
@@ -120,7 +163,15 @@ interface BuildState {
 
 const INITIAL: Omit<
   BuildState,
-  "startCompile" | "startTest" | "startDeploy" | "addLog" | "clearLogs" | "resetProgramKeypair" | "reset"
+  | "startCompile"
+  | "startTest"
+  | "startDeploy"
+  | "resumeDeploy"
+  | "reclaimDeployBuffer"
+  | "addLog"
+  | "clearLogs"
+  | "resetProgramKeypair"
+  | "reset"
 > = {
   compileStatus: "idle",
   compileLogs: [],
@@ -195,7 +246,7 @@ async function compileInBrowser(
     const done = await client.compile.completeBrowserBuild.mutate({
       jobId: prep.jobId,
       program: toBase64(build.program),
-      logs: [...get().compileLogs.map((l) => l.line)],
+      logs: clampForUpload(get().compileLogs.map((l) => l.line)),
       durationMs,
     });
     log(
@@ -208,7 +259,10 @@ async function compileInBrowser(
     const message = e.message ?? String(err);
     const rustErrors = e.stderr?.trim() && message === "Rust compilation failed";
     await client.compile.completeBrowserBuild
-      .mutate({ jobId: prep.jobId, errors: [rustErrors ? e.stderr! : message] })
+      .mutate({
+        jobId: prep.jobId,
+        errors: [(rustErrors ? e.stderr! : message).slice(-MAX_UPLOAD_ERROR_CHARS)],
+      })
       .catch(() => undefined);
 
     if (rustErrors) {
@@ -225,6 +279,158 @@ async function compileInBrowser(
     );
     return false;
   }
+}
+
+// ─── Server job polling (GitHub Actions builds/tests run outside the request) ─
+
+type VanillaClient = ReturnType<typeof import("@/lib/trpc/client").getVanillaClient>;
+
+const POLL_INTERVAL_MS = 5_000;
+const POLL_MAX_MS = 25 * 60_000;
+
+async function pollCompile(
+  jobId: string,
+  client: VanillaClient,
+  get: () => BuildState,
+  set: (partial: Partial<BuildState>) => void,
+): Promise<void> {
+  const started = Date.now();
+  let shownLines = 0;
+  while (Date.now() - started < POLL_MAX_MS) {
+    await sleep(POLL_INTERVAL_MS);
+    if (get().compileJobId !== jobId) return; // a newer compile replaced this one
+    let row;
+    try {
+      row = await client.compile.status.query({ jobId });
+    } catch {
+      continue; // transient; try again
+    }
+    const lines = (row.logs ?? "").split("\n").filter(Boolean);
+    // The first lines were already shown from the start response.
+    for (const line of lines.slice(Math.max(shownLines, 2))) {
+      get().addLog({ line, level: logLevel(line), timestamp: Date.now() });
+    }
+    shownLines = Math.max(shownLines, lines.length);
+    if (row.status === "SUCCESS") {
+      get().addLog({
+        line: `Compilation successful — ${row.binarySize ?? 0} bytes (github-actions)`,
+        level: "info",
+        timestamp: Date.now(),
+      });
+      set({ compileStatus: "success", compileBinarySize: row.binarySize ?? null });
+      return;
+    }
+    if (row.status === "FAILED") {
+      const errors = Array.isArray(row.errors) ? (row.errors as string[]) : [];
+      set({ compileStatus: "error", compileErrors: [errors.join("\n") || "Compilation failed."] });
+      return;
+    }
+  }
+  set({ compileStatus: "error", compileErrors: ["Compilation is taking too long. Check the build history later."] });
+}
+
+type DeploySnapshot = {
+  deploymentId: string;
+  phase: string;
+  progress: { current: number; total: number } | null;
+  programId: string;
+  txSignature: string | null;
+  explorerUrl: string | null;
+  txExplorerUrl: string | null;
+  isUpgrade: boolean;
+  busy?: boolean;
+};
+
+const DEPLOY_PHASE_LABEL: Record<string, string> = {
+  create: "Creating buffer account…",
+  write: "Writing program",
+  verify: "Verifying buffer",
+  finalize: "Deploying program…",
+};
+
+/**
+ * Drive a deploy to completion: call deploy.step until the buffer is written and
+ * verified, then deploy.finalize until confirmed. Every call is short; progress
+ * lives on the server row, so this can be re-entered after a reload.
+ */
+async function driveDeploy(
+  first: DeploySnapshot,
+  client: VanillaClient,
+  get: () => BuildState,
+  set: (partial: Partial<BuildState>) => void,
+): Promise<void> {
+  const log = (line: string, level: BuildLogLine["level"] = "info") =>
+    get().addLog({ line, level, timestamp: Date.now() });
+  const show = (snap: DeploySnapshot) => {
+    const phase = snap.phase === "write" || snap.phase === "verify" ? "writing" : snap.phase === "finalize" ? "deploying" : snap.phase;
+    set({
+      deploymentId: snap.deploymentId,
+      deployedProgramId: snap.programId,
+      deployStatus: snap.phase === "finalize" ? "confirming" : "deploying",
+      deployPhase: phase,
+      deployProgress: snap.progress,
+    });
+  };
+
+  let snap = first;
+  let lastPhase = "";
+  let failures = 0;
+  let calls = 0;
+  show(snap);
+  while (snap.phase !== "done") {
+    if (get().deploymentId !== snap.deploymentId) return; // another deploy took over
+    if (++calls > 600) throw new Error("Deploy did not finish. Reload the editor to resume it.");
+    if (snap.phase !== lastPhase) {
+      lastPhase = snap.phase;
+      const label = DEPLOY_PHASE_LABEL[snap.phase];
+      if (label) log(snap.progress && snap.phase !== "finalize" ? `${label} (${snap.progress.total} chunks)…` : label);
+    }
+    try {
+      const next = (
+        snap.phase === "finalize"
+          ? await client.deploy.finalize.mutate({ deploymentId: snap.deploymentId })
+          : await client.deploy.step.mutate({ deploymentId: snap.deploymentId })
+      ) as DeploySnapshot;
+      failures = 0;
+      if (next.busy) {
+        log("Deploy is running in another tab; waiting…", "warn");
+        await sleep(5_000);
+      } else if (next.phase === "finalize" && snap.phase === "finalize") {
+        await sleep(2_000); // deploy tx sent, not yet confirmed
+      }
+      snap = next;
+      show(snap);
+    } catch (err) {
+      const e = err as { message?: string; data?: { code?: string } };
+      const code = e.data?.code;
+      // BAD_REQUEST / PRECONDITION_FAILED are final (the server already marked the row).
+      if (code === "BAD_REQUEST" || code === "PRECONDITION_FAILED" || code === "NOT_FOUND" || ++failures > 4) {
+        throw err;
+      }
+      log(`${e.message ?? String(err)} — retrying…`, "warn");
+      await sleep(3_000 * failures);
+    }
+  }
+
+  set({
+    deployStatus: "success",
+    deployPhase: "complete",
+    deployProgress: snap.progress,
+    deployedProgramId: snap.programId,
+    deployTxSignature: snap.txSignature,
+    deployExplorerUrl: snap.explorerUrl ?? null,
+    deployTxExplorerUrl: snap.txExplorerUrl ?? null,
+  });
+  log(`Deployed! Program: ${snap.programId}`);
+  if (snap.txSignature) log(`TX: ${snap.txSignature}`);
+}
+
+function reportDeployError(err: unknown, get: () => BuildState, set: (partial: Partial<BuildState>) => void) {
+  const msg = err instanceof Error ? err.message : String(err);
+  for (const line of msg.split("\n")) {
+    if (line.trim()) get().addLog({ line: line.trim(), level: "error", timestamp: Date.now() });
+  }
+  set({ deployStatus: "error", deployPhase: "error", deployErrors: [msg] });
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -274,6 +480,14 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
       set({ compileStatus: "building", compileJobId: result.jobId });
 
+      if ("pending" in result && result.pending) {
+        for (const line of result.logs ?? []) {
+          get().addLog({ line, level: logLevel(line), timestamp: Date.now() });
+        }
+        await pollCompile(result.jobId, client, get, set);
+        return;
+      }
+
       if (result.logs && Array.isArray(result.logs)) {
         for (const line of result.logs) {
           get().addLog({ line, level: logLevel(line), timestamp: Date.now() });
@@ -311,7 +525,9 @@ export const useBuildStore = create<BuildState>((set, get) => ({
   },
 
   // ─── Test ───────────────────────────────────────────────────────────────
-  startTest: async (projectId, testCases, runtime = "cargo-smoke") => {
+  // `testCases` is accepted for API compatibility but not sent: the server runs
+  // the generated crate's tests, which can't execute custom cases yet.
+  startTest: async (projectId, _testCases, runtime = "cargo-smoke") => {
     set({
       testStatus: "running",
       testResults: [],
@@ -324,110 +540,51 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       testDuration: null,
     });
 
+    const toLogs = (resp: { logs?: unknown; errors?: unknown; warnings?: unknown }): BuildLogLine[] => [
+      ...(Array.isArray(resp.logs)
+        ? (resp.logs as string[]).map((line) => ({ line, level: logLevel(line), timestamp: Date.now() }))
+        : []),
+      ...(Array.isArray(resp.errors)
+        ? (resp.errors as string[]).map((line) => ({ line, level: "error" as const, timestamp: Date.now() }))
+        : []),
+      ...(Array.isArray(resp.warnings)
+        ? (resp.warnings as string[]).map((line) => ({ line, level: "warn" as const, timestamp: Date.now() }))
+        : []),
+    ];
+
     try {
+      // Tests read the saved project, so save unsaved edits first (as compile does).
+      await saveIfDirty();
+
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
-      const resp = await client.test.run.mutate({ projectId, testCases, runtime });
+      let resp = await client.test.run.mutate({ projectId, runtime });
+      set({ testRunId: resp.runId, testLogs: toLogs(resp) });
 
-      set({ testRunId: resp.runId });
-
-      if ("resultItems" in resp && Array.isArray(resp.resultItems)) {
-        set({
-          testResults: resp.resultItems,
-          testSummary: resp.results,
-          testStatus: resp.results.failed === 0 ? "passed" : "failed",
-          testRunner: typeof resp.runner === "string" ? resp.runner : null,
-          testRuntime: resp.runtime ?? runtime,
-          testCommand: typeof resp.command === "string" ? resp.command : null,
-          testSetupCommand:
-            typeof resp.setupCommand === "string" ? resp.setupCommand : null,
-          testDuration:
-            typeof resp.duration === "number" ? resp.duration : null,
-          testLogs: [
-            ...(Array.isArray(resp.logs)
-              ? resp.logs.map((line: string) => ({
-                  line,
-                  level: (/^error/i.test(line) ? "error" : /^warning/i.test(line) ? "warn" : "info") as
-                    | "info"
-                    | "warn"
-                    | "error",
-                  timestamp: Date.now(),
-                }))
-              : []),
-            ...(Array.isArray(resp.errors)
-              ? resp.errors.map((line: string) => ({
-                  line,
-                  level: "error" as const,
-                  timestamp: Date.now(),
-                }))
-              : []),
-            ...(Array.isArray(resp.warnings)
-              ? resp.warnings.map((line: string) => ({
-                  line,
-                  level: "warn" as const,
-                  timestamp: Date.now(),
-                }))
-              : []),
-          ],
-        });
-        return;
+      // GitHub Actions runs finish outside the request: poll the run.
+      const started = Date.now();
+      while (resp.pending) {
+        if (Date.now() - started > POLL_MAX_MS) throw new Error("Test run is taking too long. Check the test history later.");
+        await sleep(POLL_INTERVAL_MS);
+        if (get().testRunId !== resp.runId) return; // a newer run replaced this one
+        try {
+          resp = (await client.test.status.query({ runId: resp.runId })) as typeof resp;
+        } catch {
+          continue;
+        }
+        set({ testLogs: toLogs(resp) });
       }
 
-      const { connectWS, onJobMessage, isTestResult, isTestComplete, subscribeToJob } =
-        await import("@/lib/ws");
-      connectWS();
-      subscribeToJob(resp.runId);
-
-      await new Promise<void>((resolve) => {
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
-
-        const unsubscribe = onJobMessage(resp.runId, (msg) => {
-          if (isTestResult(msg)) {
-            const data = msg.data as {
-              test: string;
-              passed: boolean;
-              time?: number;
-              error?: string;
-            };
-            set((s) => ({
-              testResults: [
-                ...s.testResults,
-                {
-                  name: data.test,
-                  status: data.passed ? "passed" : "failed",
-                  duration: data.time ?? 0,
-                  error: data.error,
-                },
-              ],
-            }));
-          } else if (isTestComplete(msg)) {
-            const data = msg.data as {
-              passed: number;
-              failed: number;
-              total: number;
-            };
-            set({
-              testStatus: data.failed === 0 ? "passed" : "failed",
-              testSummary: {
-                passed: data.passed,
-                failed: data.failed,
-                total: data.total,
-              },
-            });
-            if (timeoutId) clearTimeout(timeoutId);
-            unsubscribe();
-            resolve();
-          }
-        });
-
-        timeoutId = setTimeout(() => {
-          unsubscribe();
-          set({
-            testStatus: "failed",
-            testLogs: [{ line: "Test timed out after 5 minutes", level: "error" as const, timestamp: Date.now() }],
-          });
-          resolve();
-        }, 300_000);
+      set({
+        testResults: resp.resultItems,
+        testSummary: resp.results,
+        testStatus: resp.results.failed === 0 && resp.status !== "error" ? "passed" : "failed",
+        testRunner: typeof resp.runner === "string" ? resp.runner : null,
+        testRuntime: (resp.runtime as GeneratedTestRuntime | undefined) ?? runtime,
+        testCommand: typeof resp.command === "string" ? resp.command : null,
+        testSetupCommand: typeof resp.setupCommand === "string" ? resp.setupCommand : null,
+        testDuration: typeof resp.duration === "number" ? resp.duration : null,
+        testLogs: toLogs(resp),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -440,10 +597,11 @@ export const useBuildStore = create<BuildState>((set, get) => ({
 
   // ─── Deploy ─────────────────────────────────────────────────────────────
   // Flow:
-  //   1. Check program keypair balance
-  //   2. If low → popup wallet to transfer SOL (1 prompt)
-  //   3. Server deploys everything (zero prompts)
-  //   Program keypair persists in DB — user only funds once.
+  //   1. Check the deployer balance; if low, fund it from the user's wallet
+  //      on the SAME network (one wallet prompt).
+  //   2. deploy.start → deploy.step (repeat) → deploy.finalize (repeat).
+  //      Each call is short; the server keeps progress on the Deployment row,
+  //      so a reload resumes via resumeDeploy().
   startDeploy: async (
     projectId: string,
     network: "DEVNET" | "MAINNET" | "LOCALNET" = "DEVNET",
@@ -468,99 +626,55 @@ export const useBuildStore = create<BuildState>((set, get) => ({
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
 
-      // Step 0: Check balance
-      get().addLog({
-        line: "Checking deployer balance…",
-        level: "info",
-        timestamp: Date.now(),
-      });
-
-      const bal = await client.deploy.checkBalance.query({
-        projectId,
-        network,
-      });
+      get().addLog({ line: "Checking deployer balance…", level: "info", timestamp: Date.now() });
+      const bal = await client.deploy.checkBalance.query({ projectId, network });
 
       if (bal.address && !bal.funded) {
         const deficitLamports = bal.needed - bal.balance;
         const deficitSol = (deficitLamports / 1e9).toFixed(2);
 
-        // Try to fund via user's wallet
-        if (
-          walletContext?.connected &&
-          walletContext.publicKey &&
-          walletContext.signTransaction
-        ) {
+        if (walletContext?.connected && walletContext.publicKey && walletContext.signTransaction) {
+          const MAX_FUND_LAMPORTS = 5 * 1e9; // 5 SOL max auto-fund
+          if (deficitLamports > MAX_FUND_LAMPORTS) {
+            get().addLog({
+              line: `Funding exceeds safety limit (${deficitSol} SOL > ${(MAX_FUND_LAMPORTS / 1e9).toFixed(1)} SOL max). Use manual funding.`,
+              level: "error",
+              timestamp: Date.now(),
+            });
+            set({
+              deployStatus: "error",
+              deployErrors: [`Amount exceeds safety limit. Manually send ${deficitSol} SOL to:\n${bal.address}`],
+            });
+            return;
+          }
+
           get().addLog({
             line: `Deployer needs ~${deficitSol} SOL. Opening wallet to fund…`,
             level: "info",
             timestamp: Date.now(),
           });
 
-          const { Connection, Transaction, SystemProgram, PublicKey } =
-            await import("@solana/web3.js");
-          const rpcUrl =
-            network === "MAINNET"
-              ? (process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-                "https://api.mainnet-beta.solana.com")
-              : network === "LOCALNET"
-                ? "http://localhost:8899"
-                : (process.env.NEXT_PUBLIC_SOLANA_RPC_URL ??
-                  "https://api.devnet.solana.com");
+          const { Connection, Transaction, SystemProgram, PublicKey } = await import("@solana/web3.js");
+          const connection = new Connection(fundingRpcUrl(network), "confirmed");
+          const fromPubkey = new PublicKey(walletContext.publicKey.toBase58());
+          const transferAmount = Math.min(deficitLamports + 0.01 * 1e9, MAX_FUND_LAMPORTS);
 
-          const connection = new Connection(rpcUrl, "confirmed");
-          const fromPubkey = walletContext.publicKey;
-          const toPubkey = new PublicKey(bal.address);
-
-          // Add a small buffer on top of the deficit
-          const MAX_FUND_LAMPORTS = 5 * 1e9; // 5 SOL max auto-fund
-          const bufferLamports = 0.01 * 1e9;
-          const transferAmount = Math.min(deficitLamports + bufferLamports, MAX_FUND_LAMPORTS);
-
-          if (deficitLamports > MAX_FUND_LAMPORTS) {
-            get().addLog({
-              line: `Funding exceeds safety limit (${(deficitLamports / 1e9).toFixed(2)} SOL > ${(MAX_FUND_LAMPORTS / 1e9).toFixed(1)} SOL max). Use manual funding.`,
-              level: "error",
-              timestamp: Date.now(),
-            });
-            set({
-              deployStatus: "error",
-              deployErrors: [`Amount exceeds safety limit. Manually send ${(deficitSol)} SOL to:\n${bal.address}`],
-            });
-            return;
-          }
-
-          const { blockhash, lastValidBlockHeight } =
-            await connection.getLatestBlockhash("confirmed");
-          const transferTx = new Transaction({
-            blockhash,
-            lastValidBlockHeight,
-            feePayer: new PublicKey(fromPubkey.toBase58()),
-          });
-          transferTx.add(
+          const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+          const transferTx = new Transaction({ blockhash, lastValidBlockHeight, feePayer: fromPubkey }).add(
             SystemProgram.transfer({
-              fromPubkey: new PublicKey(fromPubkey.toBase58()),
-              toPubkey,
-              lamports: transferAmount,
+              fromPubkey,
+              toPubkey: new PublicKey(bal.address),
+              lamports: Math.ceil(transferAmount),
             }),
           );
 
-          get().addLog({
-            line: "Waiting for wallet signature to fund deployer…",
-            level: "info",
-            timestamp: Date.now(),
-          });
-
-          const signed = (await walletContext.signTransaction(transferTx)) as {
-            serialize: () => Uint8Array;
-          };
+          get().addLog({ line: "Waiting for wallet signature to fund deployer…", level: "info", timestamp: Date.now() });
+          const signed = (await walletContext.signTransaction(transferTx)) as { serialize: () => Uint8Array };
           const sig = await connection.sendRawTransaction(signed.serialize(), {
             skipPreflight: false,
             preflightCommitment: "confirmed",
           });
-          await connection.confirmTransaction(
-            { signature: sig, blockhash, lastValidBlockHeight },
-            "confirmed",
-          );
+          await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
 
           get().addLog({
             line: `Funded! ${deficitSol} SOL sent to ${bal.address.slice(0, 8)}…`,
@@ -568,26 +682,19 @@ export const useBuildStore = create<BuildState>((set, get) => ({
             timestamp: Date.now(),
           });
         } else {
-          // No wallet connected — show faucet link
           get().addLog({
-            line: `Insufficient funds. Connect wallet to fund automatically, or use faucet:`,
+            line: `Insufficient funds. Connect wallet to fund automatically, or send at least ${deficitSol} SOL to ${bal.address}`,
             level: "error",
             timestamp: Date.now(),
           });
-          get().addLog({
-            line: `https://faucet.solana.com/?address=${bal.address}`,
-            level: "info",
-            timestamp: Date.now(),
-          });
-          get().addLog({
-            line: `Send at least ${deficitSol} SOL to ${bal.address}`,
-            level: "info",
-            timestamp: Date.now(),
-          });
+          if (network === "DEVNET") {
+            get().addLog({ line: `https://faucet.solana.com/?address=${bal.address}`, level: "info", timestamp: Date.now() });
+          }
           set({
             deployStatus: "error",
             deployErrors: [
-              `Connect your wallet to fund the deployer, or send ${deficitSol} SOL to:\n${bal.address}\n\nFaucet: https://faucet.solana.com/?address=${bal.address}`,
+              `Connect your wallet to fund the deployer, or send ${deficitSol} SOL to:\n${bal.address}` +
+                (network === "DEVNET" ? `\n\nFaucet: https://faucet.solana.com/?address=${bal.address}` : ""),
             ],
           });
           return;
@@ -600,135 +707,53 @@ export const useBuildStore = create<BuildState>((set, get) => ({
         });
       }
 
-      // Deploy (server handles everything)
+      const first = await client.deploy.start.mutate({ projectId, network });
       get().addLog({
-        line: "Deploying program (this may take 1-2 minutes)…",
+        line: first.resumed
+          ? `Resuming deploy of ${first.programId} (${first.progress?.current ?? 0}/${first.progress?.total ?? 0} chunks written)…`
+          : `Deploying ${first.programId} (${first.isUpgrade ? "upgrade" : "new program"})…`,
         level: "info",
         timestamp: Date.now(),
       });
-
-      // Subscribe to real-time deploy status via WebSocket
-      const { connectWS, onWSMessage: onWS, subscribeToJob } =
-        await import("@/lib/ws");
-      connectWS();
-
-      // We'll get the deploymentId from the first WS message
-      let wsDeploymentId: string | null = null;
-      const deployUnsubscribe = onWS((msg) => {
-        if (msg.type !== "deploy-status") return;
-        const jobId = msg.jobId;
-        if (wsDeploymentId && jobId !== wsDeploymentId) return;
-
-        // Track the deployment ID from first message and subscribe to job
-        if (!wsDeploymentId) {
-          wsDeploymentId = jobId;
-          subscribeToJob(jobId);
-        }
-
-        const data = msg.data as {
-          phase: string;
-          message?: string;
-          log?: string;
-          level?: string;
-          txSig?: string;
-          txSignature?: string;
-          programId?: string;
-          explorerUrl?: string;
-          txExplorerUrl?: string;
-          written?: number;
-          totalChunks?: number;
-          missingChunks?: number;
-          verifyPass?: number;
-          error?: string;
-        };
-
-        // Log the phase message
-        const logLine = data.log || data.message || data.phase;
-        if (logLine) {
-          const level = (data.level === "error" ? "error" : data.level === "warn" ? "warn" : "info") as "info" | "warn" | "error";
-          get().addLog({ line: logLine, level, timestamp: Date.now() });
-        }
-
-        // Map server phase to deployStatus + deployPhase
-        const phaseToStatus: Record<string, DeployStatus> = {
-          funding: "deploying",
-          funded: "deploying",
-          buffer: "deploying",
-          writing: "deploying",
-          deploying: "confirming",
-          cleanup: "confirming",
-          complete: "success",
-          error: "error",
-        };
-        set({
-          deployStatus: phaseToStatus[data.phase] ?? "deploying",
-          deployPhase: data.phase,
-        });
-
-        // Track chunk write progress
-        if (data.written != null && data.totalChunks != null) {
-          set({
-            deployProgress: { current: data.written, total: data.totalChunks },
-          });
-        }
-
-        // Capture early results from WS
-        if (data.programId) set({ deployedProgramId: data.programId });
-        if (data.txSignature || data.txSig) set({ deployTxSignature: data.txSignature || data.txSig || null });
-        if (data.explorerUrl) set({ deployExplorerUrl: data.explorerUrl });
-        if (data.txExplorerUrl) set({ deployTxExplorerUrl: data.txExplorerUrl });
-
-        // Handle error phase
-        if (data.phase === "error" && data.error) {
-          set({ deployErrors: [data.error] });
-        }
-      });
-
-      const result = await client.deploy.start.mutate({
-        projectId,
-        network,
-      });
-
-      // Unsubscribe from WS after mutate completes
-      deployUnsubscribe();
-
-      // Final state from tRPC result (may already be set via WS, but ensure consistency)
-      set({
-        deployStatus: "success",
-        deployPhase: "complete",
-        deployedProgramId: result.programId,
-        deployTxSignature: result.txSignature,
-        deployExplorerUrl: result.explorerUrl ?? null,
-        deployTxExplorerUrl: (result as any).txExplorerUrl ?? null,
-        deploymentId: result.deploymentId,
-      });
-
-      // Only log if WS didn't already stream the final result
-      if (!wsDeploymentId) {
-        get().addLog({
-          line: `Deployed! Program: ${result.programId}`,
-          level: "info",
-          timestamp: Date.now(),
-        });
-        get().addLog({
-          line: `TX: ${result.txSignature}`,
-          level: "info",
-          timestamp: Date.now(),
-        });
-      }
+      set({ deploymentId: first.deploymentId });
+      await driveDeploy(first, client, get, set);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      for (const line of msg.split("\n")) {
-        if (line.trim()) {
-          get().addLog({
-            line: line.trim(),
-            level: "error",
-            timestamp: Date.now(),
-          });
-        }
-      }
-      set({ deployStatus: "error", deployErrors: [msg] });
+      reportDeployError(err, get, set);
     }
+  },
+
+  resumeDeploy: async (projectId: string) => {
+    if (get().deployStatus === "deploying" || get().deployStatus === "confirming") return;
+    try {
+      const { getVanillaClient } = await import("@/lib/trpc/client");
+      const client = getVanillaClient();
+      const { pending, reclaimable } = await client.deploy.active.query({ projectId });
+      if (reclaimable.length > 0) {
+        get().addLog({
+          line: `${reclaimable.length} failed deploy(s) still hold buffer SOL. Reclaim it from the deploy history.`,
+          level: "warn",
+          timestamp: Date.now(),
+        });
+      }
+      if (!pending) return;
+      get().addLog({
+        line: `Resuming the deploy of ${pending.programId} that was in progress…`,
+        level: "info",
+        timestamp: Date.now(),
+      });
+      set({ deployErrors: [], deploymentId: pending.deploymentId });
+      await driveDeploy(pending, client, get, set);
+    } catch (err) {
+      reportDeployError(err, get, set);
+    }
+  },
+
+  reclaimDeployBuffer: async (deploymentId: string) => {
+    const { getVanillaClient } = await import("@/lib/trpc/client");
+    const client = getVanillaClient();
+    const res = await client.deploy.reclaimBuffer.mutate({ deploymentId });
+    get().addLog({ line: res.message, level: res.closed ? "info" : "warn", timestamp: Date.now() });
+    return res.message;
   },
 
   // ─── Reset Program Keypair ──────────────────────────────────────────────

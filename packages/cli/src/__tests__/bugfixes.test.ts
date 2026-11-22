@@ -6,6 +6,20 @@ import { detectProjectType } from "../utils/detect";
 import { isInitialized, readConfig, getConfigDir, getConfigPath, getProjectPath, writeConfig } from "../utils/config";
 import { parseProgram, parseFile } from "@solflow/rust-parser";
 
+// The local server requires a session token and JSON bodies on every /api call.
+const TOKEN = "test-session-token";
+const realFetch = globalThis.fetch;
+const fetch = (url: string, init: RequestInit = {}) =>
+  realFetch(url, {
+    ...init,
+    headers: {
+      "x-solstudio-token": TOKEN,
+      ...(init.method && init.method !== "GET" ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
+
+
 // ─── Scanner: skip directories ───────────────────────────────────────
 
 describe("scanner: skip directories", () => {
@@ -269,7 +283,7 @@ pub struct Init { pub user: Signer<'info> }
 
     // Start server with timeout
     const handle = await Promise.race([
-      startServer({ port: PORT, projectPath: tempDir, watch: false }),
+      startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Server startup timed out")), 20000)
       ),
@@ -320,11 +334,11 @@ pub mod ws_prog { pub fn go(ctx: Context<Go>) -> Result<()> { Ok(()) } }
 pub struct Go { pub user: Signer<'info> }
     `);
 
-    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+    const handle = await startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN });
 
     try {
       const result = await new Promise<string>((resolve, reject) => {
-        const ws = new WebSocket(`ws://localhost:${PORT}/ws`);
+        const ws = new WebSocket(`ws://localhost:${PORT}/ws?token=${TOKEN}`);
         let gotConnected = false;
 
         ws.on("message", (raw) => {

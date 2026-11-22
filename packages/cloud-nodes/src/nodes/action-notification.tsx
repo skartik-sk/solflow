@@ -5,7 +5,7 @@ import { Bell } from "lucide-react";
 import type { CloudFlowNodeData, CloudNodeDefinition, CredentialOperations, WorkflowItem } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl } from "../security/outbound-url";
+import { assertSafeOutboundUrl, safeOutboundFetch, withRequestTimeout } from "../security/outbound-url";
 
 const DIALECT_API_URL = "https://alerts-api.dial.to";
 const MAX_RESPONSE_CHARS = 20_000;
@@ -170,12 +170,12 @@ export const discordMessageDef: CloudNodeDefinition = {
     const username = optionalString(ctx.params, "username");
     if (username) body.username = username;
 
-    const response = await fetch(url.toString(), {
+    const response = await safeOutboundFetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: ctx.signal,
-    });
+    }, { allowHttp: false });
     const responseBody = await readBody(response);
     if (!response.ok) {
       throw new Error(`Discord message failed ${response.status} ${response.statusText}: ${typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody)}`);
@@ -254,7 +254,7 @@ export const telegramMessageDef: CloudNodeDefinition = {
         ...(optionalString(ctx.params, "parseMode") ? { parse_mode: optionalString(ctx.params, "parseMode") } : {}),
         disable_notification: ctx.params.disableNotification === true,
       }),
-      signal: ctx.signal,
+      signal: withRequestTimeout(ctx.signal),
     });
     const responseBody = await readBody(response);
     if (!response.ok) {
@@ -387,7 +387,7 @@ export const dialectAlertDef: CloudNodeDefinition = {
       { allowHttp: false },
     );
     const url = new URL(`/v2/${encodeURIComponent(appId)}/send`, baseUrl);
-    const response = await fetch(url.toString(), {
+    const response = await safeOutboundFetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -395,7 +395,7 @@ export const dialectAlertDef: CloudNodeDefinition = {
       },
       body: JSON.stringify(requestBody),
       signal: ctx.signal,
-    });
+    }, { allowHttp: false });
     const responseBody = await readBody(response);
     if (!response.ok) {
       throw new Error(`Dialect alert failed ${response.status} ${response.statusText}: ${typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody)}`);

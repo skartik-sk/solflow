@@ -13,6 +13,7 @@ import type {
   WorkflowDefinition,
   ExecutionObserver,
   ExecutionResult,
+  ExecuteOptions,
   NodeExecutionResult,
 } from "./types";
 
@@ -37,6 +38,25 @@ function maxAttempts(def: WorkflowDefinition): number {
 function retryDelayMs(def: WorkflowDefinition): number {
   const delay = Number(def.settings?.retryPolicy?.delayMs ?? 0);
   return Number.isFinite(delay) && delay > 0 ? Math.floor(delay) : 0;
+}
+
+/** Settles with the promise, or rejects as soon as the signal aborts (a node that ignores the signal can't outlive the run). */
+function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new Error(abortMessage(signal)));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new Error(abortMessage(signal)));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function abortMessage(signal: AbortSignal): string {
@@ -70,6 +90,7 @@ export class WorkflowExecutor {
     def: WorkflowDefinition,
     executionId: string,
     triggerData?: Record<string, unknown>,
+    options: ExecuteOptions = {},
   ): Promise<ExecutionResult> {
     this.aborted = false;
     this.triggerData = triggerData;
@@ -78,12 +99,17 @@ export class WorkflowExecutor {
     const outputData: Map<string, OutputBuckets> = new Map();
     const startedAt = Date.now();
     let timedOut = false;
+    const timeoutLimitMs = Math.min(
+      timeoutMs(def.settings?.timeout),
+      options.maxTimeoutMs ?? Number.POSITIVE_INFINITY,
+    );
+    const timeoutMessage =
+      options.timeoutMessage ??
+      `Workflow timed out after ${Math.round(timeoutLimitMs / 1000)} seconds`;
     const timer = setTimeout(() => {
       timedOut = true;
-      this.abortController?.abort(
-        `Workflow timed out after ${def.settings.timeout} seconds`,
-      );
-    }, timeoutMs(def.settings?.timeout));
+      this.abortController?.abort(timeoutMessage);
+    }, timeoutLimitMs);
 
     try {
       const dag = buildDAG(def.nodes, def.edges);
@@ -93,6 +119,10 @@ export class WorkflowExecutor {
 
       for (const batch of batches) {
         if (this.aborted || this.abortController.signal.aborted) break;
+        if (options.isCancelled && (await this.checkCancelled(options.isCancelled))) {
+          this.abort();
+          break;
+        }
 
         await Promise.all(
           batch.map((nodeId) =>
@@ -144,8 +174,10 @@ export class WorkflowExecutor {
         completedAt: Date.now(),
         duration: Date.now() - startedAt,
         error: timedOut
-          ? `Workflow timed out after ${def.settings.timeout} seconds`
-          : undefined,
+          ? timeoutMessage
+          : this.aborted
+            ? "Execution was cancelled"
+            : undefined,
       };
     } catch (err) {
       return {
@@ -156,7 +188,7 @@ export class WorkflowExecutor {
         startedAt,
         completedAt: Date.now(),
         duration: Date.now() - startedAt,
-        error: (err as Error).message,
+        error: timedOut ? timeoutMessage : (err as Error).message,
       };
     } finally {
       clearTimeout(timer);
@@ -371,7 +403,7 @@ export class WorkflowExecutor {
 
       onAttempt();
       try {
-        return await nodeDef.execute!(ctx);
+        return await raceAbort(Promise.resolve(nodeDef.execute!(ctx)), ctx.signal);
       } catch (error) {
         lastError = error;
         if (ctx.signal.aborted || attempt >= attempts) break;
@@ -497,6 +529,17 @@ export class WorkflowExecutor {
       };
       nodeResults.set(nodeId, result);
       await this.emitNodeFinish(result);
+    }
+  }
+
+  private async checkCancelled(
+    isCancelled: NonNullable<ExecuteOptions["isCancelled"]>,
+  ): Promise<boolean> {
+    try {
+      return (await isCancelled()) === true;
+    } catch {
+      // A failed status lookup must not kill the run.
+      return false;
     }
   }
 

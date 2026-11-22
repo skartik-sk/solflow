@@ -12,7 +12,18 @@ import {
 } from "@/lib/marketplace/certification";
 import type { ProgramIR } from "@solflow/ir";
 import { runInstantAudit } from "@solflow/audit";
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import {
+  assertCanAccessTemplate,
+  canAccessTemplate,
+  redactLockedTemplate,
+} from "@/lib/marketplace/access";
+import {
+  checkPaymentTransaction,
+  getPaymentConfig,
+  requiredLamports,
+} from "@/lib/marketplace/payment";
+import { buildProjectFromTemplate } from "@/lib/marketplace/template-project";
 
 const CATEGORY_ENUM = z.enum([
   "TOKEN",
@@ -100,8 +111,26 @@ export const marketplaceRouter = router({
         },
       });
       if (!listing) throw new TRPCError({ code: "NOT_FOUND" });
-      return listing;
+      // Paid templates: the flow/IR is the product, so only the author and
+      // buyers get it. Everyone else sees the listing without its contents.
+      const canAccess = await canAccessTemplate(
+        ctx.prisma,
+        listing,
+        ctx.session?.user?.id,
+      );
+      return redactLockedTemplate(listing, canAccess);
     }),
+
+  // ── paymentConfig: what the client needs to build a payment tx ──
+  // Treasury + cluster come from the server env so client and server can't drift.
+  paymentConfig: publicProcedure.query(() => {
+    const config = getPaymentConfig();
+    return {
+      enabled: config.treasury !== null,
+      treasury: config.treasury,
+      cluster: config.cluster,
+    };
+  }),
 
   // ── publish: submit a project as a marketplace template ─────────
   publish: protectedProcedure
@@ -201,6 +230,10 @@ export const marketplaceRouter = router({
         normalizedTags,
         certificationWithListingChecks.certified,
       );
+      const { status, reviewNote } = decideListingStatus(
+        certificationWithListingChecks.checks,
+      );
+      const publishedAt = status === "PUBLISHED" ? new Date() : null;
 
       // Upsert listing (allows re-publishing an existing listing)
       if (existing) {
@@ -216,11 +249,18 @@ export const marketplaceRouter = router({
             priceSOL: input.priceSOL,
             templateFlowData: sanitizedFlow as object,
             templateIR: sanitizedIR as object,
-            status: "PENDING_REVIEW",
+            status,
+            reviewNote,
+            publishedAt,
           },
           select: { id: true },
         });
-        return { id: updated.id, certification: certificationWithListingChecks };
+        return {
+          id: updated.id,
+          status,
+          reviewNote,
+          certification: certificationWithListingChecks,
+        };
       }
 
       const listing = await ctx.prisma.marketplaceListing.create({
@@ -236,11 +276,48 @@ export const marketplaceRouter = router({
           priceSOL: input.priceSOL,
           templateFlowData: sanitizedFlow as object,
           templateIR: sanitizedIR as object,
-          status: "PENDING_REVIEW",
+          status,
+          reviewNote,
+          publishedAt,
         },
         select: { id: true },
       });
-      return { id: listing.id, certification: certificationWithListingChecks };
+      return {
+        id: listing.id,
+        status,
+        reviewNote,
+        certification: certificationWithListingChecks,
+      };
+    }),
+
+  // ── approve: admin publishes or rejects a listing held for review ─
+  approve: protectedProcedure
+    .input(
+      z.object({
+        listingId: z.string(),
+        decision: z.enum(["PUBLISHED", "REJECTED"]),
+        note: z.string().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (!isAdminEmail(ctx.session.user.email)) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+      const listing = await ctx.prisma.marketplaceListing.findUnique({
+        where: { id: input.listingId },
+        select: { id: true },
+      });
+      if (!listing) throw new TRPCError({ code: "NOT_FOUND" });
+      const updated = await ctx.prisma.marketplaceListing.update({
+        where: { id: listing.id },
+        data: {
+          status: input.decision,
+          reviewNote: input.decision === "PUBLISHED" ? null : (input.note ?? null),
+          ...(input.decision === "PUBLISHED" && { publishedAt: new Date() }),
+        },
+        select: { id: true, status: true },
+      });
+      return updated;
     }),
 
   // ── fork: create a new project from a template ──────────────────
@@ -252,20 +329,27 @@ export const marketplaceRouter = router({
         select: {
           id: true,
           title: true,
+          authorId: true,
+          pricingModel: true,
           templateFlowData: true,
           templateIR: true,
+          project: { select: { framework: true } },
         },
       });
       if (!listing) throw new TRPCError({ code: "NOT_FOUND" });
+      await assertCanAccessTemplate(ctx.prisma, listing, ctx.session.user.id);
 
-      // Create a new project for the current user with the template data
+      // New project: source framework + its own program keypair.
+      const data = buildProjectFromTemplate(listing, listing.project?.framework);
       const newProject = await ctx.prisma.project.create({
         data: {
-          name: `${listing.title} (fork)`,
+          name: `${listing.title} (fork)`.slice(0, 200),
           userId: ctx.session.user.id!,
-          framework: "ANCHOR",
-          flowData: listing.templateFlowData ?? {},
-          irData: listing.templateIR ?? undefined,
+          framework: data.framework,
+          flowData: data.flowData as object,
+          irData: data.irData as object | undefined,
+          programKeypair: data.programKeypair,
+          forkedFrom: listing.id,
         },
         select: { id: true },
       });
@@ -349,21 +433,16 @@ export const marketplaceRouter = router({
     .input(
       z.object({
         listingId: z.string(),
-        txSignature: z.string().min(1),
+        txSignature: z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{64,90}$/, "Invalid transaction signature"),
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      // 1. Fetch listing to get expected price
+      const buyerId = ctx.session.user.id!;
+
+      // 1. Listing + expected price
       const listing = await ctx.prisma.marketplaceListing.findFirst({
         where: { id: input.listingId, status: "PUBLISHED" },
-        select: {
-          id: true,
-          pricingModel: true,
-          priceSOL: true,
-          title: true,
-          templateFlowData: true,
-          templateIR: true,
-        },
+        select: { id: true, pricingModel: true, priceSOL: true },
       });
       if (!listing) throw new TRPCError({ code: "NOT_FOUND" });
 
@@ -373,102 +452,99 @@ export const marketplaceRouter = router({
           message: "This template is free — no payment needed",
         });
       }
-
-      const expectedLamports =
-        listing.priceSOL != null
-          ? Math.round(listing.priceSOL * LAMPORTS_PER_SOL)
-          : null;
-
-      // 2. Verify the transaction on-chain
-      try {
-        // Check replay: has this txSignature already been used for a different listing?
-        const existingPurchase = await ctx.prisma.marketplacePurchase.findFirst({
-          where: { txSignature: input.txSignature },
-          select: { listingId: true },
+      const minLamports = requiredLamports(listing);
+      if (minLamports == null) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This listing has no valid price and can't be bought right now.",
         });
-        if (existingPurchase && existingPurchase.listingId !== input.listingId) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "This transaction has already been used for another purchase",
-          });
-        }
+      }
 
-        const connection = new Connection(SOLANA_RPC, "confirmed");
-        const tx = await connection.getTransaction(input.txSignature, {
+      // 2. Fail closed when payments aren't configured
+      const config = getPaymentConfig();
+      if (!config.treasury) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Payments are not configured on this instance.",
+        });
+      }
+
+      // 3. Already bought: nothing to verify, don't touch the stored signature
+      const existing = await ctx.prisma.marketplacePurchase.findUnique({
+        where: { listingId_buyerId: { listingId: listing.id, buyerId } },
+        select: { id: true },
+      });
+      if (existing) return { success: true };
+
+      // 4. The payment must come from the buyer's linked wallet
+      const buyer = await ctx.prisma.user.findUnique({
+        where: { id: buyerId },
+        select: { walletAddress: true },
+      });
+      if (!buyer?.walletAddress) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Link your Solana wallet to your account (Settings) before buying, then pay from that wallet.",
+        });
+      }
+
+      // 5. One payment, one purchase
+      const reused = await ctx.prisma.marketplacePurchase.findUnique({
+        where: { txSignature: input.txSignature },
+        select: { id: true },
+      });
+      if (reused) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "This transaction has already been used for a purchase",
+        });
+      }
+
+      // 6. Verify on-chain
+      let check: ReturnType<typeof checkPaymentTransaction>;
+      try {
+        const connection = new Connection(config.rpcUrl, "confirmed");
+        const tx = await connection.getParsedTransaction(input.txSignature, {
           commitment: "confirmed",
           maxSupportedTransactionVersion: 0,
         });
-
-        if (!tx) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Transaction not found or not confirmed",
-          });
-        }
-
-        // Verify the transaction is not an error
-        if (tx.meta?.err) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "Transaction failed on-chain",
-          });
-        }
-
-        // Verify the SOL amount transferred to treasury
-        if (TREASURY_WALLET && expectedLamports != null && tx.meta) {
-          const treasuryIndex = tx.transaction.message
-            .getAccountKeys()
-            .staticAccountKeys.findIndex(
-              (k) => k.toString() === new PublicKey(TREASURY_WALLET).toString(),
-            );
-
-          if (treasuryIndex === -1) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: "Treasury wallet not found in transaction",
-            });
-          }
-
-          const preBalance = tx.meta.preBalances[treasuryIndex] ?? 0;
-          const postBalance = tx.meta.postBalances[treasuryIndex] ?? 0;
-          const received = postBalance - preBalance;
-
-          if (received < expectedLamports) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Insufficient payment: expected ${listing.priceSOL} SOL`,
-            });
-          }
-        }
-      } catch (err) {
-        if (err instanceof TRPCError) throw err;
+        check = checkPaymentTransaction(tx, {
+          buyerWallet: buyer.walletAddress,
+          treasury: config.treasury,
+          minLamports,
+        });
+      } catch {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to verify transaction on-chain",
         });
       }
+      if (!check.ok) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: check.reason });
+      }
 
-      // 3. Record purchase (idempotent)
-      await ctx.prisma.marketplacePurchase.upsert({
-        where: {
-          listingId_buyerId: {
-            listingId: input.listingId,
-            buyerId: ctx.session.user.id!,
+      // 7. Record purchase (txSignature is @unique: a concurrent replay loses here)
+      try {
+        await ctx.prisma.marketplacePurchase.create({
+          data: {
+            listingId: listing.id,
+            buyerId,
+            txSignature: input.txSignature,
+            amount: check.lamports / LAMPORTS_PER_SOL,
+            currency: "SOL",
           },
-        },
-        create: {
-          listingId: input.listingId,
-          buyerId: ctx.session.user.id!,
-          txSignature: input.txSignature,
-          amount: listing.priceSOL,
-          currency: "SOL",
-        },
-        update: {
-          txSignature: input.txSignature,
-        },
-      });
+        });
+      } catch (err) {
+        if ((err as { code?: string })?.code === "P2002") {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "This transaction has already been used for a purchase",
+          });
+        }
+        throw err;
+      }
 
-      // 4. Increment download counter
+      // 8. Increment download counter
       await ctx.prisma.marketplaceListing.update({
         where: { id: listing.id },
         data: { downloads: { increment: 1 } },
@@ -480,12 +556,39 @@ export const marketplaceRouter = router({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** Solana RPC endpoint used for payment verification */
-const SOLANA_RPC =
-  process.env.NEXT_PUBLIC_SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
+/** ADMIN_EMAILS: comma-separated allowlist for marketplace moderation. */
+export function isAdminEmail(
+  email: string | null | undefined,
+  raw: string | undefined = process.env.ADMIN_EMAILS,
+): boolean {
+  if (!email || !raw) return false;
+  const admins = raw
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return admins.includes(email.trim().toLowerCase());
+}
 
-/** Treasury wallet that receives SOL payments */
-const TREASURY_WALLET = process.env.SOLFLOW_TREASURY_WALLET || undefined;
+/**
+ * Listings go live on their own when the build and audit checks pass.
+ * Otherwise they wait in PENDING_REVIEW and the author sees why.
+ */
+export function decideListingStatus(
+  checks: Array<{ id: string; label: string; ok: boolean; value: string }>,
+): { status: "PUBLISHED" | "PENDING_REVIEW"; reviewNote: string | null } {
+  const gate = checks.filter((c) => c.id === "compile" || c.id === "audit");
+  const failing = gate.filter((c) => !c.ok);
+  if (gate.length === 2 && failing.length === 0) {
+    return { status: "PUBLISHED", reviewNote: null };
+  }
+  const reasons = failing.length
+    ? failing.map((c) => `${c.label}: ${c.value}`)
+    : ["certification checks unavailable"];
+  return {
+    status: "PENDING_REVIEW",
+    reviewNote: `Held for review until it passes: ${reasons.join("; ")}. Compile the project and get an audit score of 80+ with no critical or high findings, then publish again (or wait for an admin).`,
+  };
+}
 
 interface MarketplacePrepublishInput {
   title: string;

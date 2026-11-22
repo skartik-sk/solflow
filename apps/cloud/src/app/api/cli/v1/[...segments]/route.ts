@@ -1,6 +1,8 @@
 import { handleCloudCliRequest } from "@/server/cli-api/handlers";
 
 export const dynamic = "force-dynamic";
+// `workflows/:id/run` finishes its run after the response via after().
+export const maxDuration = 60;
 
 type RouteContext = {
   params: Promise<{ segments?: string[] }>;

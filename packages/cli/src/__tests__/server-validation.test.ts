@@ -4,6 +4,20 @@ import { join } from "path";
 import { tmpdir } from "os";
 import type { ServerHandle } from "../server/index";
 
+// The local server requires a session token and JSON bodies on every /api call.
+const TOKEN = "test-session-token";
+const realFetch = globalThis.fetch;
+const fetch = (url: string, init: RequestInit = {}) =>
+  realFetch(url, {
+    ...init,
+    headers: {
+      "x-solstudio-token": TOKEN,
+      ...(init.method && init.method !== "GET" ? { "Content-Type": "application/json" } : {}),
+      ...(init.headers as Record<string, string> | undefined),
+    },
+  });
+
+
 let tempDir: string;
 let handle: ServerHandle;
 const PORT = 16340;
@@ -38,7 +52,7 @@ pub struct Init<'info> {
   `);
 
   const { startServer } = await import("../server/index");
-  handle = await startServer({ port: PORT, projectPath: tempDir, watch: false });
+  handle = await startServer({ port: PORT, projectPath: tempDir, watch: false, token: TOKEN });
 }, 10000);
 
 afterAll(async () => {
@@ -173,14 +187,21 @@ describe("GET /api/project — edge cases", () => {
 });
 
 describe("CORS headers", () => {
-  it("sets CORS headers", async () => {
+  it("never sends CORS headers and refuses other localhost origins", async () => {
     const res = await fetch(`http://localhost:${PORT}/api/project`, {
       method: "GET",
       headers: { Origin: "http://localhost:3000" },
     });
-    const corsHeader = res.headers.get("access-control-allow-origin");
-    // Should allow localhost origins
-    expect(corsHeader).toBeTruthy();
+    expect(res.status).toBe(403);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("allows the same-origin UI", async () => {
+    const res = await fetch(`http://localhost:${PORT}/api/project`, {
+      headers: { Origin: `http://localhost:${PORT}` },
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
   });
 });
 

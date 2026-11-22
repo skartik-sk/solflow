@@ -55,6 +55,17 @@ function detectAccountType(
 export interface FlowResult {
   nodes: Node[];
   edges: Edge[];
+  /** What the import couldn't represent faithfully. */
+  warnings: string[];
+}
+
+const NON_DATA_ACCOUNTS = new Set<AccountNodeType>(["system-program", "token-program", "rent", "clock", "program"]);
+
+function definedNames(t: unknown): string[] {
+  if (!t || typeof t !== "object") return [];
+  const o = t as Record<string, unknown>;
+  if (typeof o.defined === "string") return [o.defined];
+  return Object.values(o).flatMap((v) => (Array.isArray(v) ? v.flatMap(definedNames) : definedNames(v)));
 }
 
 // ─── Main normalizer ─────────────────────────────────────────────────────
@@ -62,6 +73,18 @@ export interface FlowResult {
 export function normalizeIdl(idl: UnifiedIdl): FlowResult {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
+  const warnings: string[] = [...(idl.warnings ?? [])];
+  const stateNames = new Set(idl.accounts.map((a) => a.name));
+  const warnCustomType = (where: string, t: unknown) => {
+    for (const name of definedNames(t)) {
+      if (stateNames.has(name)) continue;
+      const def = idl.types.find((x) => x.name === name);
+      warnings.push(
+        `${where} uses the custom ${def?.variants ? "enum" : "type"} "${name}", which the editor can't define yet: ` +
+          `code for it won't build until you replace it with a State or primitive type.`,
+      );
+    }
+  };
 
   // Counter for unique IDs (avoids crypto.randomUUID() for determinism in tests)
   let _idCounter = 0;
@@ -109,8 +132,10 @@ export function normalizeIdl(idl: UnifiedIdl): FlowResult {
           description: f.description,
         })),
         isZeroCopy: false,
+        ...(state.discriminator?.length === 8 ? { customDiscriminator: state.discriminator } : {}),
       },
     });
+    for (const f of state.fields) warnCustomType(`${state.name}.${f.name}`, f.type);
   }
 
   // 3. Create Instruction + Account nodes
@@ -133,8 +158,10 @@ export function normalizeIdl(idl: UnifiedIdl): FlowResult {
           description: arg.description,
         })),
         accessControl: "none",
+        ...(ix.discriminator?.length ? { discriminator: ix.discriminator } : {}),
       },
     });
+    for (const arg of ix.args) warnCustomType(`${ix.name}(${arg.name})`, arg.type);
 
     // Edge: Program → Instruction
     edges.push(
@@ -147,6 +174,15 @@ export function normalizeIdl(idl: UnifiedIdl): FlowResult {
       const accNodeId = uid("acc");
 
       const accountType = detectAccountType(acc.name, acc.isSigner, acc.isMut);
+      // `relations` are has_one checks; a fixed `address` is an address check (programs and
+      // sysvars already get theirs from their type).
+      const constraints = [
+        ...(acc.relations ?? []).map((r) => ({ type: "has-one", field: r, target: r })),
+        ...(acc.address && !NON_DATA_ACCOUNTS.has(accountType) ? [{ type: "address", address: acc.address }] : []),
+      ];
+      if (acc.isOptional) {
+        warnings.push(`${ix.name}: account "${acc.name}" is optional in the IDL but is imported as required.`);
+      }
 
       nodes.push({
         id: accNodeId,
@@ -159,8 +195,9 @@ export function normalizeIdl(idl: UnifiedIdl): FlowResult {
           isSigner: acc.isSigner,
           isInit: false,
           isClose: false,
-          description: acc.description,
+          description: acc.isOptional ? `${acc.description ?? ""} (optional in the IDL)`.trim() : acc.description,
           seeds: acc.seeds,
+          ...(constraints.length ? { constraints } : {}),
         },
       });
 
@@ -230,7 +267,7 @@ export function normalizeIdl(idl: UnifiedIdl): FlowResult {
     }
   }
 
-  return { nodes, edges };
+  return { nodes, edges, warnings };
 }
 
 // ─── Edge helper ─────────────────────────────────────────────────────────

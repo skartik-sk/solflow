@@ -59,7 +59,8 @@ export interface WasmBuildResult {
 // ─── Cloud Build API ────────────────────────────────────────────────────
 
 const CLOUD_BUILD_URL = process.env.CLOUD_BUILD_URL ?? "https://api.solpg.io";
-const SOLPG_BUILD_TIMEOUT = 120_000; // 2 minutes
+// Must leave room inside the 60 s serverless limit for codegen + DB writes.
+const SOLPG_BUILD_TIMEOUT = 45_000;
 
 interface SolpgBuildResponse {
   stderr: string;

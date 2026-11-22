@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { WorkflowExecutor } from "../src/executor";
-import { CloudNodeRegistry, webhookTriggerDef } from "@solflow/cloud-nodes";
+import { CloudNodeRegistry, cronTriggerDef, manualTriggerDef, webhookTriggerDef } from "@solflow/cloud-nodes";
 import type { CloudNodeDefinition, NodeExecutionContext } from "@solflow/cloud-nodes";
 import type { WorkflowDefinition } from "../src/types";
 
@@ -416,5 +416,132 @@ describe("WorkflowExecutor", () => {
 
     expect(result.status).toBe("success");
     expect(seen).toMatchObject({ triggerType: "webhook", method: "POST", body: { event: "deposit", amount: 1.5 } });
+  });
+
+  it("seeds the webhook trigger output so {{$json.body}} resolves downstream", async () => {
+    const registry = new CloudNodeRegistry();
+    registry.register(webhookTriggerDef);
+    let params: unknown;
+    registry.register(
+      createMockNode("action:capture", async (ctx) => {
+        params = ctx.params;
+        return [{ json: {} }];
+      })
+    );
+    const def: WorkflowDefinition = {
+      id: "wf-webhook-expr",
+      version: 1,
+      nodes: [
+        { id: "n1", type: "trigger:webhook", position: { x: 0, y: 0 }, data: {} },
+        { id: "n2", type: "action:capture", position: { x: 200, y: 0 }, data: { amount: "{{$json.body.amount}}", q: "{{$json.query.ref}}" } },
+      ],
+      edges: [{ id: "e1", source: "n1", target: "n2" }],
+      settings: defaultSettings,
+    };
+    const result = await new WorkflowExecutor(registry, mockWallet as any).execute(def, "exec-wh-expr", {
+      triggerType: "webhook",
+      method: "POST",
+      headers: {},
+      body: { amount: 7 },
+      query: { ref: "abc" },
+    });
+    expect(result.status).toBe("success");
+    expect(params).toEqual({ amount: 7, q: "abc" });
+  });
+
+  it("passes manual test data through the manual trigger", async () => {
+    const registry = new CloudNodeRegistry();
+    registry.register(manualTriggerDef);
+    let params: unknown;
+    registry.register(
+      createMockNode("action:capture", async (ctx) => {
+        params = ctx.params;
+        return [{ json: {} }];
+      })
+    );
+    const def: WorkflowDefinition = {
+      id: "wf-manual",
+      version: 1,
+      nodes: [
+        { id: "n1", type: "trigger:manual", position: { x: 0, y: 0 }, data: {} },
+        { id: "n2", type: "action:capture", position: { x: 200, y: 0 }, data: { wallet: "{{$json.body.wallet}}", kind: "{{$json.triggerType}}" } },
+      ],
+      edges: [{ id: "e1", source: "n1", target: "n2" }],
+      settings: defaultSettings,
+    };
+    const result = await new WorkflowExecutor(registry, mockWallet as any).execute(def, "exec-manual", {
+      triggerType: "manual",
+      data: { body: { wallet: "W1" } },
+    });
+    expect(result.status).toBe("success");
+    expect(params).toEqual({ wallet: "W1", kind: "manual" });
+  });
+
+  it("exposes the cron fire time on the cron trigger", async () => {
+    const registry = new CloudNodeRegistry();
+    registry.register(cronTriggerDef);
+    const def: WorkflowDefinition = {
+      id: "wf-cron",
+      version: 1,
+      nodes: [{ id: "n1", type: "trigger:cron", position: { x: 0, y: 0 }, data: { cronExpression: "*/5 * * * *" } }],
+      edges: [],
+      settings: defaultSettings,
+    };
+    const result = await new WorkflowExecutor(registry, mockWallet as any).execute(def, "exec-cron", {
+      triggerType: "cron",
+      cronExpression: "0 * * * *",
+      timezone: "Asia/Tokyo",
+      triggeredAt: "2026-01-01T00:00:00.000Z",
+    });
+    const out = result.nodeResults.get("n1")?.outputSnapshot as Array<{ json: Record<string, unknown> }>;
+    expect(out[0].json).toMatchObject({ triggerType: "cron", cronExpression: "0 * * * *", timezone: "Asia/Tokyo", triggeredAt: "2026-01-01T00:00:00.000Z" });
+  });
+
+  it("enforces maxTimeoutMs even when a node ignores the abort signal", async () => {
+    const registry = new CloudNodeRegistry();
+    registry.register(createMockNode("action:hang", () => new Promise(() => {})));
+    const def: WorkflowDefinition = {
+      id: "wf-hang",
+      version: 1,
+      nodes: [{ id: "n1", type: "action:hang", position: { x: 0, y: 0 }, data: {} }],
+      edges: [],
+      settings: { ...defaultSettings, timeout: 900 },
+    };
+    const started = Date.now();
+    const result = await new WorkflowExecutor(registry, mockWallet as any).execute(def, "exec-hang", undefined, {
+      maxTimeoutMs: 50,
+      timeoutMessage: "Workflow timed out after 55 seconds (serverless limit)",
+    });
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(result.status).toBe("timeout");
+    expect(result.error).toBe("Workflow timed out after 55 seconds (serverless limit)");
+    expect(result.nodeResults.get("n1")?.status).toBe("error");
+  });
+
+  it("stops between nodes when the cancel flag is set", async () => {
+    const registry = new CloudNodeRegistry();
+    let cancelled = false;
+    registry.register(createMockNode("action:first", async () => {
+      cancelled = true; // e.g. the user pressed Cancel while this node ran
+      return [{ json: {} }];
+    }));
+    const second = vi.fn(async () => [{ json: {} }]);
+    registry.register(createMockNode("action:second", second));
+    const def: WorkflowDefinition = {
+      id: "wf-cancel",
+      version: 1,
+      nodes: [
+        { id: "n1", type: "action:first", position: { x: 0, y: 0 }, data: {} },
+        { id: "n2", type: "action:second", position: { x: 200, y: 0 }, data: {} },
+      ],
+      edges: [{ id: "e1", source: "n1", target: "n2" }],
+      settings: defaultSettings,
+    };
+    const result = await new WorkflowExecutor(registry, mockWallet as any).execute(def, "exec-cancel", undefined, {
+      isCancelled: async () => cancelled,
+    });
+    expect(result.status).toBe("cancelled");
+    expect(second).not.toHaveBeenCalled();
+    expect(result.nodeResults.get("n2")?.status).toBe("skipped");
   });
 });

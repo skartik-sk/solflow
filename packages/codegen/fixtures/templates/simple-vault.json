@@ -123,12 +123,14 @@
   {
    "id": "e-wd-l3a",
    "source": "log-wd-3",
-   "target": "log-wd-3a"
+   "target": "log-wd-3a",
+   "sourceHandle": "then-out"
   },
   {
    "id": "e-wd-l3b",
    "source": "log-wd-3",
-   "target": "log-wd-3b"
+   "target": "log-wd-3b",
+   "sourceHandle": "else-out"
   },
   {
    "id": "e-wd-l3c",

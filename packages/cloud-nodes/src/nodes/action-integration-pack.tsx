@@ -5,7 +5,7 @@ import { Database, FileJson, Satellite, ShieldCheck, Users } from "lucide-react"
 import type { CloudFlowNodeData, CloudNodeDefinition, CredentialOperations } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl } from "../security/outbound-url";
+import { assertSafeOutboundUrl, safeOutboundFetch } from "../security/outbound-url";
 
 const DEFAULT_RPC_URL = "https://api.mainnet-beta.solana.com";
 const PYTH_HERMES_BASE_URL = "https://hermes.pyth.network";
@@ -40,13 +40,6 @@ type MetaplexAssetOperation =
 function getEnv(name: string): string | undefined {
   const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
   return env?.[name];
-}
-
-function requireFetch(): typeof fetch {
-  if (typeof fetch !== "function") {
-    throw new Error("Global fetch is not available in this runtime");
-  }
-  return fetch;
 }
 
 async function readErrorBody(response: Response): Promise<string> {
@@ -296,7 +289,7 @@ async function rpcCall<T>(
   signal: AbortSignal,
 ): Promise<T> {
   const url = assertSafeOutboundUrl(rpcUrl, { allowHttp: rpcUrl.startsWith("http://127.0.0.1") });
-  const response = await requireFetch()(url.toString(), {
+  const response = await safeOutboundFetch(url.toString(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -306,7 +299,7 @@ async function rpcCall<T>(
       params,
     }),
     signal,
-  });
+  }, { allowHttp: rpcUrl.startsWith("http://127.0.0.1") });
   if (!response.ok) {
     throw new Error(`RPC request failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
   }
@@ -463,7 +456,7 @@ export const oraclePriceDef: CloudNodeDefinition = {
         const search = new URLSearchParams({ query });
         if (assetType && assetType !== "any") search.set("asset_type", assetType);
         const url = assertSafeOutboundUrl(`${PYTH_HERMES_BASE_URL}/v2/price_feeds?${search.toString()}`);
-        const response = await requireFetch()(url.toString(), { signal: ctx.signal });
+        const response = await safeOutboundFetch(url.toString(), { signal: ctx.signal });
         if (!response.ok) {
           throw new Error(`Pyth feed search failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
         }
@@ -485,7 +478,7 @@ export const oraclePriceDef: CloudNodeDefinition = {
       const feedId = String(ctx.params.feedId || "");
       if (!feedId) throw new Error("feedId is required");
       const url = assertSafeOutboundUrl(`${PYTH_HERMES_PRICE_URL}?ids[]=${encodeURIComponent(feedId)}`);
-      const response = await requireFetch()(url.toString(), { signal: ctx.signal });
+      const response = await safeOutboundFetch(url.toString(), { signal: ctx.signal });
       if (!response.ok) {
         throw new Error(`Pyth price request failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
       }
@@ -520,7 +513,7 @@ export const oraclePriceDef: CloudNodeDefinition = {
         throw new Error("Switchboard provider requires apiUrl or a credential with apiUrl");
       }
       const url = assertSafeOutboundUrl(apiTemplate.replace("{feedId}", encodeURIComponent(feedId)));
-      const response = await requireFetch()(url.toString(), {
+      const response = await safeOutboundFetch(url.toString(), {
         headers: credentialHeaders(credential),
         signal: ctx.signal,
       });
@@ -653,7 +646,7 @@ export const pythLatestPricesDef: CloudNodeDefinition = {
     if (feedIds.length === 0) throw new Error("At least one Pyth feed ID is required");
     const query = feedIds.map((feedId) => `ids[]=${encodeURIComponent(feedId)}`).join("&");
     const url = assertSafeOutboundUrl(`${PYTH_HERMES_PRICE_URL}?${query}`);
-    const response = await requireFetch()(url.toString(), { signal: ctx.signal });
+    const response = await safeOutboundFetch(url.toString(), { signal: ctx.signal });
     if (!response.ok) {
       throw new Error(`Pyth latest prices request failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
     }
@@ -914,7 +907,7 @@ export const heliusParseTransactionDef: CloudNodeDefinition = {
     const signature = requiredString(ctx.params, "signature", "Signature");
     const credential = await getCredentialData(ctx.credentials, ctx.params.credentialId, ["helius"]);
     const url = heliusEnhancedUrl("/v0/transactions", ctx.params, credential);
-    const response = await requireFetch()(url.toString(), {
+    const response = await safeOutboundFetch(url.toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ transactions: [signature] }),
@@ -1062,7 +1055,7 @@ export const heliusAddressTransactionsDef: CloudNodeDefinition = {
     if (sortOrder) url.searchParams.set("sort-order", sortOrder);
     if (commitment) url.searchParams.set("commitment", commitment);
 
-    const response = await requireFetch()(url.toString(), { signal: ctx.signal });
+    const response = await safeOutboundFetch(url.toString(), { signal: ctx.signal });
     if (!response.ok) {
       throw new Error(`Helius address transactions failed ${response.status} ${response.statusText}: ${await readErrorBody(response)}`);
     }
@@ -1583,7 +1576,7 @@ export const squadsProposalDef: CloudNodeDefinition = {
     }
     const credential = await getCredentialData(ctx.credentials, ctx.params.credentialId, ["squads", "webhook"]);
     const url = assertSafeOutboundUrl(apiUrl);
-    const response = await requireFetch()(url.toString(), {
+    const response = await safeOutboundFetch(url.toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...credentialHeaders(credential) },
       body: JSON.stringify({

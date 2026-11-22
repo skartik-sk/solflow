@@ -4,11 +4,12 @@ import nacl from "tweetnacl";
 import bs58 from "bs58";
 import { prisma } from "@solflow/db";
 
-// In-memory nonce store (replace with Redis in production)
-import { createHmac } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const usedNonces = new Map<string, number>();
+// Used nonces live in the VerificationToken table (shared by every serverless
+// instance) under this identifier; the unique token column makes "consume" atomic.
+const NONCE_IDENTIFIER = "siws-nonce";
 
 function getAuthSecret(): string {
   const secret = process.env.AUTH_SECRET;
@@ -25,44 +26,91 @@ export async function generateNonce(): Promise<string> {
   return `${timestamp}.${hmac}`;
 }
 
-function pruneUsedNonces(now = Date.now()): void {
-  for (const [nonce, expiresAt] of usedNonces) {
-    if (expiresAt <= now) usedNonces.delete(nonce);
-  }
+/** HMAC + expiry check only (no storage). */
+function nonceIsAuthentic(nonce: string, now = Date.now()): boolean {
+  const [timestamp, hmac] = nonce.split(".");
+  if (!timestamp || !hmac || !/^\d{1,16}$/.test(timestamp)) return false;
+  const issuedAt = parseInt(timestamp, 10);
+  if (!Number.isFinite(issuedAt) || now - issuedAt > NONCE_TTL_MS || issuedAt - now > 60_000) return false;
+  const expected = createHmac("sha256", getAuthSecret()).update(timestamp).digest("hex");
+  if (hmac.length !== expected.length) return false;
+  return timingSafeEqual(Buffer.from(hmac), Buffer.from(expected));
 }
 
 export async function verifyNonce(nonce: string): Promise<boolean> {
   try {
-    const now = Date.now();
-    pruneUsedNonces(now);
-    if (usedNonces.has(nonce)) return false;
-
-    const [timestamp, hmac] = nonce.split(".");
-    if (!timestamp || !hmac) return false;
-
-    const issuedAt = parseInt(timestamp, 10);
-    if (!Number.isFinite(issuedAt) || now - issuedAt > NONCE_TTL_MS) return false;
-
-    const secret = getAuthSecret();
-    const expectedHmac = createHmac("sha256", secret).update(timestamp).digest("hex");
-
-    // Timing-safe comparison
-    if (hmac.length !== expectedHmac.length) return false;
-    let mismatch = 0;
-    for (let i = 0; i < hmac.length; i++) {
-      mismatch |= hmac.charCodeAt(i) ^ expectedHmac.charCodeAt(i);
-    }
-    return mismatch === 0;
+    if (!nonceIsAuthentic(nonce)) return false;
+    const used = await prisma.verificationToken.findUnique({ where: { token: nonce } });
+    return !used;
   } catch {
     return false;
   }
 }
 
 export async function consumeNonce(nonce: string): Promise<boolean> {
-  if (!(await verifyNonce(nonce))) return false;
-  const issuedAt = parseInt(nonce.split(".")[0] ?? "", 10);
-  usedNonces.set(nonce, issuedAt + NONCE_TTL_MS);
-  return true;
+  try {
+    if (!nonceIsAuthentic(nonce)) return false;
+    const issuedAt = parseInt(nonce.split(".")[0] ?? "", 10);
+    // Insert fails on the unique token if this nonce was already used anywhere.
+    await prisma.verificationToken.create({
+      data: { identifier: NONCE_IDENTIFIER, token: nonce, expires: new Date(issuedAt + NONCE_TTL_MS) },
+    });
+    // Housekeeping: expired nonces can't verify anyway.
+    await prisma.verificationToken
+      .deleteMany({ where: { identifier: NONCE_IDENTIFIER, expires: { lt: new Date() } } })
+      .catch(() => undefined);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hostOf(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    return new URL(url).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hosts a SIWS message may name in its "Domain:" line. SIWS_ALLOWED_DOMAINS
+ * (comma-separated), when set, is the exact list. Otherwise: the app URL env
+ * hosts plus the host this request was served on (set by the platform proxy).
+ */
+export function allowedSiwsDomains(
+  env: Record<string, string | undefined>,
+  requestHost?: string | null,
+): string[] {
+  const explicit = (env.SIWS_ALLOWED_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase())
+    .filter(Boolean);
+  if (explicit.length > 0) return [...new Set(explicit)];
+  const hosts = [
+    hostOf(env.AUTH_URL),
+    hostOf(env.NEXTAUTH_URL),
+    hostOf(env.NEXT_PUBLIC_APP_URL),
+    requestHost?.toLowerCase() ?? null,
+  ].filter((d): d is string => !!d);
+  return [...new Set(hosts)];
+}
+
+/** True when the message has exactly one "Domain:" line and it names an allowed host. */
+export function siwsDomainMatches(message: string, allowed: string[]): boolean {
+  const domains = message
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("Domain:"))
+    .map((l) => l.slice("Domain:".length).trim().toLowerCase());
+  return domains.length === 1 && allowed.includes(domains[0]);
+}
+
+/** Request host as the client saw it (Vercel sets x-forwarded-host). */
+export function requestHostFrom(headers: Headers | undefined | null): string | null {
+  if (!headers) return null;
+  return headers.get("x-forwarded-host")?.split(",")[0]?.trim() || headers.get("host");
 }
 
 function messageHasLine(message: string, expected: string): boolean {
@@ -79,7 +127,7 @@ export const SolanaWalletProvider = Credentials({
     nonce: { label: "Nonce", type: "text" },
   },
 
-  async authorize(credentials) {
+  async authorize(credentials, request) {
     if (!credentials) return null;
 
     const { publicKey, signature, message, nonce } = credentials as Record<
@@ -96,6 +144,9 @@ export const SolanaWalletProvider = Credentials({
     // 2. Verify the signed message binds both the wallet and the exact nonce line
     if (!messageHasLine(message, publicKey)) return null;
     if (!messageHasLine(message, `Nonce: ${nonce}`)) return null;
+    // The signed message must be for THIS site, so a signature phished on another domain can't log in here.
+    const allowed = allowedSiwsDomains(process.env, requestHostFrom(request?.headers));
+    if (!siwsDomainMatches(message, allowed)) return null;
 
     // 3. Verify the Ed25519 signature
     try {
@@ -114,7 +165,7 @@ export const SolanaWalletProvider = Credentials({
       return null;
     }
 
-    // 4. Consume nonce to prevent replay attacks in the current runtime
+    // 4. Consume nonce (stored in the DB, so replay fails on every instance)
     if (!(await consumeNonce(nonce))) return null;
 
     // 5. Upsert user by wallet address

@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 export interface SelfHostTemplateOptions {
@@ -45,6 +45,7 @@ const REQUIRED_ENV_KEYS = [
   "NEXT_PUBLIC_APP_URL",
   "NEXT_PUBLIC_CLOUD_URL",
   "DATABASE_URL",
+  "POSTGRES_PASSWORD",
   "REDIS_URL",
   "AUTH_SECRET",
   "ENCRYPTION_MASTER_KEY",
@@ -54,7 +55,7 @@ export function buildSelfHostFiles(options: SelfHostTemplateOptions = {}): Recor
   const domain = options.domain ?? "cloud.localhost";
   const image = options.image ?? DEFAULT_IMAGE;
   const databaseUrl =
-    options.databaseUrl ?? "postgresql://solstudio:solstudio@postgres:5432/solstudio_cloud";
+    options.databaseUrl ?? "postgresql://solstudio:replace-with-postgres-password@postgres:5432/solstudio_cloud";
   const redisUrl = options.redisUrl ?? "redis://redis:6379";
 
   return {
@@ -64,6 +65,7 @@ export function buildSelfHostFiles(options: SelfHostTemplateOptions = {}): Recor
       `NEXT_PUBLIC_APP_URL=https://${domain}`,
       `NEXT_PUBLIC_CLOUD_URL=https://${domain}`,
       "NEXT_PUBLIC_WEB_URL=https://solstudio.fun",
+      "POSTGRES_PASSWORD=replace-with-postgres-password",
       `DATABASE_URL=${databaseUrl}`,
       `REDIS_URL=${redisUrl}`,
       "AUTH_SECRET=replace-with-openssl-rand-base64-32",
@@ -88,7 +90,8 @@ export function buildSelfHostFiles(options: SelfHostTemplateOptions = {}): Recor
       "    environment:",
       "      POSTGRES_DB: solstudio_cloud",
       "      POSTGRES_USER: solstudio",
-      "      POSTGRES_PASSWORD: solstudio",
+      // Read from .env (Compose interpolates it); deploy generates a random one.
+      "      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}",
       "    volumes:",
       "      - postgres-data:/var/lib/postgresql/data",
       "    healthcheck:",
@@ -176,8 +179,10 @@ export function buildSelfHostFiles(options: SelfHostTemplateOptions = {}): Recor
 
 export function generateSelfHostEnv(options: SelfHostTemplateOptions = {}): string {
   const domain = options.domain ?? "cloud.localhost";
+  // base64url has no characters that need escaping in a connection URL.
+  const postgresPassword = randomSecret(24);
   const databaseUrl =
-    options.databaseUrl ?? "postgresql://solstudio:solstudio@postgres:5432/solstudio_cloud";
+    options.databaseUrl ?? `postgresql://solstudio:${postgresPassword}@postgres:5432/solstudio_cloud`;
   const redisUrl = options.redisUrl ?? "redis://redis:6379";
 
   return [
@@ -186,6 +191,7 @@ export function generateSelfHostEnv(options: SelfHostTemplateOptions = {}): stri
     `NEXT_PUBLIC_APP_URL=https://${domain}`,
     `NEXT_PUBLIC_CLOUD_URL=https://${domain}`,
     "NEXT_PUBLIC_WEB_URL=https://solstudio.fun",
+    `POSTGRES_PASSWORD=${postgresPassword}`,
     `DATABASE_URL=${databaseUrl}`,
     `REDIS_URL=${redisUrl}`,
     `AUTH_SECRET=${randomSecret(32)}`,
@@ -284,13 +290,14 @@ export function prepareSelfHostDirectory(options: PrepareSelfHostOptions): {
 
   if (!existsSync(envPath)) {
     if (options.autoEnv ?? true) {
-      writeFileSync(envPath, generateSelfHostEnv(options));
-      written.push(envPath);
+      writeFileSync(envPath, generateSelfHostEnv(options), { mode: 0o600 });
     } else {
       copyFileSync(join(options.directory, ".env.example"), envPath);
-      written.push(envPath);
     }
+    written.push(envPath);
   }
+  // .env holds database, auth and encryption secrets: owner read/write only.
+  try { chmodSync(envPath, 0o600); } catch { /* filesystem without POSIX modes */ }
 
   const report = validateSelfHostEnv(readFileSync(envPath, "utf-8"));
   return { written, envPath, report };

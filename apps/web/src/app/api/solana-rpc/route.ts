@@ -1,54 +1,47 @@
 // apps/web/src/app/api/solana-rpc/route.ts
-// POST — server-side proxy for Solana JSON-RPC calls (avoids CORS in browser).
+// POST — server-side proxy for the editor's read-only Solana JSON-RPC calls (avoids CORS).
+// Signed-in users only, fixed networks mapped server-side (no client-supplied URL),
+// an allowlist of read methods, and a per-user rate limit.
 
-import type { NextRequest} from "next/server";
+import { auth } from "@solflow/auth";
 import { NextResponse } from "next/server";
+import { checkRpcProxyRequest } from "./policy";
+import { rpcProxyRateLimit, rateLimitHeaders } from "@/lib/rate-limit";
 
-const RPC_URLS: Record<string, string> = {
-  devnet: "https://api.devnet.solana.com",
-  "mainnet-beta": "https://api.mainnet-beta.solana.com",
-  mainnet: "https://api.mainnet-beta.solana.com",
-  localnet: "http://127.0.0.1:8899",
-};
+export const maxDuration = 30;
 
-export async function POST(req: NextRequest) {
-  const body = (await req.json()) as {
-    network?: string;
-    rpcUrl?: string;
-    method?: string;
-    params?: unknown[];
-  };
+const RPC_TIMEOUT_MS = 15_000;
 
-  const { network, rpcUrl: customRpcUrl, method, params } = body;
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: { message: "Sign in to use the RPC proxy" } }, { status: 401 });
+  }
 
-  if (!method) {
+  const rl = rpcProxyRateLimit(session.user.id);
+  if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Missing method" },
-      { status: 400 },
+      { error: { message: "Too many RPC requests. Slow down." } },
+      { status: 429, headers: rateLimitHeaders(rl) },
     );
   }
 
-  // Allow custom RPC URL, fall back to built-in network, then devnet
-  const rpcUrl = customRpcUrl || (network ? (RPC_URLS[network] ?? RPC_URLS.devnet) : RPC_URLS.devnet);
+  const body = await req.json().catch(() => null);
+  const checked = checkRpcProxyRequest(body, process.env);
+  if (!checked.ok) {
+    return NextResponse.json({ error: { message: checked.error } }, { status: 400 });
+  }
 
   try {
-    const response = await fetch(rpcUrl, {
+    const response = await fetch(checked.rpcUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method,
-        params: params ?? [],
-      }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: checked.method, params: checked.params }),
+      signal: AbortSignal.timeout(RPC_TIMEOUT_MS),
     });
-
     const json = await response.json();
-    return NextResponse.json(json);
-  } catch (e) {
-    return NextResponse.json(
-      { error: { message: e instanceof Error ? e.message : "RPC fetch failed" } },
-      { status: 502 },
-    );
+    return NextResponse.json(json, { status: response.ok ? 200 : 502 });
+  } catch {
+    return NextResponse.json({ error: { message: "RPC request failed" } }, { status: 502 });
   }
 }

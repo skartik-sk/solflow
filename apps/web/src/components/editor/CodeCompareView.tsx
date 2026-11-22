@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useCodeStore } from "@/store/code-store";
+import { useCodeViewOptions } from "@/store/settings-store";
 import type { GeneratedFile } from "@/store/code-store";
 import { generateCode } from "@solflow/codegen";
 import type { editor as MonacoEditorTypes } from "monaco-editor";
@@ -81,6 +82,7 @@ function Pane({
   onEditorMount: (editor: MonacoEditorTypes.ICodeEditor) => void;
 }) {
   const current = files.find((f) => f.path === activeFile) ?? files[0] ?? null;
+  const viewOptions = useCodeViewOptions();
 
   return (
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-r border-border last:border-r-0">
@@ -123,12 +125,9 @@ function Pane({
             onMount={onEditorMount}
             options={{
               readOnly: true,
-              minimap: { enabled: false },
               scrollBeyondLastLine: false,
-              fontSize: 11,
               fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-              lineNumbers: "on",
-              wordWrap: "off",
+              ...viewOptions,
               automaticLayout: true,
               scrollbar: {
                 verticalScrollbarSize: 4,
@@ -157,6 +156,7 @@ export function CodeCompareView() {
   const [compareFile, setCompareFile] = useState<string | null>(null);
   const [compareFramework, setCompareFramework] = useState<CompareFramework>("pinocchio");
   const [viewMode, setViewMode] = useState<ViewMode>("diff");
+  const viewOptions = useCodeViewOptions();
   const compareMeta = compareOptions.find((option) => option.value === compareFramework) ?? compareOptions[0];
 
   // Scroll sync refs
@@ -342,12 +342,9 @@ export function CodeCompareView() {
               options={{
                 readOnly: true,
                 renderSideBySide: true,
-                minimap: { enabled: false },
                 scrollBeyondLastLine: false,
-                fontSize: 11,
                 fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
-                lineNumbers: "on",
-                wordWrap: "off",
+                ...viewOptions,
                 automaticLayout: true,
                 scrollbar: {
                   verticalScrollbarSize: 4,

@@ -49,9 +49,15 @@ export interface CloudHealthReport {
 export async function getCloudHealthReport(): Promise<CloudHealthReport> {
   ensureEmbeddedWorkersForHealth();
 
+  // Serverless ("api") runs execute in-process via after(); Redis isn't used.
   const [db, queueHealth] = await Promise.all([
     checkDb(),
-    getExecutionQueueHealth(),
+    getCloudRuntimeMode() === "api"
+      ? Promise.resolve({
+          redis: { ok: true, latencyMs: 0, error: undefined as string | undefined },
+          queue: { name: "inline", counts: {} as Record<string, number> },
+        })
+      : getExecutionQueueHealth(),
   ]);
 
   const workers = {

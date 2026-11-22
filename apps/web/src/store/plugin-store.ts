@@ -5,6 +5,9 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { clearPluginRules, registerAuditRules, type AuditRule } from "@solflow/audit";
+import { pluginRegistry, type PluginRegistry } from "@solflow/plugin-sdk";
+import { registerBuiltInPlugins } from "@/lib/plugins/built-ins";
 
 interface PluginStoreState {
   /** IDs of currently enabled plugins */
@@ -52,3 +55,37 @@ export const usePluginStore = create<PluginStoreState>()(
     },
   ),
 );
+
+/**
+ * Make the audit engine's plugin rules match the enabled plugins exactly:
+ * rules of disabled plugins are removed, enabled ones are registered.
+ */
+export function syncPluginAuditRules(
+  enabledPluginIds: string[],
+  registry: PluginRegistry = pluginRegistry,
+): AuditRule[] {
+  const rules: AuditRule[] = [];
+  for (const plugin of registry.getAllPlugins()) {
+    if (enabledPluginIds.includes(plugin.id) && plugin.auditRules?.length) {
+      rules.push(...plugin.auditRules);
+    }
+  }
+  clearPluginRules();
+  registerAuditRules(rules);
+  return rules;
+}
+
+/** Register enabled plugins' audit rules now and keep them in sync. Returns a cleanup. */
+export function startPluginAuditRuleSync(): () => void {
+  registerBuiltInPlugins();
+  syncPluginAuditRules(usePluginStore.getState().enabledPluginIds);
+  const unsub = usePluginStore.subscribe((state, prev) => {
+    if (state.enabledPluginIds !== prev.enabledPluginIds) {
+      syncPluginAuditRules(state.enabledPluginIds);
+    }
+  });
+  return () => {
+    unsub();
+    clearPluginRules();
+  };
+}

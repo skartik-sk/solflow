@@ -7,98 +7,120 @@ import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { flowToIR } from "@solflow/ir";
 import { generateCode } from "@solflow/codegen";
-import type { ProgramIR, Account } from "@solflow/ir";
+import type { ProgramIR } from "@solflow/ir";
 import type { Node, Edge } from "@xyflow/react";
 import { broadcastToJob } from "@/lib/ws-broadcaster";
 import { runGeneratedProjectTests } from "@/server/test-runner/local-test-runner";
 import type { GeneratedTestRuntime } from "@/server/test-runner/local-test-runner";
-import { runGitHubActionsTest, isGitHubActionsConfigured } from "@/server/compile-worker/gh-actions-runner";
+import {
+  isGitHubActionsConfigured,
+  startGitHubActionsJob,
+  pollGitHubActionsJob,
+  encodeGhHandle,
+  decodeGhHandle,
+  fetchTestOutcome,
+  deleteJobBranch,
+} from "@/server/compile-worker/gh-actions-runner";
+import { validateIrForBuild } from "@/server/ir-guard";
+import { JOB_STALE_MS, isStaleJob } from "@/server/jobs/limits";
+import { testRunRateLimit } from "@/lib/rate-limit";
 
-// ─── generateDefaultTests ────────────────────────────────────────────────────
-// Per docs/architecture/09-compilation-deployment.md → Auto-Generated Test Scaffolding.
+// Custom test cases from the editor are not accepted: the generated crate's
+// `cargo test` (or Surfpool smoke run) is what actually executes, and it has no
+// way to run per-instruction cases yet. Accepting them only to ignore them was
+// misleading, so the payload was removed (unknown keys are stripped by zod).
 
-export interface TestCase {
-  name: string;
-  instruction: string;
-  accounts: Record<string, string>;
-  args: Record<string, string>;
-  expectedResult: "success" | { error: string };
+/** Shape returned by both test.run and test.status. */
+function runResponse(row: {
+  id: string;
+  status: string;
+  results: unknown;
+  summary: unknown;
+  logs: string | null;
+  duration: number | null;
+}) {
+  const summary = (row.summary ?? null) as { passed?: number; failed?: number; total?: number; gha?: unknown } | null;
+  const pending = row.status === "RUNNING" || row.status === "QUEUED";
+  const resultItems = Array.isArray(row.results) ? (row.results as Array<{ name: string; status: "passed" | "failed" | "skipped"; duration: number; error?: string }>) : [];
+  const logs = (row.logs ?? "").split("\n").filter(Boolean);
+  return {
+    runId: row.id,
+    pending,
+    status: pending ? "running" : row.status === "PASSED" ? "passed" : row.status === "ERROR" ? "error" : "failed",
+    results: {
+      passed: summary?.passed ?? 0,
+      failed: summary?.failed ?? 0,
+      total: summary?.total ?? 0,
+    },
+    resultItems,
+    logs,
+    errors: logs.filter((l) => l.startsWith("error: ")).map((l) => l.slice(7)),
+    warnings: [] as string[],
+    runtime: "cargo-smoke" as GeneratedTestRuntime,
+    runner: "github-actions",
+    command: "cargo test --manifest-path programs/program/Cargo.toml --lib",
+    setupCommand: null as string | null,
+    duration: row.duration,
+  };
 }
 
-function getDefaultValue(type: unknown): string {
-  if (typeof type !== "string") return "0";
-  switch (type) {
-    case "bool":
-      return "true";
-    case "u8":
-    case "u16":
-    case "u32":
-    case "u64":
-    case "u128":
-    case "i8":
-    case "i16":
-    case "i32":
-    case "i64":
-    case "i128":
-      return "0";
-    case "f32":
-    case "f64":
-      return "0.0";
-    case "String":
-      return '"test_value"';
-    case "Pubkey":
-      return "generate";
-    default:
-      return "0";
-  }
+async function sweepStaleTestRuns(ctx: any, projectId: string) {
+  await ctx.prisma.testRun.updateMany({
+    where: { projectId, status: { in: ["RUNNING", "QUEUED"] }, startedAt: { lt: new Date(Date.now() - JOB_STALE_MS) } },
+    data: {
+      status: "FAILED",
+      logs: "error: Test run timed out: it did not finish within 20 minutes.",
+      summary: { passed: 0, failed: 1, total: 1 } as unknown as any,
+      completedAt: new Date(),
+    },
+  });
 }
 
-function generateDefaultTests(ir: ProgramIR): TestCase[] {
-  const tests: TestCase[] = [];
-
-  for (const ix of ir.instructions) {
-    // Happy path test
-    tests.push({
-      name: `${ix.name} - success`,
-      instruction: ix.name,
-      accounts: Object.fromEntries(
-        ix.accounts.map((acc: Account) => [acc.name, "generate"]),
-      ),
-      args: Object.fromEntries(
-        (ix.args ?? []).map((arg: { name: string; type: unknown }) => [
-          arg.name,
-          getDefaultValue(arg.type),
-        ]),
-      ),
-      expectedResult: "success",
-    });
-
-    // Missing signer test (one per signer account)
-    const signerAccounts = ix.accounts.filter((a: Account) =>
-      a.constraints.some((c) => c.type === "signer"),
-    );
-    for (const signer of signerAccounts) {
-      tests.push({
-        name: `${ix.name} - missing signer (${signer.name})`,
-        instruction: ix.name,
-        accounts: Object.fromEntries(
-          ix.accounts.map((acc: Account) => [
-            acc.name,
-            acc.name === signer.name ? "non-signer" : "generate",
-          ]),
-        ),
-        args: Object.fromEntries(
-          (ix.args ?? []).map((arg: { name: string; type: unknown }) => [
-            arg.name,
-            getDefaultValue(arg.type),
-          ]),
-        ),
-        expectedResult: { error: "MissingRequiredSignature" },
+/** Advance a GitHub Actions test run by one short poll; record the outcome when done. */
+async function pollGitHubTest(ctx: any, run: any) {
+  const handle = decodeGhHandle((run.summary as { gha?: string } | null)?.gha);
+  if (!handle) return run;
+  const poll = await pollGitHubActionsJob(handle);
+  if (poll.state === "queued" || poll.state === "running") {
+    if (poll.handle.runId !== handle.runId) {
+      return ctx.prisma.testRun.update({
+        where: { id: run.id },
+        data: { summary: { gha: encodeGhHandle(poll.handle) } as unknown as any },
       });
     }
+    return run;
   }
-
-  return tests;
+  const outcome = await fetchTestOutcome(poll.handle.runId!);
+  const success = poll.state === "success" && outcome.success;
+  const duration = Date.now() - new Date(run.startedAt).getTime();
+  const results = [
+    {
+      name: `${String(run.framework ?? "program").toLowerCase()} cargo smoke test`,
+      status: success ? ("passed" as const) : ("failed" as const),
+      duration,
+      error: success ? undefined : (outcome.errors[0] ?? `GitHub Actions run ended: ${poll.conclusion}`),
+    },
+  ];
+  const res = await ctx.prisma.testRun.updateMany({
+    where: { id: run.id, status: "RUNNING" },
+    data: {
+      status: success ? "PASSED" : "FAILED",
+      results: results as unknown as any,
+      summary: { passed: success ? 1 : 0, failed: success ? 0 : 1, total: 1 } as unknown as any,
+      logs: [
+        "Runner: github-actions",
+        poll.htmlUrl ? `Run: ${poll.htmlUrl}` : null,
+        ...outcome.logs.slice(-400),
+        ...outcome.errors.map((e) => `error: ${e}`),
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      duration,
+      completedAt: new Date(),
+    },
+  });
+  if (res.count > 0) await deleteJobBranch(handle.branch);
+  return ctx.prisma.testRun.findUnique({ where: { id: run.id } });
 }
 
 // ─── Router ──────────────────────────────────────────────────────────────────
@@ -109,21 +131,6 @@ export const testRouter = router({
     .input(
       z.object({
         projectId: z.string(),
-        /** Optional: supply custom test cases; if omitted, generate from IR */
-        testCases: z
-          .array(
-            z.object({
-              name: z.string(),
-              instruction: z.string(),
-              accounts: z.record(z.string()),
-              args: z.record(z.string()),
-              expectedResult: z.union([
-                z.literal("success"),
-                z.object({ error: z.string() }),
-              ]),
-            }),
-          )
-          .optional(),
         runtime: z.enum(["cargo-smoke", "surfpool-simnet"]).optional(),
       }),
     )
@@ -133,6 +140,15 @@ export const testRouter = router({
         select: { id: true, irData: true, flowData: true, framework: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
+      const rl = testRunRateLimit(ctx.session.user.id!);
+      if (!rl.allowed) {
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Test rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
+        });
+      }
+      await sweepStaleTestRuns(ctx, project.id);
 
       let irData = project.irData as ProgramIR | null;
       if (!irData && project.flowData) {
@@ -159,22 +175,15 @@ export const testRouter = router({
         });
       }
 
-      // Generate test cases from IR if not supplied
-      let testCases: TestCase[];
-      if (input.testCases) {
-        testCases = input.testCases;
-      } else if (irData) {
-        testCases = generateDefaultTests(irData);
-      } else {
-        testCases = [];
-      }
+      const guard = validateIrForBuild(irData);
+      if (!guard.ok) throw new TRPCError({ code: "BAD_REQUEST", message: guard.message });
 
       // Persist TestRun record
       const testRun = await ctx.prisma.testRun.create({
         data: {
           projectId: input.projectId,
           status: "RUNNING",
-          testCases: testCases as unknown as any,
+          testCases: [] as unknown as any,
         },
       });
 
@@ -207,24 +216,43 @@ export const testRouter = router({
         });
         return {
           runId: testRun.id,
+          pending: false,
           status: "error",
-          testCases,
           results: { passed: 0, failed: 1, total: 1 },
           resultItems: results,
           logs: [results[0].error],
         };
       }
 
-      // In production (Vercel) use the GitHub Actions test runner (no VM).
-      // In local dev (no GITHUB_TOKEN) fall back to the local cargo runner.
-      const runResult = isGitHubActionsConfigured()
-        ? await runGitHubActionsTest(
-            { framework, files: generated.files },
-            () => {
-              /* progress logs are returned in runResult.logs */
+      // In production (Vercel) trigger the GitHub Actions test runner and return;
+      // the client polls test.status. Local dev (no GITHUB_TOKEN) runs cargo inline.
+      if (isGitHubActionsConfigured()) {
+        try {
+          const handle = await startGitHubActionsJob("test", generated.files);
+          const row = await ctx.prisma.testRun.update({
+            where: { id: testRun.id },
+            data: {
+              summary: { gha: encodeGhHandle(handle) } as unknown as any,
+              logs: `Runner: github-actions\n[gh-actions] pushed ${handle.branch}, waiting for a runner…`,
             },
-          )
-        : await runGeneratedProjectTests({
+          });
+          return runResponse(row);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const row = await ctx.prisma.testRun.update({
+            where: { id: testRun.id },
+            data: {
+              status: "ERROR",
+              summary: { passed: 0, failed: 1, total: 1 } as unknown as any,
+              logs: `error: ${msg}`,
+              completedAt: new Date(),
+            },
+          });
+          return runResponse(row);
+        }
+      }
+
+      const runResult = await runGeneratedProjectTests({
             framework,
             programName: irData.program.name,
             files: generated.files,
@@ -288,8 +316,8 @@ export const testRouter = router({
 
       return {
         runId: testRun.id,
+        pending: false,
         status: runResult.success ? "passed" : "failed",
-        testCases,
         results: summary,
         resultItems: results,
         logs: runResult.logs,
@@ -315,7 +343,23 @@ export const testRouter = router({
         },
       });
       if (!run) throw new TRPCError({ code: "NOT_FOUND" });
-      return run;
+      if (run.status !== "RUNNING" && run.status !== "QUEUED") return runResponse(run);
+
+      if (isStaleJob(run.startedAt)) {
+        await sweepStaleTestRuns(ctx, run.projectId);
+      } else {
+        try {
+          const project = await ctx.prisma.project.findUnique({
+            where: { id: run.projectId },
+            select: { framework: true },
+          });
+          await pollGitHubTest(ctx, { ...run, framework: project?.framework });
+        } catch (err) {
+          console.warn("[test] GitHub poll failed:", err instanceof Error ? err.message : err);
+        }
+      }
+      const latest = await ctx.prisma.testRun.findUnique({ where: { id: run.id } });
+      return runResponse(latest ?? run);
     }),
 
   // ── List test run history ────────────────────────────────────────────────
@@ -327,6 +371,7 @@ export const testRouter = router({
         select: { id: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      await sweepStaleTestRuns(ctx, project.id);
       return ctx.prisma.testRun.findMany({
         where: { projectId: input.projectId },
         orderBy: { startedAt: "desc" },

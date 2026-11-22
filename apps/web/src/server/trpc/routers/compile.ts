@@ -14,6 +14,26 @@ import { generateCode } from "@solflow/codegen";
 import type { Node, Edge } from "@xyflow/react";
 import { compileWithStrategy } from "@/server/compile-worker/compiler-strategy";
 import { broadcastToJob } from "@/lib/ws-broadcaster";
+import { validateIrForBuild } from "@/server/ir-guard";
+import {
+  isGitHubActionsConfigured,
+  startGitHubActionsJob,
+  pollGitHubActionsJob,
+  encodeGhHandle,
+  decodeGhHandle,
+  fetchBuildArtifact,
+  fetchBuildErrors,
+  deleteJobBranch,
+} from "@/server/compile-worker/gh-actions-runner";
+import {
+  JOB_STALE_MS,
+  MAX_ERROR_CHARS,
+  MAX_ERROR_ITEMS,
+  MAX_LOG_LINES,
+  MAX_LOG_LINE_CHARS,
+  clampLines,
+  isStaleJob,
+} from "@/server/jobs/limits";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,6 +81,12 @@ async function startBuild(ctx: any, projectId: string, where: "server" | "browse
     });
   }
 
+  // Names and versions end up in Cargo.toml and Rust source compiled on a CI runner.
+  const guard = validateIrForBuild(irData);
+  if (!guard.ok) throw new TRPCError({ code: "BAD_REQUEST", message: guard.message });
+
+  await sweepStaleCompilations(ctx, projectId);
+
   // Rate limit: server builds are expensive; browser builds only cost codegen and a DB row.
   const userKey = ctx.session.user.id ?? "anonymous";
   const rl = where === "browser" ? browserCompileRateLimit(userKey) : compileRateLimit(userKey);
@@ -87,6 +113,87 @@ async function startBuild(ctx: any, projectId: string, where: "server" | "browse
     },
   });
   return { project, irData, irHash, framework, compilation };
+}
+
+/** BUILDING rows older than JOB_STALE_MS can never finish (the request or browser that owned them is gone). */
+async function sweepStaleCompilations(ctx: any, projectId: string) {
+  await ctx.prisma.compilation.updateMany({
+    where: { projectId, status: "BUILDING", startedAt: { lt: new Date(Date.now() - JOB_STALE_MS) } },
+    data: {
+      status: "FAILED",
+      errors: ["Build timed out: it did not finish within 20 minutes."] as unknown as any,
+      completedAt: new Date(),
+    },
+  });
+}
+
+/** Strip the binary bytes (large) before returning a row to the client. */
+function publicCompilation<T extends { binaryBytes?: unknown; binaryUrl?: string | null }>(row: T) {
+  const { binaryBytes: _bytes, ...rest } = row;
+  return { ...rest, binaryUrl: decodeGhHandle(rest.binaryUrl) ? null : rest.binaryUrl };
+}
+
+/**
+ * Advance a GitHub Actions build by one short poll. On completion stores the
+ * binary (or the errors) and returns the updated row.
+ */
+async function pollGitHubBuild(ctx: any, compilation: any) {
+  const handle = decodeGhHandle(compilation.binaryUrl);
+  if (!handle) return compilation;
+  const poll = await pollGitHubActionsJob(handle);
+  if (poll.state === "queued" || poll.state === "running") {
+    if (poll.handle.runId !== handle.runId) {
+      return ctx.prisma.compilation.update({
+        where: { id: compilation.id },
+        data: {
+          binaryUrl: encodeGhHandle(poll.handle),
+          logs: `${compilation.logs ?? ""}\n[gh-actions] run ${poll.handle.runId} started${poll.htmlUrl ? ` (${poll.htmlUrl})` : ""}`.trim(),
+        },
+      });
+    }
+    return compilation;
+  }
+
+  const runId = poll.handle.runId!;
+  let data: Record<string, unknown>;
+  if (poll.state === "success") {
+    const bytes = Buffer.from(await fetchBuildArtifact(runId));
+    if (!isSbpfProgram(bytes)) {
+      data = { status: "FAILED", binaryUrl: null, errors: ["The build artifact is not a valid Solana program."] };
+    } else {
+      data = {
+        status: "SUCCESS",
+        binaryUrl: `gha:${runId}.so`,
+        binaryBytes: new Uint8Array(bytes),
+        binarySize: bytes.length,
+        logs: `${compilation.logs ?? ""}\n[gh-actions] compiled on GitHub Actions (run ${runId}), ${bytes.length} bytes`.trim(),
+      };
+    }
+  } else {
+    const errors = await fetchBuildErrors(runId);
+    data = {
+      status: "FAILED",
+      binaryUrl: null,
+      errors: (errors.length > 0 ? errors : [`GitHub Actions run ${runId} ended: ${poll.conclusion}`]) as unknown as any,
+      logs: `${compilation.logs ?? ""}\n[gh-actions] run ${runId} ${poll.conclusion}${poll.htmlUrl ? ` (${poll.htmlUrl})` : ""}`.trim(),
+    };
+  }
+  // Only the first poller to see completion writes (status is still BUILDING).
+  const res = await ctx.prisma.compilation.updateMany({
+    where: { id: compilation.id, status: "BUILDING" },
+    data: {
+      ...data,
+      completedAt: new Date(),
+      duration: Date.now() - new Date(compilation.startedAt).getTime(),
+    },
+  });
+  if (res.count > 0) {
+    await deleteJobBranch(handle.branch);
+    if (data.status === "SUCCESS") {
+      await ctx.prisma.project.update({ where: { id: compilation.projectId }, data: { status: "COMPILED" } });
+    }
+  }
+  return ctx.prisma.compilation.findUnique({ where: { id: compilation.id } });
 }
 
 async function saveGeneratedCode(ctx: any, projectId: string, files: { path: string; content: string }[]) {
@@ -138,6 +245,36 @@ export const compileRouter = router({
 
         const codegenWarnings = result.warnings.map((w) => w.message);
         await saveGeneratedCode(ctx, input.projectId, result.files);
+
+        // Pinocchio/Quasar on GitHub Actions: trigger the run, store its handle,
+        // and return. The client polls compile.status, which polls GitHub.
+        if (project.framework !== "ANCHOR" && isGitHubActionsConfigured()) {
+          const handle = await startGitHubActionsJob("build", result.files);
+          const logs = [
+            `Code generation — ${result.files.length} file(s)`,
+            `[gh-actions] pushed ${handle.branch} (commit ${handle.commitSha.slice(0, 7)}), waiting for a runner…`,
+          ];
+          await ctx.prisma.compilation.update({
+            where: { id: compilation.id },
+            data: {
+              binaryUrl: encodeGhHandle(handle),
+              logs: logs.join("\n"),
+              ...(codegenWarnings.length > 0 ? { warnings: codegenWarnings as unknown as any } : {}),
+            },
+          });
+          return {
+            jobId: compilation.id,
+            codeGenerated: true,
+            pending: true,
+            binaryBuilt: false,
+            fileCount: result.files.length,
+            binarySize: null,
+            warnings: codegenWarnings.length,
+            compileMethod: "github-actions",
+            logs,
+            errors: [] as string[],
+          };
+        }
 
         // Step 2: Compile using best available method (WASM → Local CLI → codegen only)
         let buildLogs: string[] = [`Code generation — ${result.files.length} file(s)`];
@@ -328,8 +465,15 @@ export const compileRouter = router({
         jobId: z.string(),
         // base64 sBPF program; ~1.4 MB of base64 covers the 1 MiB program limit
         program: z.string().max(1_500_000).optional(),
-        logs: z.array(z.string().max(10_000)).max(500).default([]),
-        errors: z.array(z.string().max(20_000)).max(50).default([]),
+        // Oversized logs/stderr are truncated, never rejected (a rejection lost the result).
+        logs: z.preprocess(
+          (v) => clampLines(v, MAX_LOG_LINES, MAX_LOG_LINE_CHARS),
+          z.array(z.string()).default([]),
+        ),
+        errors: z.preprocess(
+          (v) => clampLines(v, MAX_ERROR_ITEMS, MAX_ERROR_CHARS),
+          z.array(z.string()).default([]),
+        ),
         durationMs: z.number().int().nonnegative().max(600_000).optional(),
       }),
     )
@@ -387,7 +531,23 @@ export const compileRouter = router({
         },
       });
       if (!compilation) throw new TRPCError({ code: "NOT_FOUND" });
-      return compilation;
+      if (compilation.status !== "BUILDING") return publicCompilation(compilation);
+
+      if (isStaleJob(compilation.startedAt)) {
+        await sweepStaleCompilations(ctx, compilation.projectId);
+        const swept = await ctx.prisma.compilation.findUnique({ where: { id: compilation.id } });
+        return publicCompilation(swept ?? compilation);
+      }
+      if (decodeGhHandle(compilation.binaryUrl)) {
+        try {
+          const updated = await pollGitHubBuild(ctx, compilation);
+          return publicCompilation(updated ?? compilation);
+        } catch (err) {
+          // GitHub hiccup: keep BUILDING; the client polls again.
+          console.warn("[compile] GitHub poll failed:", err instanceof Error ? err.message : err);
+        }
+      }
+      return publicCompilation(compilation);
     }),
 
   // ── List compilation history for a project ──────────────────────────────
@@ -399,11 +559,13 @@ export const compileRouter = router({
         select: { id: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      await sweepStaleCompilations(ctx, project.id);
 
-      return ctx.prisma.compilation.findMany({
+      const rows = await ctx.prisma.compilation.findMany({
         where: { projectId: input.projectId },
         orderBy: { startedAt: "desc" },
         take: 20,
       });
+      return rows.map(publicCompilation);
     }),
 });

@@ -4,7 +4,14 @@
 
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
-import { auth, consumeNonce, verifyNonce } from "@solflow/auth";
+import {
+  allowedSiwsDomains,
+  auth,
+  consumeNonce,
+  requestHostFrom,
+  siwsDomainMatches,
+  verifyNonce,
+} from "@solflow/auth";
 import { prisma } from "@solflow/db";
 import { PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
@@ -41,6 +48,9 @@ export async function POST(req: NextRequest) {
   }
   if (!messageHasLine(publicKey) || !messageHasLine(`Nonce: ${nonce}`)) {
     return NextResponse.json({ error: "Message mismatch" }, { status: 400 });
+  }
+  if (!siwsDomainMatches(message, allowedSiwsDomains(process.env, requestHostFrom(req.headers)))) {
+    return NextResponse.json({ error: "Message was signed for a different site" }, { status: 400 });
   }
 
   // 3. Verify Ed25519 signature

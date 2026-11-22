@@ -7,8 +7,12 @@ import { registerBuiltinNodes } from "@solflow/cloud-nodes";
 import { queueExecution } from "../execution-worker/queue";
 import { nanoid } from "nanoid";
 import {
+  isIpAllowed,
   redactWebhookHeaders,
   validateWebhookReplayProtection,
+  webhookClientIp,
+  webhookEventId,
+  webhookSecretMatches,
 } from "./webhook-security";
 import { createRedisErrorLogger, getRedisConnectionConfig } from "../redis";
 import {
@@ -16,6 +20,22 @@ import {
   qstashCreateSchedule,
   qstashDeleteScheduleForWorkflow,
 } from "./qstash-scheduler";
+import { isValidTimezone, nextCronRun, parseCron } from "./cron";
+import { getCloudRuntimeMode } from "../runtime-mode";
+
+const WEBHOOK_PATH_RE = /^[A-Za-z0-9_-]{3,64}$/;
+const EVENT_DEDUP_WINDOW_MS = 24 * 60 * 60_000;
+
+type TriggerNode = { id: string; type: string; data: Record<string, unknown> };
+
+function triggerNodesOf(definition: unknown): TriggerNode[] {
+  const nodes = (definition as { nodes?: unknown } | null)?.nodes;
+  if (!Array.isArray(nodes)) return [];
+  return nodes.filter(
+    (n): n is TriggerNode =>
+      Boolean(n) && typeof (n as TriggerNode).type === "string" && (n as TriggerNode).type.startsWith("trigger:"),
+  );
+}
 
 registerBuiltinNodes();
 
@@ -35,19 +55,7 @@ class TriggerManager {
     });
     if (!workflow) throw new Error(`Workflow ${workflowId} not found`);
 
-    const definition = workflow.definition as {
-      nodes: Array<{ id: string; type: string; data: Record<string, unknown> }>;
-      edges: Array<{ id: string; source: string; target: string }>;
-    };
-
-    // Find all trigger nodes in the workflow
-    const triggerNodes = definition.nodes.filter((n) =>
-      n.type.startsWith("trigger:")
-    );
-
-    for (const node of triggerNodes) {
-      await this.activateTrigger(workflowId, node);
-    }
+    const triggerNodes = await this.syncTriggers(workflowId, workflow.definition);
 
     // Update workflow status
     await prisma.workflow.update({
@@ -60,11 +68,39 @@ class TriggerManager {
     );
   }
 
+  /**
+   * Re-apply triggers after an ACTIVE workflow was edited: reschedule cron
+   * (or remove it if the cron node is gone) and update the webhook path.
+   */
+  async syncIfActive(workflowId: string): Promise<void> {
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { status: true, definition: true },
+    });
+    if (workflow?.status !== "ACTIVE") return;
+    await this.syncTriggers(workflowId, workflow.definition);
+  }
+
+  private async syncTriggers(workflowId: string, definition: unknown): Promise<TriggerNode[]> {
+    const triggerNodes = triggerNodesOf(definition);
+    for (const node of triggerNodes) {
+      await this.activateTrigger(workflowId, node);
+    }
+    if (!triggerNodes.some((node) => node.type === "trigger:cron")) {
+      await this.deactivateCronTrigger(workflowId);
+      await prisma.workflow.update({
+        where: { id: workflowId },
+        data: { cronExpression: null, cronTimezone: null, nextRunAt: null },
+      });
+    }
+    return triggerNodes;
+  }
+
   // ─── Activate a single trigger node ─────────────────────────────────────
 
   private async activateTrigger(
     workflowId: string,
-    node: { id: string; type: string; data: Record<string, unknown> }
+    node: TriggerNode
   ): Promise<void> {
     switch (node.type) {
       case "trigger:cron":
@@ -93,21 +129,32 @@ class TriggerManager {
     node: { id: string; type: string; data: Record<string, unknown> }
   ): Promise<void> {
     const cronExpression =
-      (node.data.cronExpression as string) || "*/5 * * * *";
-    const timezone = (node.data.timezone as string) || "UTC";
+      String(node.data.cronExpression ?? "").trim() || "*/5 * * * *";
+    const timezone = String(node.data.timezone ?? "").trim() || "UTC";
+    parseCron(cronExpression); // throws a readable error for a bad expression
+    if (!isValidTimezone(timezone)) {
+      throw new Error(`Unknown cron timezone "${timezone}"`);
+    }
+    const nextRunAt = nextCronRun(cronExpression, timezone);
 
     // Serverless: schedule via QStash (no always-on worker). Falls back to the
     // BullMQ repeatable job below for dev/VM when QStash isn't configured.
     if (isQstashConfigured()) {
-      await qstashCreateSchedule({ workflowId, cron: cronExpression });
+      await qstashCreateSchedule({ workflowId, cron: cronExpression, timezone });
       await prisma.workflow.update({
         where: { id: workflowId },
-        data: { cronExpression, cronTimezone: timezone },
+        data: { cronExpression, cronTimezone: timezone, nextRunAt },
       });
       console.log(
         `[trigger-manager] QStash cron schedule set: ${cronExpression} for workflow ${workflowId}`,
       );
       return;
+    }
+
+    if (getCloudRuntimeMode() === "api") {
+      throw new Error(
+        "Cron triggers on serverless need Upstash QStash: set QSTASH_TOKEN and CLOUD_PUBLIC_BASE_URL.",
+      );
     }
 
     if (!this.cronQueue) {
@@ -139,6 +186,7 @@ class TriggerManager {
       data: {
         cronExpression,
         cronTimezone: timezone,
+        nextRunAt,
       },
     });
 
@@ -158,11 +206,22 @@ class TriggerManager {
       select: { webhookPath: true, webhookSecret: true },
     });
 
-    let webhookPath = node.data.webhookPath as string | undefined;
-
-    // Generate a path if not provided
-    if (!webhookPath) {
-      webhookPath = workflow?.webhookPath ?? nanoid(16);
+    const customPath =
+      typeof node.data.webhookPath === "string" ? node.data.webhookPath.trim() : "";
+    if (customPath && !WEBHOOK_PATH_RE.test(customPath)) {
+      throw new Error(
+        "Webhook path must be 3-64 characters of letters, numbers, - or _",
+      );
+    }
+    // Custom path wins (so editing it on an ACTIVE workflow moves the URL);
+    // otherwise keep the existing path or generate one.
+    const webhookPath = customPath || workflow?.webhookPath || nanoid(16);
+    if (webhookPath !== workflow?.webhookPath) {
+      const taken = await prisma.workflow.findFirst({
+        where: { webhookPath, NOT: { id: workflowId } },
+        select: { id: true },
+      });
+      if (taken) throw new Error(`Webhook path "${webhookPath}" is already in use`);
     }
 
     // Preserve existing webhook secret across worker restores/re-activations.
@@ -189,10 +248,8 @@ class TriggerManager {
     });
     if (!workflow) return;
 
-    // Remove cron trigger
-    await this.deactivateCronTrigger(workflowId);
-
-    // Clear webhook path (keep the path but mark inactive)
+    // Mark inactive first: /api/cron/fire skips inactive workflows, so a
+    // schedule that fails to delete below can't start runs.
     await prisma.workflow.update({
       where: { id: workflowId },
       data: {
@@ -201,9 +258,40 @@ class TriggerManager {
       },
     });
 
+    // Remove cron trigger (keep the webhook path; inactive paths return 404)
+    await this.removeSchedules(workflowId);
+
     console.log(
       `[trigger-manager] Deactivated workflow ${workflowId}`
     );
+  }
+
+  /** Best-effort removal of a workflow's cron schedule (deactivate / delete). */
+  async removeSchedules(workflowId: string): Promise<void> {
+    try {
+      await this.deactivateCronTrigger(workflowId);
+    } catch (err) {
+      console.error(
+        `[trigger-manager] Could not remove cron schedule for ${workflowId}:`,
+        err,
+      );
+    }
+  }
+
+  /** Recompute nextRunAt after a cron fire. */
+  async refreshNextRun(workflowId: string): Promise<void> {
+    const workflow = await prisma.workflow.findUnique({
+      where: { id: workflowId },
+      select: { cronExpression: true, cronTimezone: true },
+    });
+    if (!workflow?.cronExpression) return;
+    let nextRunAt: Date | null = null;
+    try {
+      nextRunAt = nextCronRun(workflow.cronExpression, workflow.cronTimezone || "UTC");
+    } catch {
+      nextRunAt = null;
+    }
+    await prisma.workflow.update({ where: { id: workflowId }, data: { nextRunAt } });
   }
 
   private async deactivateCronTrigger(workflowId: string): Promise<void> {
@@ -242,6 +330,7 @@ class TriggerManager {
     rawBody = "",
   ): Promise<{ status: number; body: unknown }> {
     const receivedAt = Date.now();
+    let replayKey: string | undefined;
     const workflow = await prisma.workflow.findFirst({
       where: { webhookPath: path, status: "ACTIVE" },
     });
@@ -266,7 +355,7 @@ class TriggerManager {
     );
 
     const webhookAllowlist = getWebhookAllowlist(workflow.settings);
-    if (webhookAllowlist.length > 0 && !isWebhookRequestAllowed(headers, webhookAllowlist)) {
+    if (webhookAllowlist.length > 0 && !isIpAllowed(webhookClientIp(headers), webhookAllowlist)) {
       logWebhookEvent("allowlist_rejected", {
         workflowId: workflow.id,
         path,
@@ -308,7 +397,7 @@ class TriggerManager {
           (webhookNode.data.authHeaderName as string) ||
           "X-Webhook-Secret";
         const headerValue = headers[authHeaderName.toLowerCase()];
-        if (headerValue !== workflow.webhookSecret) {
+        if (!webhookSecretMatches(headerValue, workflow.webhookSecret)) {
           logWebhookEvent("auth_rejected", {
             workflowId: workflow.id,
             path,
@@ -324,6 +413,8 @@ class TriggerManager {
           secret: workflow.webhookSecret,
           rawBody,
           now: receivedAt,
+          seen: (key, sinceMs) =>
+            this.hasRecentExecutionWithMeta(workflow.id, "replayKey", key, sinceMs),
         });
         if (!replay.ok) {
           logWebhookEvent("replay_rejected", {
@@ -335,6 +426,25 @@ class TriggerManager {
           });
           return { status: replay.status, body: { error: replay.error } };
         }
+        replayKey = replay.replayKey;
+      }
+    }
+
+    // Drop duplicate deliveries when the sender gives a delivery/event id.
+    const eventId = webhookEventId(headers);
+    if (eventId) {
+      const duplicate = await this.findRecentExecutionWithMeta(
+        workflow.id,
+        "eventId",
+        eventId,
+        receivedAt - EVENT_DEDUP_WINDOW_MS,
+      );
+      if (duplicate) {
+        logWebhookEvent("duplicate_event", { workflowId: workflow.id, path, method, executionId: duplicate });
+        return {
+          status: 200,
+          body: { message: "Duplicate delivery ignored", executionId: duplicate, duplicate: true },
+        };
       }
     }
 
@@ -349,6 +459,8 @@ class TriggerManager {
       meta: {
         path,
         replayProtection: webhookNode?.data.replayProtection === true,
+        ...(replayKey ? { replayKey } : {}),
+        ...(eventId ? { eventId } : {}),
         contentLength: headers["content-length"] ?? null,
         contentType: headers["content-type"] ?? null,
       },
@@ -385,6 +497,33 @@ class TriggerManager {
     };
   }
 
+  private async findRecentExecutionWithMeta(
+    workflowId: string,
+    field: "eventId" | "replayKey",
+    value: string,
+    sinceMs: number,
+  ): Promise<string | undefined> {
+    const existing = await prisma.workflowExecution.findFirst({
+      where: {
+        workflowId,
+        triggerType: "webhook",
+        createdAt: { gte: new Date(sinceMs) },
+        triggerData: { path: ["meta", field], equals: value },
+      },
+      select: { id: true },
+    });
+    return existing?.id;
+  }
+
+  private async hasRecentExecutionWithMeta(
+    workflowId: string,
+    field: "eventId" | "replayKey",
+    value: string,
+    sinceMs: number,
+  ): Promise<boolean> {
+    return Boolean(await this.findRecentExecutionWithMeta(workflowId, field, value, sinceMs));
+  }
+
   // ─── Restore active triggers on server startup ──────────────────────────
 
   async restoreActiveTriggers(): Promise<void> {
@@ -398,22 +537,7 @@ class TriggerManager {
 
     for (const workflow of activeWorkflows) {
       try {
-        const definition = workflow.definition as {
-          nodes: Array<{
-            id: string;
-            type: string;
-            data: Record<string, unknown>;
-          }>;
-          edges: Array<{ id: string; source: string; target: string }>;
-        };
-
-        const triggerNodes = definition.nodes.filter((n) =>
-          n.type.startsWith("trigger:")
-        );
-
-        for (const node of triggerNodes) {
-          await this.activateTrigger(workflow.id, node);
-        }
+        await this.syncTriggers(workflow.id, workflow.definition);
       } catch (err) {
         console.error(
           `[trigger-manager] Error restoring workflow ${workflow.id}:`,
@@ -440,22 +564,8 @@ function getWebhookAllowlist(settings: unknown): string[] {
   if (!Array.isArray(safety?.webhookAllowlist)) return [];
   return safety.webhookAllowlist
     .filter((entry): entry is string => typeof entry === "string")
-    .map((entry) => entry.trim().toLowerCase())
+    .map((entry) => entry.trim())
     .filter(Boolean);
-}
-
-function isWebhookRequestAllowed(
-  headers: Record<string, string>,
-  allowlist: string[],
-): boolean {
-  const forwardedFor = headers["x-forwarded-for"]?.split(",")[0]?.trim().toLowerCase();
-  const realIp = headers["x-real-ip"]?.trim().toLowerCase();
-  const origin = headers.origin?.trim().toLowerCase();
-  const referer = headers.referer?.trim().toLowerCase();
-  const candidates = [forwardedFor, realIp, origin, referer].filter(Boolean);
-  return candidates.some((candidate) =>
-    allowlist.some((allowed) => candidate === allowed || candidate?.includes(allowed)),
-  );
 }
 
 // ─── Singleton ──────────────────────────────────────────────────────────────

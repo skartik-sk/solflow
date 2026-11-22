@@ -2,7 +2,7 @@
 
 import { Command } from "commander";
 import { resolve, basename } from "path";
-import { startServer } from "../server/index";
+import { assertLoopbackHost, startServer } from "../server/index";
 import { readConfig, writeConfig, isInitialized } from "../utils/config";
 import { detectProjectType } from "../utils/detect";
 import { openBrowser } from "../utils/browser";
@@ -11,12 +11,20 @@ export const viewCommand = new Command("view")
   .description("Start local server and open visualizer in browser")
   .argument("[path]", "Path to the project directory", ".")
   .option("-p, --port <port>", "Server port", "6139")
+  .option("--host <host>", "Loopback address to bind (127.0.0.1, localhost or ::1)", "127.0.0.1")
   .option("--no-open", "Don't open browser automatically")
-  .action(async (pathArg: string, options: { port: string; open: boolean }) => {
+  .action(async (pathArg: string, options: { port: string; host: string; open: boolean }) => {
     const resolvedPath = resolve(pathArg);
     const port = parseInt(options.port, 10);
     if (isNaN(port) || port < 1 || port > 65535) {
       console.error(`Invalid port: ${options.port}. Must be between 1 and 65535.`);
+      process.exit(1);
+    }
+    let host: string;
+    try {
+      host = assertLoopbackHost(options.host);
+    } catch (err) {
+      console.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
     }
 
@@ -39,13 +47,16 @@ export const viewCommand = new Command("view")
     console.log(`Mode: ${config.mode}`);
 
     try {
-      await startServer({
+      const handle = await startServer({
         port,
+        host,
         projectPath: resolvedPath,
       });
 
-      const url = `http://localhost:${port}`;
+      // The URL carries this session's token; only this browser tab can call the API.
+      const url = handle.url;
       console.log(`\n  SolStudio running at ${url}`);
+      console.log("  Keep this URL private: it contains the session token for this run.");
 
       if (options.open) {
         try {

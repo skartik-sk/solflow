@@ -10,6 +10,18 @@ import type { Node, Edge } from "@xyflow/react";
 import { createHash } from "crypto";
 import { Keypair } from "@solana/web3.js";
 import { encodeSecretKey } from "@/server/secret-key-crypto";
+import { assertCanAccessTemplate } from "@/lib/marketplace/access";
+import { buildProjectFromTemplate } from "@/lib/marketplace/template-project";
+import { validateIrForBuild } from "@/server/ir-guard";
+
+/** Reject IR whose names/versions could inject into Cargo.toml or Rust source. */
+function assertSafeIr(ir: unknown): void {
+  if (ir == null) return;
+  const check = validateIrForBuild(ir);
+  if (!check.ok) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: check.message });
+  }
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -258,38 +270,59 @@ export const projectRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const programKp = Keypair.generate();
-      const programPublicKey = programKp.publicKey.toBase58();
-      const programSecretKey = encodeSecretKey(programKp.secretKey);
-
-      let initialFlowData: Record<string, unknown> =
-        createDefaultFlow(programPublicKey);
+      let framework = input.framework;
+      let initialFlowData: Record<string, unknown>;
+      let initialIrData: Record<string, unknown> | undefined;
+      let programSecretKey: string;
       let forkedFrom: string | undefined;
 
       if (input.templateId) {
-        const template = await ctx.prisma.marketplaceListing.findUnique({
-          where: { id: input.templateId },
+        // Only live listings can be copied, and paid ones need a purchase.
+        const template = await ctx.prisma.marketplaceListing.findFirst({
+          where: { id: input.templateId, status: "PUBLISHED" },
+          select: {
+            id: true,
+            authorId: true,
+            pricingModel: true,
+            templateFlowData: true,
+            templateIR: true,
+            project: { select: { framework: true } },
+          },
         });
-        if (template) {
-          initialFlowData = template.templateFlowData as Record<
-            string,
-            unknown
-          >;
-          forkedFrom = input.templateId;
-          await ctx.prisma.marketplaceListing.update({
-            where: { id: input.templateId },
-            data: { forks: { increment: 1 } },
-          });
+        if (!template) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "Template not found" });
         }
+        await assertCanAccessTemplate(ctx.prisma, template, ctx.session.user.id);
+
+        const data = buildProjectFromTemplate(
+          template,
+          template.project?.framework,
+          input.framework,
+        );
+        assertSafeIr(data.irData);
+        framework = data.framework;
+        initialFlowData = data.flowData;
+        initialIrData = data.irData;
+        programSecretKey = data.programKeypair;
+        forkedFrom = template.id;
+        await ctx.prisma.marketplaceListing.update({
+          where: { id: template.id },
+          data: { forks: { increment: 1 } },
+        });
+      } else {
+        const programKp = Keypair.generate();
+        programSecretKey = encodeSecretKey(programKp.secretKey);
+        initialFlowData = createDefaultFlow(programKp.publicKey.toBase58());
       }
 
       const project = await ctx.prisma.project.create({
         data: {
           name: input.name,
           description: input.description,
-          framework: input.framework,
+          framework,
           userId: ctx.session.user.id!,
           flowData: initialFlowData as any,
+          ...(initialIrData && { irData: initialIrData as any }),
           programKeypair: programSecretKey,
           ...(forkedFrom && { forkedFrom }),
         },
@@ -332,6 +365,16 @@ export const projectRouter = router({
       } catch (err) {
         irError = err instanceof Error ? err.message : "IR generation failed";
         // Non-fatal: save flow even if IR fails, but report the error
+      }
+      // An IR that could inject into Cargo.toml/Rust isn't stored, but the flow
+      // still saves (autosave must not lose edits). With irData null, compile
+      // and test regenerate from the flow and reject it via the same guard.
+      if (irData != null) {
+        const guard = validateIrForBuild(irData);
+        if (!guard.ok) {
+          irData = null;
+          irError = guard.message;
+        }
       }
 
       await ctx.prisma.project.update({
@@ -395,9 +438,21 @@ export const projectRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await ctx.prisma.project.findFirst({
         where: { id: input.id, userId: ctx.session.user.id },
-        select: { id: true },
+        select: {
+          id: true,
+          listing: { select: { _count: { select: { purchases: true } } } },
+        },
       });
       if (!existing) throw new TRPCError({ code: "NOT_FOUND" });
+      // Deleting cascades to the marketplace listing and its purchases. Keep
+      // buyers' payment records: a sold listing must be unlisted by support.
+      if ((existing.listing?._count.purchases ?? 0) > 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This project backs a marketplace listing that people have bought, so it can't be deleted. Contact support to unlist it.",
+        });
+      }
       await ctx.prisma.project.delete({ where: { id: input.id } });
       return { success: true };
     }),

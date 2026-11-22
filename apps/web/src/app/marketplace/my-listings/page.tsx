@@ -28,6 +28,7 @@ export default async function MyListingsPage() {
       forks: true,
       rating: true,
       status: true,
+      reviewNote: true,
       featured: true,
       publishedAt: true,
       createdAt: true,

@@ -3,6 +3,10 @@ name: CI
 on:
   workflow_dispatch: # Disabled — run manually only when ready
 
+# Least privilege: builds run user-generated code, so the job token must not be able to write.
+permissions:
+  contents: read
+
 env:
   # Turborepo remote cache (optional — set in repo secrets)
   TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}

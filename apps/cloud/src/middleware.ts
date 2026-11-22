@@ -8,6 +8,7 @@ const protectedPrefixes = [
   "/credentials",
   "/editor",
   "/executions",
+  "/settings",
   "/wallets",
   "/workflows",
 ];
@@ -40,6 +41,7 @@ export const config = {
     "/credentials/:path*",
     "/editor/:path*",
     "/executions/:path*",
+    "/settings/:path*",
     "/wallets/:path*",
     "/workflows/:path*",
     "/auth/:path*",

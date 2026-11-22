@@ -5,7 +5,7 @@ import { ShieldCheck } from "lucide-react";
 import type { CloudFlowNodeData, CloudNodeDefinition, WorkflowItem } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl, redactUrlSecrets } from "../security/outbound-url";
+import { assertSafeOutboundUrl, redactUrlSecrets, safeOutboundFetch } from "../security/outbound-url";
 
 const UMBRA_PROGRAM_IDS: Record<UmbraNetwork, string> = {
   mainnet: "UMBRAD2ishebJTcgCLkTkNUx1v3GyoAgpTRPeWoLykh",
@@ -75,13 +75,6 @@ function endpointUrl(baseUrl: string, path: string): URL {
   return assertSafeOutboundUrl(url.toString(), { allowHttp: false });
 }
 
-function requireFetch(): typeof fetch {
-  if (typeof fetch !== "function") {
-    throw new Error("Global fetch is not available in this runtime");
-  }
-  return fetch;
-}
-
 async function readBody(response: Response): Promise<unknown> {
   const text = await response.text();
   if (!text) return null;
@@ -94,10 +87,10 @@ async function readBody(response: Response): Promise<unknown> {
 
 async function fetchUmbraJson(baseUrl: string, path: string, signal: AbortSignal): Promise<unknown> {
   const url = endpointUrl(baseUrl, path);
-  const response = await requireFetch()(url.toString(), {
+  const response = await safeOutboundFetch(url.toString(), {
     headers: { Accept: "application/json" },
     signal,
-  });
+  }, { allowHttp: false });
   const payload = await readBody(response);
   if (!response.ok) {
     throw new Error(`Umbra API error ${response.status} ${response.statusText}: ${String(payload).slice(0, 500)}`);

@@ -2,7 +2,8 @@
 
 import { Command } from "commander";
 import { resolve, extname, join, dirname } from "path";
-import { existsSync, mkdirSync, statSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { isPathInside, toPosixRelative } from "../utils/paths";
 import {
   parseFile,
   parseProgram,
@@ -50,7 +51,7 @@ export const auditCommand = new Command("audit")
   )
   .option(
     "--generate-tests <dir>",
-    "Generate deterministic audit test files into a directory",
+    "Generate smoke-test scaffolds (case tables to turn into real instruction tests) into a directory",
   )
   .option(
     "--test-framework <framework>",
@@ -91,7 +92,8 @@ export const auditCommand = new Command("audit")
       const result = runAuditForPath(pathArg, options);
       const output = formatAuditReport(result.report, options.format, {
         framework: result.parsed.report.framework,
-        projectPath: resolve(pathArg),
+        // SARIF consumers (GitHub code scanning) need repo-relative URIs, never absolute paths.
+        projectPath: options.format === "sarif" ? "." : resolve(pathArg),
         parseStats: result.parsed.stats,
         parserReport: result.parsed.report,
       });
@@ -113,7 +115,10 @@ export const auditCommand = new Command("audit")
           result.ir.program.name,
         );
         console.log(
-          `Generated ${written.length} audit test file(s) in ${resolve(options.generateTests)}`,
+          `Generated ${written.length} audit smoke-test scaffold file(s) in ${resolve(options.generateTests)}`,
+        );
+        console.log(
+          "  These are smoke tests: they validate the stress-case table but do not send instructions yet.",
         );
       }
 
@@ -155,8 +160,68 @@ export function runAuditForPath(
     : parseProgram(resolvedPath, { sourceCoverage: coverageOptions(options) });
   const ir = flowToIR(parsed.nodes, parsed.edges);
   const report = runInstantAudit(ir);
+  attachSourceLocations(report, resolvedPath, isRsFile);
 
   return { parsed, ir, report };
+}
+
+/**
+ * Point each finding at a source file and line (relative to the current directory
+ * when the project is inside it, else to the project root) so SARIF results land on
+ * real lines in code scanning. Falls back to the program's lib.rs, line 1.
+ */
+export function attachSourceLocations(report: AuditReport, targetPath: string, isRsFile: boolean, cwd = process.cwd()): void {
+  const projectRoot = isRsFile ? dirname(targetPath) : targetPath;
+  const base = isPathInside(cwd, projectRoot) ? cwd : projectRoot;
+  const files = isRsFile ? [targetPath] : listRustFiles(projectRoot);
+  const sources = files.map((file) => {
+    let lines: string[] = [];
+    try { lines = readFileSync(file, "utf-8").split(/\r?\n/); } catch { /* unreadable */ }
+    return { file, lines };
+  });
+  const fallback = sources.find((s) => /[\\/]src[\\/]lib\.rs$/.test(s.file)) ?? sources[0];
+
+  const find = (pattern: RegExp) => {
+    for (const source of sources) {
+      const index = source.lines.findIndex((line) => pattern.test(line));
+      if (index !== -1) return { file: source.file, line: index + 1, column: source.lines[index].search(/\S/) + 1 };
+    }
+    return null;
+  };
+
+  for (const finding of report.findings) {
+    if (finding.location.file) continue;
+    const { instructionName, accountName } = finding.location;
+    const hit =
+      (accountName ? find(new RegExp(`\\b(pub\\s+)?${escapeRegExp(accountName)}\\s*:`)) : null) ??
+      (instructionName ? find(new RegExp(`\\bfn\\s+${escapeRegExp(instructionName)}\\s*[<(]`)) : null) ??
+      (fallback ? { file: fallback.file, line: 1, column: 1 } : null);
+    if (!hit) continue;
+    finding.location.file = toPosixRelative(base, hit.file);
+    finding.location.line = hit.line;
+    finding.location.column = Math.max(1, hit.column);
+  }
+}
+
+function listRustFiles(root: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, depth: number) => {
+    if (depth > 10) return;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name.startsWith(".") || entry.name === "target" || entry.name === "node_modules") continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full, depth + 1);
+      else if (entry.name.endsWith(".rs")) out.push(full);
+    }
+  };
+  walk(root, 0);
+  return out;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function writeGeneratedAuditTests(
@@ -175,9 +240,20 @@ export function writeGeneratedAuditTests(
   for (const file of files) {
     const dest = join(root, file.path);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, file.content);
+    writeFileSync(dest, labelSmokeTest(file.path, file.content));
   }
   return files;
+}
+
+const SMOKE_TEST_NOTE =
+  "SMOKE TESTS generated by SolStudio. They check the deterministic stress-case table only; " +
+  "they do not build transactions or call the program. Replace each case body with a real instruction call.";
+
+/** Mark generated tests as smoke tests so nobody mistakes them for instruction coverage. */
+export function labelSmokeTest(path: string, content: string): string {
+  if (/\.(ts|js|rs)$/.test(path)) return `// ${SMOKE_TEST_NOTE}\n${content}`;
+  if (path.endsWith(".md")) return content.replace(/^(# .*\n)/, `$1\n> ${SMOKE_TEST_NOTE}\n`);
+  return content;
 }
 
 function coverageOptions(

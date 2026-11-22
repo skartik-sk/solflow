@@ -2,7 +2,6 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
 import { deployRateLimit } from "@/lib/rate-limit";
-import { broadcastToJob } from "@/lib/ws-broadcaster";
 import {
   Connection,
   Keypair,
@@ -20,18 +19,41 @@ import {
   isEncryptedSecretKey,
   keypairFromStoredSecret,
 } from "@/server/secret-key-crypto";
+import {
+  BUFFER_ACCOUNT_METADATA_SIZE,
+  PROGRAM_DATA_HEADER_SIZE,
+  MAX_CREATE_ATTEMPTS,
+  STEP_LEASE_MS,
+  afterVerify,
+  afterWrite,
+  bufferProgramBytes,
+  chunkRange,
+  decodeSession,
+  encodeSession,
+  estimateDeployCost,
+  findMissingChunks,
+  hasReclaimableBuffer,
+  isLocked,
+  isStale,
+  newSession,
+  planWriteBatch,
+  progressOf,
+  type DeploySession,
+} from "@/server/deploy/plan";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
 const log = (...args: unknown[]) => console.log("[deploy]", ...args);
 
-const PACKET_DATA_SIZE = 1232;
-const WRITE_OVERHEAD = 220 + 44 + 40;
-const CHUNK_SIZE = PACKET_DATA_SIZE - WRITE_OVERHEAD;
 const CHUNK_SEND_DELAY_MS = 350;
-const MAX_RETRIES = 5;
-const BLOCKHASH_CACHE_TTL_MS = 45_000;
-const BUFFER_ACCOUNT_METADATA_SIZE = 37;
+/** Time a step may spend sending before it returns. Worst case adds one in-flight RPC call (RPC_TIMEOUT_MS) plus a 429 retry, staying under the 60 s limit. */
+const STEP_BUDGET_MS = 30_000;
+/** Max chunks per step even if the RPC is fast. */
+const MAX_CHUNKS_PER_STEP = 120;
+/** How long one request waits for a transaction to confirm before handing back to the client. */
+const CONFIRM_WAIT_MS = 25_000;
+/** Per-RPC-call timeout so one hung request can't eat the whole function budget. */
+const RPC_TIMEOUT_MS = 10_000;
 
 const NETWORK_CONFIG = {
   DEVNET: {
@@ -52,14 +74,24 @@ const NETWORK_CONFIG = {
   },
 } as const;
 
+type Network = keyof typeof NETWORK_CONFIG;
+
 const BPF_LOADER_UPGRADEABLE = new PublicKey(
   "BPFLoaderUpgradeab1e11111111111111111111111",
 );
 
+function connectionFor(network: Network): Connection {
+  return new Connection(NETWORK_CONFIG[network].rpcUrl, {
+    commitment: "confirmed",
+    fetch: (input, init) =>
+      fetch(input, { ...init, signal: AbortSignal.timeout(RPC_TIMEOUT_MS) }),
+  });
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function buildExplorerUrl(
-  network: keyof typeof NETWORK_CONFIG,
+  network: Network,
   programId: string,
 ): string | null {
   const base = NETWORK_CONFIG[network].explorerBase;
@@ -70,7 +102,7 @@ function buildExplorerUrl(
 }
 
 function buildTxExplorerUrl(
-  network: keyof typeof NETWORK_CONFIG,
+  network: Network,
   txSig: string,
 ): string | null {
   const base = NETWORK_CONFIG[network].explorerBase;
@@ -205,178 +237,165 @@ function createCloseIx(
   });
 }
 
-// ─── Send + confirm using blockhash-based strategy ──────────────────────────
+// ─── Bounded RPC helpers (every wait has a deadline) ────────────────────────
 
-interface SendTxResult {
-  signature: string;
-  blockhash: string;
-  lastValidBlockHeight: number;
-}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function tryUntilSuccess<T>(
-  fn: () => Promise<T>,
-  intervalMs: number,
-  maxAttempts: number = 60,
-): Promise<T> {
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch {
-      if (attempt >= maxAttempts - 1) {
-        throw new Error(`Operation failed after ${maxAttempts} attempts`);
-      }
-      await new Promise((r) => setTimeout(r, intervalMs));
-    }
-  }
-  throw new Error(`Operation failed after ${maxAttempts} attempts`);
-}
+type SigState = "confirmed" | "failed" | "pending";
 
-interface CachedBlockhash {
-  blockhash: string;
-  lastValidBlockHeight: number;
-  timestamp: number;
-}
-
-const _blockhashCache = new Map<string, CachedBlockhash>();
-
-// Periodic cleanup: remove stale blockhash cache entries every 2 minutes
-if (typeof setInterval !== "undefined") {
-  const blockhashCleanupInterval = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of _blockhashCache) {
-      if (now - entry.timestamp > BLOCKHASH_CACHE_TTL_MS * 2) {
-        _blockhashCache.delete(key);
-      }
-    }
-  }, 120_000);
-  blockhashCleanupInterval.unref?.();
-}
-
-async function getLatestBlockhash(
+async function waitForSignature(
   connection: Connection,
-  force?: boolean,
-): Promise<CachedBlockhash> {
-  const endpoint = connection.rpcEndpoint;
-  const now = Date.now();
-  const cached = _blockhashCache.get(endpoint);
-  if (!force && cached && now < cached.timestamp + BLOCKHASH_CACHE_TTL_MS) {
-    return cached;
+  signature: string,
+  waitMs: number,
+): Promise<{ state: SigState; err?: unknown }> {
+  const deadline = Date.now() + waitMs;
+  while (true) {
+    const { value } = await connection.getSignatureStatuses([signature]);
+    const st = value[0];
+    if (st?.err) return { state: "failed", err: st.err };
+    if (st && (st.confirmationStatus === "confirmed" || st.confirmationStatus === "finalized")) {
+      return { state: "confirmed" };
+    }
+    if (Date.now() + 1500 > deadline) return { state: "pending" };
+    await sleep(1500);
+  }
+}
+
+async function sendSigned(connection: Connection, tx: Transaction): Promise<string> {
+  return connection.sendRawTransaction(tx.serialize(), {
+    skipPreflight: true,
+    preflightCommitment: "confirmed",
+  });
+}
+
+/** Buffer authority stored in a BPF upgradeable Buffer account (null if none / not a buffer). */
+function bufferAuthority(data: Uint8Array): PublicKey | null {
+  // enum tag u32 LE (1 = Buffer), then Option<Pubkey> (1 byte tag + 32 bytes)
+  if (data.length < BUFFER_ACCOUNT_METADATA_SIZE) return null;
+  const tag = data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24);
+  if (tag !== 1 || data[4] !== 1) return null;
+  return new PublicKey(data.subarray(5, 37));
+}
+
+/**
+ * Close a buffer and return its rent to the deployer. Returns the lamports
+ * reclaimed, 0 if the account is already gone, or null if the close tx is
+ * still unconfirmed when `waitMs` runs out.
+ */
+async function closeBuffer(
+  connection: Connection,
+  deployerKp: Keypair,
+  bufferPk: PublicKey,
+  waitMs: number,
+): Promise<number | null> {
+  const acc = await connection.getAccountInfo(bufferPk);
+  if (!acc) return 0;
+  if (!acc.owner.equals(BPF_LOADER_UPGRADEABLE)) {
+    throw new Error(`${bufferPk.toBase58()} is not a program buffer`);
+  }
+  const authority = bufferAuthority(acc.data);
+  if (!authority || !authority.equals(deployerKp.publicKey)) {
+    throw new Error("Buffer authority is not this deployer; it can't be closed from here");
   }
   const bh = await connection.getLatestBlockhash("confirmed");
-  const entry = { ...bh, timestamp: now };
-  _blockhashCache.set(endpoint, entry);
-  return entry;
+  const tx = new Transaction({
+    blockhash: bh.blockhash,
+    lastValidBlockHeight: bh.lastValidBlockHeight,
+    feePayer: deployerKp.publicKey,
+  }).add(createCloseIx(bufferPk, deployerKp.publicKey, deployerKp.publicKey));
+  tx.sign(deployerKp);
+  const sig = await sendSigned(connection, tx);
+  const res = await waitForSignature(connection, sig, waitMs);
+  if (res.state === "failed") throw new Error(`Close buffer failed: ${JSON.stringify(res.err)}`);
+  return res.state === "confirmed" ? acc.lamports : null;
 }
 
-async function sendAndConfirmTxWithRetries(
-  connection: Connection,
-  sendTx: () => Promise<SendTxResult>,
-  checkConfirmation: () => Promise<boolean>,
-  label: string,
-): Promise<string> {
-  const SLEEP_MULTIPLIER = 1.8;
-  let sleepMs = 1000;
-  let lastSig: string | undefined;
+// ─── Keys ───────────────────────────────────────────────────────────────────
 
-  for (let i = 0; i < MAX_RETRIES; i++) {
-    try {
-      const { signature, blockhash, lastValidBlockHeight } = await sendTx();
-      lastSig = signature;
-      const result = await connection.confirmTransaction(
-        { signature, blockhash, lastValidBlockHeight },
-        "confirmed",
-      );
-      if (!result?.value?.err) return signature;
-      log(
-        `${label} confirm returned error: ${JSON.stringify(result.value.err).slice(0, 200)}`,
-      );
-      if (await checkConfirmation()) return signature;
-    } catch (e: any) {
-      const msg =
-        typeof e?.message === "string"
-          ? e.message
-          : JSON.stringify(e?.message ?? e);
-      log(`${label} attempt ${i + 1}/${MAX_RETRIES}: ${msg.slice(0, 300)}`);
+const DEPLOYER_UNREADABLE =
+  "Your deployer wallet can't be decrypted (ENCRYPTION_MASTER_KEY changed). It was NOT replaced, so its SOL is not lost: restore the previous ENCRYPTION_MASTER_KEY, or use 'Reset deployer wallet' to start over with a new, empty wallet.";
 
-      if (
-        msg.includes("already been processed") ||
-        msg.includes("Blockhash not found")
-      ) {
-        log(`${label} forcing fresh blockhash`);
-        await getLatestBlockhash(connection, true);
-      }
-
-      if (await checkConfirmation()) {
-        log(`${label} confirmed on-chain despite error, sig: ${lastSig}`);
-        return lastSig ?? "confirmed-on-chain";
-      }
-    }
-    await new Promise((r) => setTimeout(r, sleepMs));
-    sleepMs *= SLEEP_MULTIPLIER;
-  }
-  throw new Error(`${label} failed after ${MAX_RETRIES} retries`);
-}
-
-// ─── Get or create the user's persistent deployer keypair ────────────────────
-
-async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
-  // Use upsert to prevent race condition from concurrent deploy requests
-  // If two requests arrive simultaneously, only one will create the keypair
+async function readDeployer(ctx: any, userId: string): Promise<{ stored: string | null; keypair: Keypair | null }> {
   const user = await ctx.prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, deployerKeypair: true },
+    select: { deployerKeypair: true },
   });
-  if (user?.deployerKeypair) {
-    let deployerKp: Keypair;
-    try {
-      deployerKp = keypairFromStoredSecret(user.deployerKeypair);
-    } catch {
-      // Stored deployer keypair is unreadable (ENCRYPTION_MASTER_KEY was
-      // rotated; old key lost). Regenerate the fee-payer keypair — safe, but
-      // the user must re-fund the new address.
-      deployerKp = Keypair.generate();
-      await ctx.prisma.user.update({
-        where: { id: userId },
-        data: { deployerKeypair: encodeSecretKey(deployerKp.secretKey) },
-      });
-      log("regenerated unreadable deployer keypair:", deployerKp.publicKey.toBase58());
-      return deployerKp;
-    }
-    if (!isEncryptedSecretKey(user.deployerKeypair)) {
-      await ctx.prisma.user.update({
-        where: { id: userId },
-        data: { deployerKeypair: encodeSecretKey(deployerKp.secretKey) },
+  const stored: string | null = user?.deployerKeypair ?? null;
+  if (!stored) return { stored: null, keypair: null };
+  try {
+    return { stored, keypair: keypairFromStoredSecret(stored) };
+  } catch {
+    // Never regenerate here: that would orphan the SOL in the old wallet.
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: DEPLOYER_UNREADABLE });
+  }
+}
+
+async function getOrCreateDeployer(ctx: any, userId: string): Promise<Keypair> {
+  const { stored, keypair } = await readDeployer(ctx, userId);
+  if (stored && keypair) {
+    if (!isEncryptedSecretKey(stored)) {
+      // Legacy bs58 row: encrypt in place (same key, so the address is unchanged).
+      await ctx.prisma.user.updateMany({
+        where: { id: userId, deployerKeypair: stored },
+        data: { deployerKeypair: encodeSecretKey(keypair.secretKey) },
       });
     }
-    return deployerKp;
+    return keypair;
   }
 
   const deployerKp = Keypair.generate();
-  const encoded = encodeSecretKey(deployerKp.secretKey);
-
-  // Use update with a where condition that only matches if deployerKeypair is still null
-  // This prevents overwriting if another request created it in the meantime
+  // Only write if still empty, so concurrent requests can't overwrite each other.
   const updated = await ctx.prisma.user.updateMany({
     where: { id: userId, deployerKeypair: null },
-    data: { deployerKeypair: encoded },
+    data: { deployerKeypair: encodeSecretKey(deployerKp.secretKey) },
   });
-
   if (updated.count === 0) {
-    // Another concurrent request created the keypair — read it back
-    const refreshed = await ctx.prisma.user.findUnique({
-      where: { id: userId },
-      select: { deployerKeypair: true },
-    });
-    if (refreshed?.deployerKeypair) {
-      return keypairFromStoredSecret(refreshed.deployerKeypair);
-    }
+    const again = await readDeployer(ctx, userId);
+    if (again.keypair) return again.keypair;
   }
-
   log("created new deployer keypair:", deployerKp.publicKey.toBase58());
   return deployerKp;
 }
 
-// ─── Shared loader ─────────────────────────────────────────────────────────────
+async function requireDeployer(ctx: any, userId: string): Promise<Keypair> {
+  const { keypair } = await readDeployer(ctx, userId);
+  if (!keypair) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "No deployer wallet. Start a deploy first." });
+  }
+  return keypair;
+}
+
+const PROGRAM_KEY_UNREADABLE =
+  "This project's program keypair can't be decrypted (ENCRYPTION_MASTER_KEY changed). It was NOT replaced. Restore the previous ENCRYPTION_MASTER_KEY, or use 'Reset program keypair' and recompile to deploy under a new program id.";
+
+function readProgramKeypair(stored: string): Keypair {
+  try {
+    return keypairFromStoredSecret(stored);
+  } catch {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: PROGRAM_KEY_UNREADABLE });
+  }
+}
+
+async function setProgramIdInFlow(ctx: any, projectId: string, programId: string) {
+  const fd = await ctx.prisma.project.findUnique({
+    where: { id: projectId },
+    select: { flowData: true },
+  });
+  if (!fd?.flowData) return;
+  const flow = fd.flowData as { nodes: any[]; edges: any[] };
+  const idx = flow.nodes.findIndex((n: any) => n.type === "program");
+  if (idx === -1) return;
+  flow.nodes[idx] = {
+    ...flow.nodes[idx],
+    data: { ...(flow.nodes[idx].data as Record<string, unknown>), programId },
+  };
+  await ctx.prisma.project.update({
+    where: { id: projectId },
+    data: { flowData: flow as any },
+  });
+}
+
+// ─── Project + binary ───────────────────────────────────────────────────────
 
 async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
   const project = await ctx.prisma.project.findFirst({
@@ -385,61 +404,33 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
   });
   if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
-  let programSecretKey = project.programKeypair;
-
+  let programSecretKey: string | null = project.programKeypair;
   if (!programSecretKey) {
     const programKp = Keypair.generate();
-    programSecretKey = encodeSecretKey(programKp.secretKey);
-
-    await ctx.prisma.project.update({
-      where: { id: project.id },
-      data: { programKeypair: programSecretKey },
+    const encoded = encodeSecretKey(programKp.secretKey);
+    const res = await ctx.prisma.project.updateMany({
+      where: { id: project.id, programKeypair: null },
+      data: { programKeypair: encoded },
     });
-
-    const fd = await ctx.prisma.project.findUnique({
-      where: { id: project.id },
-      select: { flowData: true },
-    });
-    if (fd?.flowData) {
-      const flow = fd.flowData as { nodes: any[]; edges: any[] };
-      const idx = flow.nodes.findIndex((n: any) => n.type === "program");
-      if (idx !== -1) {
-        flow.nodes[idx] = {
-          ...flow.nodes[idx],
-          data: {
-            ...(flow.nodes[idx].data as Record<string, unknown>),
-            programId: programKp.publicKey.toBase58(),
-          },
-        };
-        await ctx.prisma.project.update({
-          where: { id: project.id },
-          data: { flowData: flow as any },
-        });
-      }
+    if (res.count === 1) {
+      programSecretKey = encoded;
+      await setProgramIdInFlow(ctx, project.id, programKp.publicKey.toBase58());
+    } else {
+      const again = await ctx.prisma.project.findUnique({
+        where: { id: project.id },
+        select: { programKeypair: true },
+      });
+      programSecretKey = again?.programKeypair ?? null;
     }
-  }
-
-  const rl = deployRateLimit(userId);
-  if (!rl.allowed) {
-    throw new TRPCError({
-      code: "TOO_MANY_REQUESTS",
-      message: `Deploy rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
-    });
+    if (!programSecretKey) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Could not assign a program keypair" });
   }
 
   const compilation = await ctx.prisma.compilation.findFirst({
-    where: {
-      projectId,
-      status: "SUCCESS",
-      binaryUrl: { not: null },
-    },
+    where: { projectId, status: "SUCCESS", binaryUrl: { not: null } },
     orderBy: { completedAt: "desc" },
   });
   if (!compilation?.binaryUrl) {
-    throw new TRPCError({
-      code: "BAD_REQUEST",
-      message: "No compiled binary found. Compile first.",
-    });
+    throw new TRPCError({ code: "BAD_REQUEST", message: "No compiled binary found. Compile first." });
   }
 
   // Guard against deploying a stale binary from a previous compile
@@ -456,29 +447,9 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
     }
   }
 
-  const binaryBuffer = compilation.binaryBytes
-    ? Buffer.from(compilation.binaryBytes)
-    : await readFile(compilation.binaryUrl);
-  let programKp: Keypair;
-  try {
-    programKp = keypairFromStoredSecret(programSecretKey!);
-  } catch {
-    // The stored program keypair can't be decrypted (ENCRYPTION_MASTER_KEY was
-    // rotated; the old key is lost). Generate a fresh keypair + persist it, then
-    // bail with a clear message — the user must recompile so the .so's
-    // declare_id! matches the new program id, then deploy again.
-    programKp = Keypair.generate();
-    await ctx.prisma.project.update({
-      where: { id: project.id },
-      data: { programKeypair: encodeSecretKey(programKp.secretKey) },
-    });
-    throw new TRPCError({
-      code: "INTERNAL_SERVER_ERROR",
-      message:
-        "Program keypair was unreadable (ENCRYPTION_MASTER_KEY changed). A new keypair has been generated — recompile your project, then deploy again.",
-    });
-  }
-  if (!isEncryptedSecretKey(programSecretKey!)) {
+  const binaryBuffer = await readCompilationBinary(compilation);
+  const programKp = readProgramKeypair(programSecretKey);
+  if (!isEncryptedSecretKey(programSecretKey)) {
     programSecretKey = encodeSecretKey(programKp.secretKey);
     await ctx.prisma.project.update({
       where: { id: project.id },
@@ -486,60 +457,407 @@ async function loadBinaryAndMeta(ctx: any, projectId: string, userId: string) {
     });
   }
 
+  return { programKp, programSecretKey: programSecretKey!, binaryBuffer, compilation };
+}
+
+async function readCompilationBinary(compilation: {
+  binaryBytes?: Uint8Array | null;
+  binaryUrl?: string | null;
+}): Promise<Buffer> {
+  if (compilation.binaryBytes) return Buffer.from(compilation.binaryBytes);
+  if (!compilation.binaryUrl) throw new TRPCError({ code: "BAD_REQUEST", message: "Compiled binary is missing. Recompile." });
+  try {
+    return await readFile(compilation.binaryUrl);
+  } catch {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Compiled binary is no longer available. Recompile." });
+  }
+}
+
+// ─── Session persistence (compare-and-swap on the stored session) ──────────
+
+async function saveSession(
+  ctx: any,
+  deploymentId: string,
+  prevStored: string,
+  next: DeploySession,
+  extra: Record<string, unknown> = {},
+): Promise<string> {
+  const stored = encodeSession(next);
+  const res = await ctx.prisma.deployment.updateMany({
+    where: { id: deploymentId, txSignature: prevStored },
+    data: { txSignature: stored, ...extra },
+  });
+  if (res.count === 0) {
+    throw new TRPCError({
+      code: "CONFLICT",
+      message: "This deploy was updated by another request (another tab?). Reload to resume it.",
+    });
+  }
+  return stored;
+}
+
+async function loadOwnedDeployment(ctx: any, deploymentId: string, userId: string) {
+  const deployment = await ctx.prisma.deployment.findFirst({
+    where: { id: deploymentId, userId },
+  });
+  if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
+  return { deployment, session: decodeSession(deployment.txSignature) };
+}
+
+/** What the client sees. Never includes key material. */
+function snapshot(deployment: any, session: DeploySession | null) {
+  const status = deployment.status as string;
+  const phase =
+    status === "CONFIRMED" || status === "UPGRADED"
+      ? "done"
+      : status === "FAILED" || status === "CLOSED"
+        ? "failed"
+        : (session?.phase ?? "failed");
+  const hasSession = !!session;
+  const network = deployment.network as Network;
+  const realSig = hasSession || ["pending", "failed"].includes(deployment.txSignature)
+    ? null
+    : (deployment.txSignature as string);
   return {
-    programKp,
-    programSecretKey: programSecretKey!,
-    binaryBuffer,
-    compilation,
+    deploymentId: deployment.id as string,
+    projectId: deployment.projectId as string,
+    network,
+    programId: deployment.programId as string,
+    status,
+    phase,
+    progress: session ? progressOf(session) : null,
+    isUpgrade: session?.isUpgrade ?? false,
+    error: session?.error ?? (phase === "failed" && !session ? "Deploy did not finish" : null),
+    buffer: session?.buffer ?? null,
+    reclaimable: status !== "PENDING" && hasReclaimableBuffer(session),
+    txSignature: realSig,
+    explorerUrl: (deployment.explorerUrl as string | null) ?? null,
+    txExplorerUrl: realSig ? buildTxExplorerUrl(network, realSig) : null,
+    deployedAt: deployment.deployedAt as Date,
+  };
+}
+
+/** PENDING deploys with no progress for DEPLOY_STALE_MS become FAILED (their buffer stays reclaimable). */
+async function sweepStaleDeployments(ctx: any, userId: string) {
+  const pending = await ctx.prisma.deployment.findMany({
+    where: { userId, status: "PENDING" },
+    select: { id: true, txSignature: true, deployedAt: true },
+    take: 50,
+  });
+  const now = Date.now();
+  for (const row of pending) {
+    const session = decodeSession(row.txSignature);
+    if (session) {
+      if (!isStale(session, now)) continue;
+      const next: DeploySession = {
+        ...session,
+        phase: "failed",
+        lockedUntil: undefined,
+        error: "Deploy abandoned (no progress for 15 minutes). Reclaim its buffer SOL from the deploy history.",
+        updatedAt: now,
+      };
+      await ctx.prisma.deployment.updateMany({
+        where: { id: row.id, txSignature: row.txSignature },
+        data: { status: "FAILED", txSignature: encodeSession(next) },
+      });
+    } else if (now - new Date(row.deployedAt).getTime() > 15 * 60_000) {
+      // Legacy inline deploy killed by the function timeout.
+      await ctx.prisma.deployment.updateMany({
+        where: { id: row.id, status: "PENDING" },
+        data: { status: "FAILED", txSignature: "failed" },
+      });
+    }
+  }
+}
+
+/** Mark a deploy FAILED, trying (bounded) to close its buffer first so the SOL comes back. */
+async function failDeployment(
+  ctx: any,
+  deploymentId: string,
+  prevStored: string,
+  session: DeploySession,
+  message: string,
+  connection: Connection | null,
+  deployerKp: Keypair | null,
+): Promise<DeploySession> {
+  const next: DeploySession = {
+    ...session,
+    phase: "failed",
+    error: message.slice(0, 2000),
+    lockedUntil: undefined,
+    updatedAt: Date.now(),
+  };
+  if (connection && deployerKp && !session.bufferClosed) {
+    try {
+      const closed = await closeBuffer(connection, deployerKp, new PublicKey(session.buffer), 12_000);
+      if (closed !== null) next.bufferClosed = true;
+    } catch (e) {
+      log("buffer close after failure failed:", e instanceof Error ? e.message : e);
+    }
+  }
+  await ctx.prisma.deployment
+    .updateMany({
+      where: { id: deploymentId, txSignature: prevStored },
+      data: { status: "FAILED", txSignature: encodeSession(next) },
+    })
+    .catch((e: unknown) => log("failed to persist FAILED status:", e));
+  return next;
+}
+
+// ─── Step phases ────────────────────────────────────────────────────────────
+
+async function runCreate(
+  connection: Connection,
+  s: DeploySession,
+  deployerKp: Keypair,
+): Promise<DeploySession> {
+  const bufferPk = new PublicKey(s.buffer);
+  if (await connection.getAccountInfo(bufferPk)) {
+    return { ...s, phase: "write", updatedAt: Date.now() };
+  }
+  if (s.createAttempts >= MAX_CREATE_ATTEMPTS) {
+    return { ...s, phase: "failed", error: "Could not create the buffer account. Check the deployer balance and try again." };
+  }
+  const bufferKp = keypairFromStoredSecret(s.bufferSecret);
+  if (!bufferKp.publicKey.equals(bufferPk)) throw new Error("Stored buffer keypair does not match the buffer address");
+
+  const space = BUFFER_ACCOUNT_METADATA_SIZE + s.binaryLength;
+  const rent = await connection.getMinimumBalanceForRentExemption(space);
+  const bh = await connection.getLatestBlockhash("confirmed");
+  const tx = new Transaction({
+    blockhash: bh.blockhash,
+    lastValidBlockHeight: bh.lastValidBlockHeight,
+    feePayer: deployerKp.publicKey,
+  }).add(
+    SystemProgram.createAccount({
+      fromPubkey: deployerKp.publicKey,
+      newAccountPubkey: bufferPk,
+      space,
+      lamports: rent,
+      programId: BPF_LOADER_UPGRADEABLE,
+    }),
+    createInitializeBufferIx(bufferPk, deployerKp.publicKey),
+  );
+  tx.sign(bufferKp, deployerKp);
+
+  const sim = await connection.simulateTransaction(tx).catch(() => null);
+  if (sim?.value?.err) {
+    return {
+      ...s,
+      phase: "failed",
+      error: `Buffer creation would fail: ${JSON.stringify(sim.value.err)}\n${(sim.value.logs ?? []).join("\n")}`,
+    };
+  }
+
+  const sig = await sendSigned(connection, tx);
+  const res = await waitForSignature(connection, sig, CONFIRM_WAIT_MS);
+  const attempts = s.createAttempts + 1;
+  if (res.state === "confirmed") return { ...s, phase: "write", createAttempts: attempts, updatedAt: Date.now() };
+  // Pending or failed: the next step re-checks the account before resending.
+  return { ...s, createAttempts: attempts, updatedAt: Date.now() };
+}
+
+async function sendChunks(
+  connection: Connection,
+  s: DeploySession,
+  binary: Buffer,
+  deployerKp: Keypair,
+  indices: number[],
+  deadline: number,
+): Promise<number> {
+  const bufferPk = new PublicKey(s.buffer);
+  let bh = await connection.getLatestBlockhash("confirmed");
+  let bhAt = Date.now();
+  let sentThrough = -1;
+  for (const idx of indices) {
+    if (Date.now() >= deadline) break;
+    if (Date.now() - bhAt > 30_000) {
+      bh = await connection.getLatestBlockhash("confirmed");
+      bhAt = Date.now();
+    }
+    const { offset, end } = chunkRange(idx, s.binaryLength, s.chunkSize);
+    const tx = new Transaction({
+      blockhash: bh.blockhash,
+      lastValidBlockHeight: bh.lastValidBlockHeight,
+      feePayer: deployerKp.publicKey,
+    }).add(createWriteIx(bufferPk, deployerKp.publicKey, offset, binary.subarray(offset, end)));
+    tx.sign(deployerKp);
+    try {
+      await sendSigned(connection, tx);
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      if (msg.includes("429")) {
+        await sleep(2000);
+        await sendSigned(connection, tx).catch(() => undefined);
+      } else {
+        // Fire-and-forget: the verify phase rewrites anything that didn't land.
+        log(`chunk ${idx} send error: ${msg.slice(0, 200)}`);
+      }
+    }
+    sentThrough = idx;
+    await sleep(CHUNK_SEND_DELAY_MS);
+  }
+  return sentThrough;
+}
+
+async function runWrite(
+  connection: Connection,
+  s: DeploySession,
+  binary: Buffer,
+  deployerKp: Keypair,
+  deadline: number,
+): Promise<DeploySession> {
+  const batch = planWriteBatch(s, MAX_CHUNKS_PER_STEP);
+  const last = await sendChunks(connection, s, binary, deployerKp, batch, deadline);
+  return afterWrite(s, last + 1);
+}
+
+async function runVerify(
+  connection: Connection,
+  s: DeploySession,
+  binary: Buffer,
+  deployerKp: Keypair,
+  deadline: number,
+): Promise<DeploySession> {
+  await sleep(2000); // let the tail of the last batch land before reading
+  const acc = await connection.getAccountInfo(new PublicKey(s.buffer));
+  if (!acc) return { ...s, phase: "failed", error: "The buffer account disappeared before the deploy finished." };
+  const missing = findMissingChunks(binary, bufferProgramBytes(acc.data, s.binaryLength), s.chunkSize);
+  const next = afterVerify(s, missing.length);
+  if (next.phase === "verify") {
+    await sendChunks(connection, s, binary, deployerKp, missing, deadline);
+  }
+  return next;
+}
+
+// ─── Finalize helpers ───────────────────────────────────────────────────────
+
+async function deployLanded(
+  connection: Connection,
+  s: DeploySession,
+  programId: PublicKey,
+  programDataAddress: PublicKey,
+): Promise<boolean> {
+  if (s.isUpgrade) {
+    const acc = await connection.getAccountInfo(programDataAddress);
+    if (!acc || acc.data.length < 12) return false;
+    // ProgramData: u32 enum tag, then the u64 slot of the last deploy/upgrade.
+    return acc.data.readBigUInt64LE(4) > BigInt(s.preUpgradeSlot);
+  }
+  const acc = await connection.getAccountInfo(programId);
+  return !!acc && acc.executable;
+}
+
+function buildFinalizeTx(
+  s: DeploySession,
+  bh: { blockhash: string; lastValidBlockHeight: number },
+  deployerKp: Keypair,
+  programKp: Keypair,
+  programDataAddress: PublicKey,
+  programRent: number,
+): Transaction {
+  const deployerPk = deployerKp.publicKey;
+  const programId = programKp.publicKey;
+  const bufferPk = new PublicKey(s.buffer);
+  const tx = new Transaction({
+    blockhash: bh.blockhash,
+    lastValidBlockHeight: bh.lastValidBlockHeight,
+    feePayer: deployerPk,
+  });
+  if (s.isUpgrade) {
+    tx.add(createUpgradeIx(programDataAddress, programId, bufferPk, deployerPk, deployerPk));
+    tx.sign(deployerKp);
+  } else {
+    tx.add(
+      SystemProgram.createAccount({
+        fromPubkey: deployerPk,
+        newAccountPubkey: programId,
+        space: 36,
+        lamports: programRent,
+        programId: BPF_LOADER_UPGRADEABLE,
+      }),
+      createDeployWithMaxProgramLenIx(
+        programDataAddress,
+        programId,
+        bufferPk,
+        deployerPk,
+        deployerPk,
+        s.maxProgramLen,
+      ),
+    );
+    tx.sign(programKp, deployerKp);
+  }
+  return tx;
+}
+
+async function completeDeployment(ctx: any, deployment: any, prevStored: string, s: DeploySession) {
+  const network = deployment.network as Network;
+  const sig = s.finalizeSig ?? "confirmed-on-chain";
+  const explorerUrl = buildExplorerUrl(network, deployment.programId);
+  const res = await ctx.prisma.deployment.updateMany({
+    where: { id: deployment.id, txSignature: prevStored },
+    data: {
+      status: "CONFIRMED",
+      txSignature: sig,
+      explorerUrl: explorerUrl ?? undefined,
+      ...(s.isUpgrade ? { upgradedAt: new Date() } : {}),
+    },
+  });
+  if (res.count === 0) {
+    throw new TRPCError({ code: "CONFLICT", message: "Deploy was updated by another request. Reload to see its state." });
+  }
+  await ctx.prisma.project.update({
+    where: { id: deployment.projectId },
+    data: { status: "DEPLOYED" },
+  });
+  log("=== DEPLOY COMPLETE ===", deployment.programId, sig);
+  return {
+    ...snapshot({ ...deployment, status: "CONFIRMED", txSignature: sig, explorerUrl }, null),
+    phase: "done" as const,
   };
 }
 
 // ─── Router ────────────────────────────────────────────────────────────────────
 
+const networkInput = z.enum(["DEVNET", "MAINNET", "LOCALNET"]).default("DEVNET");
+
 export const deployRouter = router({
   /**
-   * Check deployer balance. Returns the deployer address + balance so the
-   * UI can ask the user to fund it before deploying.
+   * Deployer address + balance + the SOL a deploy of the latest build needs, so
+   * the UI can ask the user to fund it first.
    */
   checkBalance: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.string(),
-        network: z.enum(["DEVNET", "MAINNET", "LOCALNET"]).default("DEVNET"),
-      }),
-    )
+    .input(z.object({ projectId: z.string(), network: networkInput }))
     .query(async ({ ctx, input }) => {
       const userId = ctx.session.user.id!;
+      const project = await ctx.prisma.project.findFirst({
+        where: { id: input.projectId, userId },
+        select: { id: true },
+      });
+      if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+
       const deployerKp = await getOrCreateDeployer(ctx, userId);
-
-      const rpcUrl = NETWORK_CONFIG[input.network].rpcUrl;
-      const connection = new Connection(rpcUrl, "confirmed");
-
+      const connection = connectionFor(input.network);
       const balance = await connection.getBalance(deployerKp.publicKey);
 
-      // Calculate actual cost from the latest compiled binary
       const compilation = await ctx.prisma.compilation.findFirst({
-        where: {
-          projectId: input.projectId,
-          status: "SUCCESS",
-          binaryUrl: { not: null },
-        },
+        where: { projectId: project.id, status: "SUCCESS", binaryUrl: { not: null } },
         orderBy: { completedAt: "desc" },
       });
 
       let needed = 2 * LAMPORTS_PER_SOL;
       if (compilation?.binaryUrl) {
-        const binaryBuffer = compilation.binaryBytes
-          ? Buffer.from(compilation.binaryBytes)
-          : await readFile(compilation.binaryUrl);
-        const totalChunks = Math.ceil(binaryBuffer.length / CHUNK_SIZE);
-        const bufferRent = await connection.getMinimumBalanceForRentExemption(
-          37 + binaryBuffer.length,
-        );
-        const txFees = (totalChunks + 3) * 5000;
-        needed = txFees + 3 * bufferRent;
+        const len = (await readCompilationBinary(compilation)).length;
+        const [bufferRent, programDataRent, programAccountRent] = await Promise.all([
+          connection.getMinimumBalanceForRentExemption(BUFFER_ACCOUNT_METADATA_SIZE + len),
+          connection.getMinimumBalanceForRentExemption(PROGRAM_DATA_HEADER_SIZE + 2 * len),
+          connection.getMinimumBalanceForRentExemption(36),
+        ]);
+        // Upper bound (fresh deploy) plus a small margin for retries.
+        needed =
+          estimateDeployCost({ binaryLength: len, bufferRent, programDataRent, programAccountRent, isUpgrade: false }) +
+          Math.floor(0.05 * LAMPORTS_PER_SOL);
       }
-      needed += Math.floor(0.5 * LAMPORTS_PER_SOL);
 
       return {
         address: deployerKp.publicKey.toBase58(),
@@ -550,663 +868,375 @@ export const deployRouter = router({
     }),
 
   /**
-   * Deploy a program:
-   *   - deployerKeypair (user-level, persistent) = PAYER (funds everything)
-   *   - programKeypair (per-project) = PROGRAM IDENTITY only
-   *   - Server signs all transactions with both keypairs
+   * Start (or resume) a deploy. Validates everything that can fail before SOL
+   * is spent, then creates the Deployment row with an encrypted buffer keypair
+   * and the chunk plan. The client then calls `step` until phase is
+   * "finalize", then `finalize` until phase is "done".
    */
   start: protectedProcedure
-    .input(
-      z.object({
-        projectId: z.string(),
-        network: z.enum(["DEVNET", "MAINNET", "LOCALNET"]).default("DEVNET"),
-      }),
-    )
+    .input(z.object({ projectId: z.string(), network: networkInput }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id!;
-      const { programKp, programSecretKey, binaryBuffer } =
+      await sweepStaleDeployments(ctx, userId);
+
+      const { programKp, programSecretKey, binaryBuffer, compilation } =
         await loadBinaryAndMeta(ctx, input.projectId, userId);
 
-      // Get the user's persistent deployer keypair (SEPARATE from program)
-      const deployerKp = await getOrCreateDeployer(ctx, userId);
-      const deployerPk = deployerKp.publicKey;
-
-      const rpcUrl = NETWORK_CONFIG[input.network].rpcUrl;
-      const connection = new Connection(rpcUrl, "confirmed");
-      const programId = programKp.publicKey;
-
-      log("=== DEPLOY START ===");
-      log(
-        "deployer:",
-        deployerPk.toBase58(),
-        "(payer — persists across projects)",
-      );
-      log("program:", programId.toBase58(), "(identity — per project)");
-      log("network:", input.network, "rpc:", rpcUrl);
-      log("binary size:", binaryBuffer.length, "bytes");
-
-      // Validate: deployer and program keypairs MUST be different
-      if (deployerPk.equals(programId)) {
-        log("WARNING: deployer and program keypairs are the same! Regenerating program keypair…");
-        const newProgramKp = Keypair.generate();
-        const newProgramSecretKey = encodeSecretKey(newProgramKp.secretKey);
-
-        await ctx.prisma.project.update({
-          where: { id: input.projectId },
-          data: { programKeypair: newProgramSecretKey },
-        });
-
-        // Update flow data with new program ID
-        const fd = await ctx.prisma.project.findUnique({
-          where: { id: input.projectId },
-          select: { flowData: true },
-        });
-        if (fd?.flowData) {
-          const flow = fd.flowData as { nodes: any[]; edges: any[] };
-          const idx = flow.nodes.findIndex((n: any) => n.type === "program");
-          if (idx !== -1) {
-            flow.nodes[idx] = {
-              ...flow.nodes[idx],
-              data: {
-                ...(flow.nodes[idx].data as Record<string, unknown>),
-                programId: newProgramKp.publicKey.toBase58(),
-              },
-            };
-            await ctx.prisma.project.update({
-              where: { id: input.projectId },
-              data: { flowData: flow as any },
-            });
-          }
+      // Resume an in-flight deploy of the same build instead of starting over.
+      const inFlight = await ctx.prisma.deployment.findFirst({
+        where: { projectId: input.projectId, userId, network: input.network, status: "PENDING" },
+        orderBy: { deployedAt: "desc" },
+      });
+      const inFlightSession = inFlight ? decodeSession(inFlight.txSignature) : null;
+      if (inFlight && inFlightSession) {
+        if (inFlightSession.compilationId === compilation.id && inFlight.programId === programKp.publicKey.toBase58()) {
+          return { ...snapshot(inFlight, inFlightSession), resumed: true };
         }
+        // A newer build supersedes it: fail it and reclaim its buffer (bounded).
+        const deployer = await readDeployer(ctx, userId).catch(() => ({ keypair: null }));
+        await failDeployment(
+          ctx,
+          inFlight.id,
+          inFlight.txSignature,
+          inFlightSession,
+          "Superseded by a deploy of a newer build.",
+          connectionFor(input.network),
+          deployer.keypair,
+        );
+      }
 
-        // Recalculate with new program keypair
-        const newProgramId = newProgramKp.publicKey;
-        log("new program:", newProgramId.toBase58());
+      const rl = deployRateLimit(userId);
+      if (!rl.allowed) {
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: `Deployer and program keypairs were identical (bug). Program keypair has been regenerated to ${newProgramId.toBase58()}. Please try deploying again.`,
+          code: "TOO_MANY_REQUESTS",
+          message: `Deploy rate limit exceeded. Try again in ${Math.ceil((rl.resetAt - Date.now()) / 1000)}s.`,
         });
       }
 
+      const deployerKp = await getOrCreateDeployer(ctx, userId);
+      const deployerPk = deployerKp.publicKey;
+      const programId = programKp.publicKey;
+      if (deployerPk.equals(programId)) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Deployer and program keypairs are identical. Reset the program keypair, recompile, and deploy again.",
+        });
+      }
+
+      const connection = connectionFor(input.network);
       const [programDataAddress] = PublicKey.findProgramAddressSync(
         [programId.toBuffer()],
         BPF_LOADER_UPGRADEABLE,
       );
-      const existingProgramData =
-        await connection.getAccountInfo(programDataAddress);
+      const existingProgramData = await connection.getAccountInfo(programDataAddress);
       const isUpgrade = existingProgramData !== null;
-      log("isUpgrade:", isUpgrade);
+      let preUpgradeSlot = BigInt(0);
+      if (existingProgramData) {
+        const space = existingProgramData.data.length - PROGRAM_DATA_HEADER_SIZE;
+        if (binaryBuffer.length > space) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Program binary (${binaryBuffer.length} bytes) is larger than the allocated ProgramData space (${space} bytes). Reset the program keypair to deploy a fresh program (new deploys allocate 2x the binary size).`,
+          });
+        }
+        preUpgradeSlot = existingProgramData.data.readBigUInt64LE(4);
+      }
 
-      // Calculate maxProgramLen — sol-pg uses programLen * 2 for initial
-      // deploys to leave room for future upgrades with larger binaries.
-      const PROGRAM_DATA_HEADER_SIZE = 45;
-      const maxProgramLen = isUpgrade
-        ? binaryBuffer.length // upgrades just need to fit
-        : binaryBuffer.length * 2; // 2x headroom (matches sol-pg)
-      log("maxProgramLen:", maxProgramLen, "(binary:", binaryBuffer.length, ")");
+      const [bufferRent, programDataRent, programAccountRent, balance] = await Promise.all([
+        connection.getMinimumBalanceForRentExemption(BUFFER_ACCOUNT_METADATA_SIZE + binaryBuffer.length),
+        connection.getMinimumBalanceForRentExemption(PROGRAM_DATA_HEADER_SIZE + 2 * binaryBuffer.length),
+        connection.getMinimumBalanceForRentExemption(36),
+        connection.getBalance(deployerPk),
+      ]);
+      const estimatedCost = estimateDeployCost({
+        binaryLength: binaryBuffer.length,
+        bufferRent,
+        programDataRent,
+        programAccountRent,
+        isUpgrade,
+      });
+      if (balance < estimatedCost) {
+        const deficit = (estimatedCost - balance) / LAMPORTS_PER_SOL;
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Deployer needs ~${(estimatedCost / LAMPORTS_PER_SOL).toFixed(2)} SOL but has ${(balance / LAMPORTS_PER_SOL).toFixed(2)} SOL. Send at least ${deficit.toFixed(2)} SOL to:\n\n${deployerPk.toBase58()}`,
+        });
+      }
 
-      const totalChunks = Math.ceil(binaryBuffer.length / CHUNK_SIZE);
-      log("total chunks:", totalChunks);
-
-      // Create deployment record
+      const bufferKp = Keypair.generate();
+      const session = newSession({
+        compilationId: compilation.id,
+        binaryLength: binaryBuffer.length,
+        buffer: bufferKp.publicKey.toBase58(),
+        bufferSecret: encodeSecretKey(bufferKp.secretKey),
+        isUpgrade,
+        preUpgradeSlot,
+      });
+      const binaryHash = createHash("sha256").update(binaryBuffer).digest("hex").slice(0, 16);
       const deployment = await ctx.prisma.deployment.create({
         data: {
           projectId: input.projectId,
           userId,
           network: input.network,
           programId: programId.toBase58(),
-          txSignature: "pending",
-          irHash: createHash("sha256")
-            .update(binaryBuffer)
-            .digest("hex")
-            .slice(0, 16),
-          binaryHash: createHash("sha256")
-            .update(binaryBuffer)
-            .digest("hex")
-            .slice(0, 16),
+          txSignature: encodeSession(session),
+          irHash: compilation.irHash ?? binaryHash,
+          binaryHash,
           status: "PENDING",
           programKeypair: programSecretKey,
         },
       });
+      log("start", deployment.id, "program", programId.toBase58(), "buffer", session.buffer, "chunks", session.totalChunks, "upgrade", isUpgrade);
+      return { ...snapshot(deployment, session), resumed: false };
+    }),
 
-      const deploymentId = deployment.id;
-      log("deployment record:", deploymentId);
+  /** One bounded unit of work (≤ ~40 s): create the buffer, write chunks, or verify/rewrite. */
+  step: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      const { deployment, session } = await loadOwnedDeployment(ctx, input.deploymentId, userId);
+      if (deployment.status !== "PENDING" || !session) {
+        const snap = snapshot(deployment, session);
+        if (snap.phase === "failed") throw new TRPCError({ code: "BAD_REQUEST", message: snap.error ?? "Deploy failed" });
+        return { ...snap, busy: false };
+      }
+      if (session.phase === "finalize" || session.phase === "done" || session.phase === "failed") {
+        return { ...snapshot(deployment, session), busy: false };
+      }
+      if (isLocked(session)) return { ...snapshot(deployment, session), busy: true };
 
-      const bufferKp = Keypair.generate();
-      const bufferPubkey = bufferKp.publicKey;
-      log("buffer:", bufferPubkey.toBase58());
+      const started = Date.now();
+      const deadline = started + STEP_BUDGET_MS;
+      let s: DeploySession = { ...session, lockedUntil: started + STEP_LEASE_MS };
+      let stored = await saveSession(ctx, deployment.id, deployment.txSignature, s);
 
-      const sendProgress = (phase: string, message: string, extra?: any) => {
-        log(`[${phase}]`, message, extra ?? "");
-        try {
-          broadcastToJob(deploymentId, {
-            type: "deploy-status",
-            jobId: deploymentId,
-            data: { phase, message, ...extra },
-          });
-        } catch {
-          /* WS not connected */
-        }
-      };
-
+      const connection = connectionFor(deployment.network as Network);
+      let deployerKp: Keypair | null = null;
       try {
-        // ─── Check deployer balance ──────────────────────────────────────
-        sendProgress("funding", "Checking deployer balance…");
-
-        const bufferSpace = 37 + binaryBuffer.length;
-        const bufferRent =
-          await connection.getMinimumBalanceForRentExemption(bufferSpace);
-        const programRent =
-          await connection.getMinimumBalanceForRentExemption(36);
-        const estimatedCost =
-          (totalChunks + 3) * 5000 +
-          bufferRent +
-          (isUpgrade ? 0 : 2 * bufferRent + programRent);
-
-        const balance = await connection.getBalance(deployerPk);
-        log("deployer balance:", balance / LAMPORTS_PER_SOL, "SOL");
-        log("estimated cost:", estimatedCost / LAMPORTS_PER_SOL, "SOL");
-
-        if (balance < estimatedCost) {
-          const deficit = (estimatedCost - balance) / LAMPORTS_PER_SOL;
-          const faucetUrl = `https://faucet.solana.com/?address=${deployerPk.toBase58()}`;
-          log("INSUFFICIENT FUNDS. Need", deficit.toFixed(2), "more SOL");
-
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `Deployer needs ~${Math.ceil(estimatedCost / LAMPORTS_PER_SOL)} SOL but has ${(balance / LAMPORTS_PER_SOL).toFixed(2)} SOL. Send at least ${deficit.toFixed(1)} SOL to:\n\n${deployerPk.toBase58()}\n\nFaucet: ${faucetUrl}`,
-          });
-        }
-
-        sendProgress(
-          "funded",
-          `Balance OK: ${(balance / LAMPORTS_PER_SOL).toFixed(2)} SOL`,
-        );
-
-        // ─── Pre-flight: Verify network and programs ──────────────────────
-        log("verifying network connectivity…");
-        try {
-          const bpfAccount = await connection.getAccountInfo(
-            BPF_LOADER_UPGRADEABLE,
-          );
-          if (!bpfAccount) {
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `BPFLoaderUpgradeable not found at ${rpcUrl}. Is this a valid Solana cluster?`,
-            });
-          }
-          log(
-            "BPFLoaderUpgradeable OK, owner:",
-            bpfAccount.owner.toBase58(),
-            "executable:",
-            bpfAccount.executable,
-          );
-        } catch (e) {
-          if (e instanceof TRPCError) throw e;
-          throw new TRPCError({
-            code: "INTERNAL_SERVER_ERROR",
-            message: `Failed to verify network at ${rpcUrl}: ${e instanceof Error ? e.message : String(e)}`,
-          });
-        }
-
-        // ─── Step 1: Create buffer account (deployer pays) ────────────────
-        sendProgress("buffer", "Creating buffer account…");
-
-        // Build the buffer creation transaction
-        const buildBufferTx = () => {
-          const bh = getLatestBlockhash(connection);
-          return bh.then((bh) => {
-            const tx = new Transaction({
-              blockhash: bh.blockhash,
-              lastValidBlockHeight: bh.lastValidBlockHeight,
-              feePayer: deployerPk,
-            });
-            tx.add(
-              SystemProgram.createAccount({
-                fromPubkey: deployerPk,
-                newAccountPubkey: bufferPubkey,
-                space: bufferSpace,
-                lamports: bufferRent,
-                programId: BPF_LOADER_UPGRADEABLE,
-              }),
-              createInitializeBufferIx(bufferPubkey, deployerPk),
-            );
-            tx.sign(bufferKp, deployerKp);
-            return { tx, bh };
-          });
-        };
-
-        // Simulate first to get detailed error info
-        try {
-          const { tx: simTx } = await buildBufferTx();
-          const simulation = await connection.simulateTransaction(simTx);
-          if (simulation?.value?.err) {
-            log(
-              "BUFFER SIMULATION FAILED:",
-              JSON.stringify(simulation.value.err),
-            );
-            log("SIMULATION LOGS:", simulation.value.logs);
-            throw new TRPCError({
-              code: "INTERNAL_SERVER_ERROR",
-              message: `Buffer creation would fail: ${JSON.stringify(simulation.value.err)}\nLogs: ${(simulation.value.logs || []).join("\n")}`,
-            });
-          }
-          log("buffer simulation passed");
-        } catch (e) {
-          if (e instanceof TRPCError) throw e;
-          log("simulation exception:", e instanceof Error ? e.message : String(e));
-          // Continue anyway - simulation might fail for benign reasons
-        }
-
-        await sendAndConfirmTxWithRetries(
-          connection,
-          async () => {
-            const { tx, bh } = await buildBufferTx();
-            const serialized = tx.serialize();
-            const signature = await connection.sendRawTransaction(serialized, {
-              skipPreflight: true,
-              preflightCommitment: "confirmed",
-            });
-            return {
-              signature,
-              blockhash: bh.blockhash,
-              lastValidBlockHeight: bh.lastValidBlockHeight,
-            };
-          },
-          async () => {
-            const acc = await connection.getAccountInfo(bufferPubkey);
-            return !!acc;
-          },
-          "Create buffer",
-        );
-
-        sendProgress("buffer", "Waiting for buffer to propagate…");
-        await tryUntilSuccess(async () => {
-          const acc = await connection.getAccountInfo(bufferPubkey);
-          if (!acc) throw new Error("Buffer not found yet");
-          return acc;
-        }, 1000);
-        log("buffer created and confirmed on-chain");
-
-        // ─── Step 2: Write chunks sequentially (fire-and-forget, verify at end) ─
-        sendProgress("writing", `Writing ${totalChunks} chunks…`, {
-          totalChunks,
+        deployerKp = await requireDeployer(ctx, userId);
+        const compilation = await ctx.prisma.compilation.findFirst({
+          where: { id: s.compilationId, projectId: deployment.projectId },
+          select: { binaryBytes: true, binaryUrl: true },
         });
+        if (!compilation) throw new Error("The build this deploy uses was deleted. Recompile and deploy again.");
+        const binary = await readCompilationBinary(compilation);
+        if (binary.length !== s.binaryLength) throw new Error("The stored binary changed during the deploy. Recompile and deploy again.");
 
-        // Fire-and-forget: send each chunk, don't wait for individual confirmation.
-        // The verify loop at the end catches missing chunks.
-        // This matches how `solana program deploy` CLI works.
-
-        const sendChunk = async (chunkIdx: number) => {
-          const offset = chunkIdx * CHUNK_SIZE;
-          const chunk = binaryBuffer.slice(offset, offset + CHUNK_SIZE);
-          const bh = await getLatestBlockhash(connection);
-          const tx = new Transaction({
-            blockhash: bh.blockhash,
-            lastValidBlockHeight: bh.lastValidBlockHeight,
-            feePayer: deployerPk,
-          });
-          tx.add(createWriteIx(bufferPubkey, deployerPk, offset, chunk));
-          tx.sign(deployerKp);
-          const serialized = tx.serialize();
-          // Fire and forget: just send, don't confirm
-          await connection.sendRawTransaction(serialized, {
-            skipPreflight: true,
-            preflightCommitment: "confirmed",
-          });
-        };
-
-        const allIndices = Array.from({ length: totalChunks }, (_, i) => i);
-
-        // Send all chunks sequentially with delays to avoid rate limits
-        for (let i = 0; i < allIndices.length; i++) {
-          const chunkIdx = allIndices[i];
-          try {
-            await sendChunk(chunkIdx);
-            if (i % 20 === 0) {
-              log(`writing chunk ${i}/${totalChunks}…`);
-              sendProgress("writing", `Writing chunk ${i}/${totalChunks}…`, {
-                written: i,
-                totalChunks,
-              });
-            }
-          } catch (e: any) {
-            const msg = e?.message ?? String(e);
-            if (msg.includes("429")) {
-              // Rate limited - wait longer and retry this chunk
-              log(`chunk ${chunkIdx} rate limited, waiting 2s…`);
-              await new Promise((r) => setTimeout(r, 2000));
-              try {
-                await sendChunk(chunkIdx);
-              } catch (e2: any) {
-                log(`chunk ${chunkIdx} failed after retry: ${e2.message}`);
-              }
-            } else {
-              log(`chunk ${chunkIdx} send error: ${msg.slice(0, 200)}`);
-            }
-          }
-          // Delay between sends to stay under rate limit
-          if (i < allIndices.length - 1) {
-            await new Promise((r) => setTimeout(r, CHUNK_SEND_DELAY_MS));
-          }
-        }
-
-        log("all chunks sent, waiting for finalization…");
-        // Give the network a moment to finalize all transactions
-        await new Promise((r) => setTimeout(r, 3000));
-
-        // ─── Verify all chunks on-chain ──────────────────────────────────
-        let verifyPass = 0;
-        while (true) {
-          verifyPass++;
-          const bufferAccount = await tryUntilSuccess(async () => {
-            const acc = await connection.getAccountInfo(bufferPubkey);
-            if (!acc) throw new Error("Buffer account not found");
-            return acc;
-          }, 1000);
-
-          const onChainData = bufferAccount.data.slice(
-            BUFFER_ACCOUNT_METADATA_SIZE,
-            BUFFER_ACCOUNT_METADATA_SIZE + binaryBuffer.length,
-          );
-
-          if (onChainData.equals(binaryBuffer)) {
-            log("buffer verification passed — all bytes match");
-            break;
-          }
-
-          const missingIndices = allIndices.filter((i) => {
-            const start = i * CHUNK_SIZE;
-            const end = start + CHUNK_SIZE;
-            const expected = binaryBuffer.slice(start, end);
-            const actual = onChainData.slice(start, end);
-            return !expected.equals(actual);
-          });
-
-          log(
-            `verify pass ${verifyPass}: ${missingIndices.length} missing chunks, rewriting…`,
-          );
-          sendProgress(
-            "writing",
-            `Verifying… ${missingIndices.length} chunks need rewrite (pass ${verifyPass})`,
-            {
-              missingChunks: missingIndices.length,
-              verifyPass,
-              totalChunks,
-            },
-          );
-
-          // Re-send missing chunks sequentially with delay
-          for (let j = 0; j < missingIndices.length; j++) {
-            const chunkIdx = missingIndices[j];
-            try {
-              await sendChunk(chunkIdx);
-            } catch (e: any) {
-              log(`retry chunk ${chunkIdx} failed: ${(e?.message ?? String(e)).slice(0, 200)}`);
-            }
-            if (j < missingIndices.length - 1) {
-              await new Promise((r) => setTimeout(r, CHUNK_SEND_DELAY_MS));
-            }
-          }
-          // Wait for re-sent chunks to finalize
-          await new Promise((r) => setTimeout(r, 3000));
-        }
-
-        log("all chunks written and verified successfully");
-
-        // ─── Step 3: Deploy / Upgrade from buffer ──────────────────────────
-        sendProgress(
-          "deploying",
-          isUpgrade ? "Upgrading program…" : "Deploying program…",
-        );
-
-        // For upgrades: check if ProgramData account is large enough.
-        // sol-pg does NOT use ExtendProgram — they allocate 2x upfront.
-        if (isUpgrade && existingProgramData) {
-          const currentDataSpace =
-            existingProgramData.data.length - PROGRAM_DATA_HEADER_SIZE;
-          if (binaryBuffer.length > currentDataSpace) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message: `Program binary (${binaryBuffer.length} bytes) is larger than the allocated ProgramData space (${currentDataSpace} bytes). This program was initially deployed without size headroom. To fix this, create a new project or reset the program keypair — new deploys allocate 2x the binary size for future upgrades.`,
-            });
-          }
-        }
-
-        // Track slot before upgrade so we can verify it actually changed
-        let preUpgradeSlot = BigInt(0);
-        if (isUpgrade) {
-          const preAcc = await connection.getAccountInfo(programDataAddress);
-          if (preAcc) {
-            preUpgradeSlot = preAcc.data.readBigUInt64LE(8);
-          }
-        }
-
-        const deployTxSig = await sendAndConfirmTxWithRetries(
-          connection,
-          async () => {
-            const bh = await getLatestBlockhash(connection);
-            const tx = new Transaction({
-              blockhash: bh.blockhash,
-              lastValidBlockHeight: bh.lastValidBlockHeight,
-              feePayer: deployerPk,
-            });
-            if (isUpgrade) {
-              tx.add(
-                createUpgradeIx(
-                  programDataAddress,
-                  programId,
-                  bufferPubkey,
-                  deployerPk,
-                  deployerPk,
-                ),
-              );
-              tx.sign(deployerKp);
-            } else {
-              tx.add(
-                SystemProgram.createAccount({
-                  fromPubkey: deployerPk,
-                  newAccountPubkey: programId,
-                  space: 36,
-                  lamports: programRent,
-                  programId: BPF_LOADER_UPGRADEABLE,
-                }),
-                createDeployWithMaxProgramLenIx(
-                  programDataAddress,
-                  programId,
-                  bufferPubkey,
-                  deployerPk,
-                  deployerPk,
-                  maxProgramLen,
-                ),
-              );
-              tx.sign(programKp, deployerKp);
-            }
-            const serialized = tx.serialize();
-            const signature = await connection.sendRawTransaction(serialized, {
-              skipPreflight: true,
-              preflightCommitment: "confirmed",
-            });
-            return {
-              signature,
-              blockhash: bh.blockhash,
-              lastValidBlockHeight: bh.lastValidBlockHeight,
-            };
-          },
-          async () => {
-            if (isUpgrade) {
-              const acc = await connection.getAccountInfo(programDataAddress);
-              if (!acc) return false;
-              const slot = acc.data.readBigUInt64LE(8);
-              // Slot must have advanced past the pre-upgrade value
-              return slot > preUpgradeSlot;
-            }
-            const acc = await connection.getAccountInfo(programId);
-            return !!acc && acc.executable;
-          },
-          "Deploy/Upgrade",
-        );
-        log("deployed! tx:", deployTxSig);
-
-        // ─── Step 4: Close buffer (reclaim SOL) ───────────────────────────
-        sendProgress("cleanup", "Reclaiming buffer SOL…");
-        try {
-          await sendAndConfirmTxWithRetries(
-            connection,
-            async () => {
-              const bh = await getLatestBlockhash(connection);
-              const tx = new Transaction({
-                blockhash: bh.blockhash,
-                lastValidBlockHeight: bh.lastValidBlockHeight,
-                feePayer: deployerPk,
-              });
-              tx.add(createCloseIx(bufferPubkey, deployerPk, deployerPk));
-              tx.sign(deployerKp);
-              const serialized = tx.serialize();
-              const signature = await connection.sendRawTransaction(serialized, {
-                skipPreflight: true,
-                preflightCommitment: "confirmed",
-              });
-              return { signature, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight };
-            },
-            async () => {
-              const acc = await connection.getAccountInfo(bufferPubkey);
-              return !acc;
-            },
-            "Close buffer",
-          );
-          log("buffer closed, SOL reclaimed to deployer");
-        } catch (e) {
-          log("buffer close failed (non-critical):", e);
-        }
-
-        // ─── Finalize ──────────────────────────────────────────────────────
-        const explorerUrl = buildExplorerUrl(
-          input.network,
-          programId.toBase58(),
-        );
-        const txExplorerUrl = buildTxExplorerUrl(input.network, deployTxSig);
-
-        await ctx.prisma.deployment.update({
-          where: { id: deploymentId },
-          data: {
-            status: "CONFIRMED",
-            txSignature: deployTxSig,
-            explorerUrl: explorerUrl ?? undefined,
-          },
-        });
-
-        await ctx.prisma.project.update({
-          where: { id: input.projectId },
-          data: { status: "DEPLOYED" },
-        });
-
-        log("=== DEPLOY COMPLETE ===");
-        log("program:", programId.toBase58());
-        log("tx:", deployTxSig);
-        log("explorer:", explorerUrl);
-
-        sendProgress("complete", "Deployment complete!", {
-          programId: programId.toBase58(),
-          txSignature: deployTxSig,
-          explorerUrl,
-          txExplorerUrl,
-        });
-
-        return {
-          deploymentId,
-          programId: programId.toBase58(),
-          deployerAddress: deployerPk.toBase58(),
-          txSignature: deployTxSig,
-          explorerUrl,
-          txExplorerUrl,
-          isUpgrade,
-        };
+        if (s.phase === "create") s = await runCreate(connection, s, deployerKp);
+        else if (s.phase === "write") s = await runWrite(connection, s, binary, deployerKp, deadline);
+        else if (s.phase === "verify") s = await runVerify(connection, s, binary, deployerKp, deadline);
       } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log("=== DEPLOY FAILED ===");
-        log("error:", errMsg);
-
-        // Attempt buffer cleanup
-        try {
-          await sendAndConfirmTxWithRetries(
-            connection,
-            async () => {
-              const bh = await getLatestBlockhash(connection);
-              const tx = new Transaction({
-                blockhash: bh.blockhash,
-                lastValidBlockHeight: bh.lastValidBlockHeight,
-                feePayer: deployerPk,
-              });
-              tx.add(createCloseIx(bufferPubkey, deployerPk, deployerPk));
-              tx.sign(deployerKp);
-              const serialized = tx.serialize();
-              const signature = await connection.sendRawTransaction(serialized, {
-                skipPreflight: true,
-                preflightCommitment: "confirmed",
-              });
-              return { signature, blockhash: bh.blockhash, lastValidBlockHeight: bh.lastValidBlockHeight };
-            },
-            async () => {
-              const acc = await connection.getAccountInfo(bufferPubkey);
-              return !acc;
-            },
-            "Cleanup buffer",
-          );
-        } catch {
-          log("buffer cleanup after failure also failed");
+        if (err instanceof TRPCError && err.code === "PRECONDITION_FAILED") {
+          // Key problem: keep the deploy resumable once the key is restored.
+          await saveSession(ctx, deployment.id, stored, { ...session, lockedUntil: undefined }).catch(() => undefined);
+          throw err;
         }
+        // Transient RPC trouble: release the lease and let the client retry this step.
+        const msg = err instanceof Error ? err.message : String(err);
+        log("step error (retryable):", msg.slice(0, 300));
+        await saveSession(ctx, deployment.id, stored, { ...s, lockedUntil: undefined, updatedAt: Date.now() }).catch(() => undefined);
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Deploy step failed (it will resume): ${msg.slice(0, 300)}` });
+      }
 
-        await ctx.prisma.deployment
-          .update({
-            where: { id: deploymentId },
-            data: { status: "FAILED", txSignature: "failed" },
-          })
-          .catch((e: unknown) => {
-            console.warn(`[deploy] Failed to update deployment ${deploymentId} status:`, e instanceof Error ? e.message : e);
-          });
-
-        sendProgress("error", `Deployment failed: ${errMsg}`);
-
-        if (err instanceof TRPCError) throw err;
+      if (s.phase === "failed") {
+        const failed = await failDeployment(ctx, deployment.id, stored, s, s.error ?? "Deploy failed", connection, deployerKp);
         throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: errMsg,
+          code: "BAD_REQUEST",
+          message: failed.bufferClosed
+            ? `${failed.error} The buffer was closed and its SOL returned.`
+            : `${failed.error} Reclaim the buffer's SOL from the deploy history.`,
         });
       }
+
+      s = { ...s, lockedUntil: undefined, updatedAt: Date.now() };
+      stored = await saveSession(ctx, deployment.id, stored, s);
+      return { ...snapshot({ ...deployment, txSignature: stored }, s), busy: false };
+    }),
+
+  /**
+   * Send the deploy/upgrade instruction and wait (bounded) for it. Idempotent:
+   * if a previous call's transaction landed, it just records the result. Returns
+   * phase "finalize" while still unconfirmed; the client calls again.
+   */
+  finalize: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      const { deployment, session } = await loadOwnedDeployment(ctx, input.deploymentId, userId);
+      if (deployment.status === "CONFIRMED" || deployment.status === "UPGRADED") {
+        return { ...snapshot(deployment, null), phase: "done" as const, busy: false };
+      }
+      if (deployment.status !== "PENDING" || !session) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: session?.error ?? "Deploy failed" });
+      }
+      if (session.phase !== "finalize") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `Deploy is not ready to finalize (phase: ${session.phase}).` });
+      }
+      if (isLocked(session)) return { ...snapshot(deployment, session), busy: true };
+
+      let s: DeploySession = { ...session, lockedUntil: Date.now() + STEP_LEASE_MS };
+      let stored = await saveSession(ctx, deployment.id, deployment.txSignature, s);
+      const release = async (next: DeploySession) => {
+        stored = await saveSession(ctx, deployment.id, stored, { ...next, lockedUntil: undefined, updatedAt: Date.now() });
+      };
+
+      const connection = connectionFor(deployment.network as Network);
+      let deployerKp: Keypair | null = null;
+      try {
+        deployerKp = await requireDeployer(ctx, userId);
+        if (!deployment.programKeypair) throw new Error("Deployment has no program keypair");
+        const programKp = readProgramKeypair(deployment.programKeypair);
+        const programId = programKp.publicKey;
+        const [programDataAddress] = PublicKey.findProgramAddressSync([programId.toBuffer()], BPF_LOADER_UPGRADEABLE);
+
+        if (await deployLanded(connection, s, programId, programDataAddress)) {
+          return { ...(await completeDeployment(ctx, deployment, stored, s)), busy: false };
+        }
+
+        // A transaction from an earlier call may still be in flight.
+        if (s.finalizeSig) {
+          const res = await waitForSignature(connection, s.finalizeSig, 3000);
+          if (res.state === "confirmed") return { ...(await completeDeployment(ctx, deployment, stored, s)), busy: false };
+          if (res.state === "failed") {
+            const failed = await failDeployment(ctx, deployment.id, stored, s, `Deploy transaction failed: ${JSON.stringify(res.err)}`, connection, deployerKp);
+            throw new TRPCError({ code: "BAD_REQUEST", message: failed.error! });
+          }
+          const height = await connection.getBlockHeight("confirmed");
+          if (s.finalizeLastValidBlockHeight && height <= s.finalizeLastValidBlockHeight) {
+            const again = await waitForSignature(connection, s.finalizeSig, CONFIRM_WAIT_MS);
+            if (again.state === "confirmed") return { ...(await completeDeployment(ctx, deployment, stored, s)), busy: false };
+            if (again.state === "pending") {
+              await release(s);
+              return { ...snapshot({ ...deployment, txSignature: stored }, s), busy: false };
+            }
+            const failed = await failDeployment(ctx, deployment.id, stored, s, `Deploy transaction failed: ${JSON.stringify(again.err)}`, connection, deployerKp);
+            throw new TRPCError({ code: "BAD_REQUEST", message: failed.error! });
+          }
+          // Blockhash expired without landing: safe to send a fresh one.
+        }
+
+        const programRent = await connection.getMinimumBalanceForRentExemption(36);
+        const bh = await connection.getLatestBlockhash("confirmed");
+        const tx = buildFinalizeTx(s, bh, deployerKp, programKp, programDataAddress, programRent);
+        const sig = await sendSigned(connection, tx);
+        // Persist the signature before waiting so a timeout can't lose track of it.
+        s = { ...s, finalizeSig: sig, finalizeLastValidBlockHeight: bh.lastValidBlockHeight, updatedAt: Date.now() };
+        stored = await saveSession(ctx, deployment.id, stored, s);
+
+        const res = await waitForSignature(connection, sig, CONFIRM_WAIT_MS);
+        if (res.state === "confirmed") return { ...(await completeDeployment(ctx, deployment, stored, s)), busy: false };
+        if (res.state === "failed") {
+          const failed = await failDeployment(ctx, deployment.id, stored, s, `Deploy transaction failed: ${JSON.stringify(res.err)}`, connection, deployerKp);
+          throw new TRPCError({ code: "BAD_REQUEST", message: `${failed.error}${failed.bufferClosed ? " The buffer was closed and its SOL returned." : ""}` });
+        }
+        await release(s);
+        return { ...snapshot({ ...deployment, txSignature: stored }, s), busy: false };
+      } catch (err) {
+        if (err instanceof TRPCError && err.code === "BAD_REQUEST") throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        await release(s).catch(() => undefined);
+        if (err instanceof TRPCError) throw err;
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Finalize failed (it will retry): ${msg.slice(0, 300)}` });
+      }
+    }),
+
+  /**
+   * Close a failed/abandoned deploy's buffer and return its SOL to the deployer.
+   * On a still-PENDING deploy this cancels it first.
+   */
+  reclaimBuffer: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      const { deployment, session } = await loadOwnedDeployment(ctx, input.deploymentId, userId);
+      if (!session || !hasReclaimableBuffer(session)) {
+        return { closed: true, lamports: 0, message: "Nothing to reclaim." };
+      }
+      if (deployment.status === "PENDING" && isLocked(session)) {
+        throw new TRPCError({ code: "CONFLICT", message: "This deploy is running right now. Try again in a minute." });
+      }
+      if (deployment.status === "PENDING" && session.phase === "finalize" && session.finalizeSig) {
+        throw new TRPCError({ code: "CONFLICT", message: "The deploy transaction was already sent. Resume the deploy instead." });
+      }
+      const deployerKp = await requireDeployer(ctx, userId);
+      const connection = connectionFor(deployment.network as Network);
+      const lamports = await closeBuffer(connection, deployerKp, new PublicKey(session.buffer), CONFIRM_WAIT_MS);
+      if (lamports === null) {
+        return { closed: false, lamports: 0, message: "Close transaction sent but not confirmed yet. Try again shortly." };
+      }
+      const next: DeploySession = {
+        ...session,
+        phase: "failed",
+        bufferClosed: true,
+        lockedUntil: undefined,
+        error: session.error ?? "Cancelled; buffer closed.",
+        updatedAt: Date.now(),
+      };
+      await ctx.prisma.deployment.updateMany({
+        where: { id: deployment.id, txSignature: deployment.txSignature },
+        data: { status: "FAILED", txSignature: encodeSession(next) },
+      });
+      return {
+        closed: true,
+        lamports,
+        message: lamports > 0 ? `Reclaimed ${(lamports / LAMPORTS_PER_SOL).toFixed(4)} SOL.` : "Buffer was already closed.",
+      };
+    }),
+
+  /** The latest deploy of a project (for resuming after a reload) plus failed deploys holding SOL. */
+  active: protectedProcedure
+    .input(z.object({ projectId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
+      await sweepStaleDeployments(ctx, userId);
+      const rows = await ctx.prisma.deployment.findMany({
+        where: { projectId: input.projectId, userId },
+        orderBy: { deployedAt: "desc" },
+        take: 20,
+      });
+      const snaps = rows.map((r: any) => snapshot(r, decodeSession(r.txSignature)));
+      return {
+        pending: snaps.find((s: ReturnType<typeof snapshot>) => s.status === "PENDING") ?? null,
+        reclaimable: snaps.filter((s: ReturnType<typeof snapshot>) => s.reclaimable),
+      };
     }),
 
   status: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.prisma.deployment.findFirst({
-        where: {
-          id: input.deploymentId,
-          userId: ctx.session.user.id!,
-        },
-      });
-      if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
-      const { programKeypair: _programKeypair, ...safeDeployment } = deployment;
-      return safeDeployment;
+      const { deployment, session } = await loadOwnedDeployment(ctx, input.deploymentId, ctx.session.user.id!);
+      return snapshot(deployment, session);
     }),
 
   history: protectedProcedure
     .input(z.object({ projectId: z.string() }))
     .query(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id!;
       const project = await ctx.prisma.project.findFirst({
-        where: { id: input.projectId, userId: ctx.session.user.id },
+        where: { id: input.projectId, userId },
         select: { id: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
+      await sweepStaleDeployments(ctx, userId);
 
       const deployments = await ctx.prisma.deployment.findMany({
         where: { projectId: input.projectId },
         orderBy: { deployedAt: "desc" },
         take: 20,
       });
-      return deployments.map(
-        ({ programKeypair: _programKeypair, ...deployment }) => deployment,
-      );
+      return deployments.map(({ programKeypair: _programKeypair, ...deployment }: any) => {
+        const session = decodeSession(deployment.txSignature);
+        const snap = snapshot(deployment, session);
+        return {
+          ...deployment,
+          txSignature: snap.txSignature ?? (deployment.status === "PENDING" ? "pending" : "failed"),
+          phase: snap.phase,
+          progress: snap.progress,
+          error: snap.error,
+          reclaimable: snap.reclaimable,
+        };
+      });
     }),
 
   /**
@@ -1220,39 +1250,50 @@ export const deployRouter = router({
       const userId = ctx.session.user.id!;
       const project = await ctx.prisma.project.findFirst({
         where: { id: input.projectId, userId },
-        select: { id: true, programKeypair: true, flowData: true },
+        select: { id: true },
       });
       if (!project) throw new TRPCError({ code: "NOT_FOUND" });
 
       const newKp = Keypair.generate();
-      const newSecretKey = encodeSecretKey(newKp.secretKey);
       const newProgramId = newKp.publicKey.toBase58();
-
       await ctx.prisma.project.update({
         where: { id: project.id },
-        data: { programKeypair: newSecretKey },
+        data: { programKeypair: encodeSecretKey(newKp.secretKey) },
       });
-
-      // Update program ID in flow data
-      if (project.flowData) {
-        const flow = project.flowData as { nodes: any[]; edges: any[] };
-        const idx = flow.nodes.findIndex((n: any) => n.type === "program");
-        if (idx !== -1) {
-          flow.nodes[idx] = {
-            ...flow.nodes[idx],
-            data: {
-              ...(flow.nodes[idx].data as Record<string, unknown>),
-              programId: newProgramId,
-            },
-          };
-          await ctx.prisma.project.update({
-            where: { id: project.id },
-            data: { flowData: flow as any },
-          });
-        }
-      }
+      await setProgramIdInFlow(ctx, project.id, newProgramId);
 
       log("reset program keypair:", newProgramId);
       return { programId: newProgramId };
+    }),
+
+  /**
+   * Explicitly replace a deployer wallet that can no longer be decrypted.
+   * Refuses while the current one is readable, so funds are never orphaned silently.
+   */
+  resetDeployerWallet: protectedProcedure
+    .input(z.object({ confirm: z.literal(true) }))
+    .mutation(async ({ ctx }) => {
+      const userId = ctx.session.user.id!;
+      const user = await ctx.prisma.user.findUnique({
+        where: { id: userId },
+        select: { deployerKeypair: true },
+      });
+      if (user?.deployerKeypair) {
+        let readable = true;
+        try {
+          keypairFromStoredSecret(user.deployerKeypair);
+        } catch {
+          readable = false;
+        }
+        if (readable) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Your deployer wallet is readable; it won't be replaced." });
+        }
+      }
+      const kp = Keypair.generate();
+      await ctx.prisma.user.updateMany({
+        where: { id: userId, deployerKeypair: user?.deployerKeypair ?? null },
+        data: { deployerKeypair: encodeSecretKey(kp.secretKey) },
+      });
+      return { address: kp.publicKey.toBase58() };
     }),
 });

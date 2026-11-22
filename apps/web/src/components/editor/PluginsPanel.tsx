@@ -2,13 +2,11 @@
 // Includes validation warnings and security indicators.
 "use client";
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo } from "react";
 import { Puzzle, ExternalLink, CheckCircle2, Circle, AlertTriangle, ShieldCheck, ShieldAlert } from "lucide-react";
 import { assessPluginTrust, pluginRegistry } from "@solflow/plugin-sdk";
 import { openFloatingBrowser } from "@/store/floating-browser-store";
 import { usePluginStore } from "@/store/plugin-store";
-import { registerAuditRules } from "@solflow/audit";
-import type { AuditRule } from "@solflow/audit";
 import type { SolFlowPlugin } from "@solflow/plugin-sdk";
 import { registerBuiltInPlugins } from "@/lib/plugins/built-ins";
 
@@ -94,16 +92,8 @@ export function PluginsPanel() {
     return map;
   }, [allPlugins]);
 
-  // Register enabled plugin audit rules into the audit engine
-  useEffect(() => {
-    const rules: AuditRule[] = [];
-    for (const plugin of allPlugins) {
-      if (enabledPluginIds.includes(plugin.id) && plugin.auditRules?.length) {
-        rules.push(...plugin.auditRules);
-      }
-    }
-    registerAuditRules(rules);
-  }, [allPlugins, enabledPluginIds]);
+  // Audit rule registration lives in the editor shell (startPluginAuditRuleSync),
+  // so rules apply from editor load, not only after this tab opens.
 
   if (allPlugins.length === 0) {
     return (

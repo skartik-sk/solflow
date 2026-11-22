@@ -21,12 +21,18 @@ on:
     paths:
       - "programs/**"
 
+# Least privilege: builds run user-generated code, so the job token must not be able to write.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       # ── Cache the Solana toolchain + platform-tools (the big cold-start cost) ──
       - name: Cache Solana toolchain

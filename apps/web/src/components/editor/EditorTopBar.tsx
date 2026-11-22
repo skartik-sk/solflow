@@ -24,13 +24,13 @@ import {
   Settings,
   Globe,
   Share2,
-  X,
   ChevronDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { useWalletModal } from "@solana/wallet-adapter-react-ui";
-import { useProjectStore } from "@/store/project-store";
+import { MAX_PROJECT_NAME_LENGTH, useProjectStore } from "@/store/project-store";
+import { useSettingsStore } from "@/store/settings-store";
 import { useUIStore } from "@/store/ui-store";
 import { useUndo, useRedo, useCanUndo, useCanRedo } from "@/store/flow-store";
 import { useBuildStore } from "@/store/build-store";
@@ -53,15 +53,15 @@ export function EditorTopBar() {
   const projectName = useProjectStore((s) => s.projectName);
   const framework = useProjectStore((s) => s.framework);
   const network = useProjectStore((s) => s.network);
-  const customEndpoints = useProjectStore((s) => s.customEndpoints);
-  const addCustomEndpoint = useProjectStore((s) => s.addCustomEndpoint);
-  const removeCustomEndpoint = useProjectStore((s) => s.removeCustomEndpoint);
   const isDirty = useProjectStore((s) => s.isDirty);
   const isSaving = useProjectStore((s) => s.isSaving);
+  const irError = useProjectStore((s) => s.irError);
   const setProjectName = useProjectStore((s) => s.setProjectName);
   const setFramework = useProjectStore((s) => s.setFramework);
   const setNetwork = useProjectStore((s) => s.setNetwork);
   const save = useProjectStore((s) => s.save);
+  const saveIfDirty = useProjectStore((s) => s.saveIfDirty);
+  const buildToasts = useSettingsStore((s) => s.showBuildNotifications);
 
   const openBottomPanelTab = useUIStore((s) => s.openBottomPanelTab);
   const wallet = useWallet();
@@ -76,6 +76,7 @@ export function EditorTopBar() {
   const testStatus = useBuildStore((s) => s.testStatus);
   const deployStatus = useBuildStore((s) => s.deployStatus);
   const deployedProgramId = useBuildStore((s) => s.deployedProgramId);
+  const deployProgress = useBuildStore((s) => s.deployProgress);
   const deployExplorerUrl = useBuildStore((s) => s.deployExplorerUrl);
   const startCompile = useBuildStore((s) => s.startCompile);
   const startTest = useBuildStore((s) => s.startTest);
@@ -116,6 +117,8 @@ export function EditorTopBar() {
     }
     setIsExporting(true);
     try {
+      // The export is built from the saved project: save pending edits first.
+      await saveIfDirty();
       const res = await fetch(
         `/api/download/${projectId}?include=program,sdk,idl,tests,irJson`,
       );
@@ -147,7 +150,7 @@ export function EditorTopBar() {
     }
     setIsSharing(true);
     try {
-      if (isDirty) await save();
+      await saveIfDirty();
       const { getVanillaClient } = await import("@/lib/trpc/client");
       const client = getVanillaClient();
       const result = await client.share.create.mutate({ projectId });
@@ -169,9 +172,9 @@ export function EditorTopBar() {
     try {
       await startCompile(projectId);
       if (useBuildStore.getState().compileStatus === "success") {
-        toast.success("Compilation succeeded");
+        if (buildToasts) toast.success("Compilation succeeded");
       } else {
-        toast.error("Compilation failed — see Errors tab");
+        if (buildToasts) toast.error("Compilation failed — see Errors tab");
         openBottomPanelTab("errors");
       }
     } catch {
@@ -201,7 +204,7 @@ export function EditorTopBar() {
     const net = network.toUpperCase() as "DEVNET" | "MAINNET" | "LOCALNET";
     try {
       await startDeploy(projectId, net, wallet as any);
-      if (useBuildStore.getState().deployStatus === "success") {
+      if (useBuildStore.getState().deployStatus === "success" && buildToasts) {
         toast.success("Deployed!");
       }
     } catch {
@@ -272,7 +275,8 @@ export function EditorTopBar() {
           <input
             autoFocus
             value={nameInput}
-            onChange={(e) => setNameInput(e.target.value)}
+            maxLength={MAX_PROJECT_NAME_LENGTH}
+            onChange={(e) => setNameInput(e.target.value.slice(0, MAX_PROJECT_NAME_LENGTH))}
             onBlur={commitName}
             onKeyDown={(e) => {
               if (e.key === "Enter") commitName();
@@ -283,7 +287,7 @@ export function EditorTopBar() {
             }}
             aria-label="Project name"
             className="h-7 rounded-md border border-primary/70 bg-background px-2 text-[13px] font-medium outline-none ring-2 ring-primary/20"
-            style={{ width: `${Math.max(nameInput.length + 2, 10)}ch` }}
+            style={{ width: `${Math.min(Math.max(nameInput.length + 2, 10), 40)}ch` }}
           />
         ) : (
           <button
@@ -314,6 +318,18 @@ export function EditorTopBar() {
             className="ml-0.5 h-1.5 w-1.5 rounded-full bg-amber-400"
             title="Unsaved changes"
           />
+        )}
+
+        {/* Saved, but the flow can't become a buildable program yet */}
+        {irError && (
+          <button
+            onClick={() => toast.warning(`Saved, but this flow can't be compiled yet: ${irError}`)}
+            title={`Can't build: ${irError}`}
+            className="ml-1 inline-flex h-6 max-w-[220px] items-center gap-1 truncate rounded-full border border-amber-500/30 bg-amber-500/10 px-2 text-[11px] text-amber-300"
+          >
+            <span aria-hidden>!</span>
+            <span className="truncate">Can&apos;t build: {irError}</span>
+          </button>
         )}
 
         {/* Deployed program ID chip */}
@@ -392,33 +408,12 @@ export function EditorTopBar() {
             <select
               value={network}
               aria-label="Network"
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === "__add_custom__") {
-                  const name = prompt("Endpoint name (e.g. My Devnet):");
-                  if (!name?.trim()) return;
-                  const url = prompt("RPC URL (e.g. https://my-rpc.example.com):");
-                  if (!url?.trim()) return;
-                  const id = `custom-${Date.now()}`;
-                  addCustomEndpoint({ id, name: name.trim(), url: url.trim() });
-                  setNetwork(id);
-                  return;
-                }
-                setNetwork(val as Network);
-              }}
+              onChange={(e) => setNetwork(e.target.value as Network)}
               className="h-7 cursor-pointer appearance-none rounded-md bg-white/[0.03] pl-5 pr-6 text-[12px] font-medium text-foreground/85 shadow-[0_0_0_1px_rgba(255,255,255,0.08)] outline-none transition-colors duration-150 ease-out hover:bg-white/[0.07] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary"
             >
               <option value="devnet">Devnet</option>
               <option value="mainnet">Mainnet</option>
               <option value="localnet">Localnet</option>
-              {customEndpoints.length > 0 && (
-                <optgroup label="Custom">
-                  {customEndpoints.map((ep) => (
-                    <option key={ep.id} value={ep.id}>{ep.name}</option>
-                  ))}
-                </optgroup>
-              )}
-              <option disabled value="__add_custom__">+ Custom</option>
             </select>
             <ChevronDown
               size={12}
@@ -426,19 +421,6 @@ export function EditorTopBar() {
               className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
             />
           </div>
-          {customEndpoints.find((e) => e.id === network) && (
-            <button
-              onClick={() => {
-                removeCustomEndpoint(network);
-                setNetwork("devnet");
-              }}
-              title="Remove this custom endpoint"
-              aria-label="Remove this custom endpoint"
-              className={edx(edIconBtn, "text-red-400 hover:bg-red-500/10 hover:text-red-300")}
-            >
-              <X size={12} />
-            </button>
-          )}
         </div>
       </div>
 
@@ -585,7 +567,11 @@ export function EditorTopBar() {
           className={compileDone ? edPrimaryBtn : edBtn}
         >
           {deployIcon}
-          {isDeploying ? "Deploying…" : "Deploy"}
+          {isDeploying
+            ? deployProgress && deployProgress.total > 0
+              ? `Deploying ${deployProgress.current}/${deployProgress.total}`
+              : "Deploying…"
+            : "Deploy"}
         </button>
       </div>
 

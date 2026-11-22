@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import {
@@ -6,6 +6,7 @@ import {
   isEncryptedSecretKey,
   keypairFromStoredSecret,
   migrateStoredSecretKey,
+  UnreadableSecretKeyError,
 } from "../server/secret-key-crypto";
 
 describe("secret key crypto", () => {
@@ -58,5 +59,37 @@ describe("secret key crypto", () => {
     expect(migrated.migrated).toBe(false);
     expect(migrated.stored).toBe(stored);
     expect(migrated.publicKey).toBe(keypair.publicKey.toBase58());
+  });
+
+  describe("master key handling", () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      process.env.ENCRYPTION_MASTER_KEY = saved.ENCRYPTION_MASTER_KEY;
+      process.env.AUTH_SECRET = saved.AUTH_SECRET;
+    });
+
+    it("never encrypts with AUTH_SECRET", () => {
+      delete process.env.ENCRYPTION_MASTER_KEY;
+      process.env.AUTH_SECRET = "session-secret";
+      expect(() => encodeSecretKey(Keypair.generate().secretKey)).toThrow(/ENCRYPTION_MASTER_KEY/);
+    });
+
+    it("still decrypts old records written under AUTH_SECRET", () => {
+      const keypair = Keypair.generate();
+      process.env.ENCRYPTION_MASTER_KEY = "legacy-auth-secret";
+      const oldRecord = encodeSecretKey(keypair.secretKey);
+
+      process.env.ENCRYPTION_MASTER_KEY = "new-master-key";
+      process.env.AUTH_SECRET = "legacy-auth-secret";
+      expect(keypairFromStoredSecret(oldRecord).publicKey.toBase58()).toBe(keypair.publicKey.toBase58());
+    });
+
+    it("throws a typed error (and never a different key) when no key can decrypt", () => {
+      process.env.ENCRYPTION_MASTER_KEY = "key-a";
+      const stored = encodeSecretKey(Keypair.generate().secretKey);
+      process.env.ENCRYPTION_MASTER_KEY = "key-b";
+      process.env.AUTH_SECRET = "key-c";
+      expect(() => keypairFromStoredSecret(stored)).toThrow(UnreadableSecretKeyError);
+    });
   });
 });

@@ -75,12 +75,15 @@ export const cronTriggerDef: CloudNodeDefinition = {
   },
   component: CronTriggerNode,
   async execute(ctx) {
+    const fired = ctx.trigger?.triggerType === "cron" ? ctx.trigger : undefined;
     return [
       {
         json: {
           triggered: true,
           triggerType: "cron",
-          cronExpression: ctx.params.cronExpression,
+          cronExpression: fired?.cronExpression ?? ctx.params.cronExpression,
+          timezone: fired?.timezone ?? ctx.params.timezone ?? "UTC",
+          ...(fired?.triggeredAt ? { triggeredAt: fired.triggeredAt } : {}),
           timestamp: Date.now(),
         },
       },

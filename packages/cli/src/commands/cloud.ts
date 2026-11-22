@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { spawn } from "child_process";
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
+import { createInterface } from "readline/promises";
 import {
   deleteCloudProfile,
   getActiveCloudProfile,
@@ -543,6 +544,31 @@ nodesCommand
     }),
   );
 
+/**
+ * `self-host deploy` pulls images and starts containers, so it needs --yes or an
+ * interactive "y". Non-interactive runs without --yes are refused.
+ */
+export async function confirmSelfHostDeploy(
+  target: string,
+  yes: boolean | undefined,
+  io: { isTTY: boolean; ask: (question: string) => Promise<string> } = {
+    isTTY: Boolean(process.stdin.isTTY),
+    ask: async (question) => {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        return await rl.question(question);
+      } finally {
+        rl.close();
+      }
+    },
+  },
+): Promise<boolean> {
+  if (yes) return true;
+  if (!io.isTTY) return false;
+  const answer = await io.ask(`Pull images and start the SolStudio Cloud stack in ${target}? [y/N] `);
+  return /^y(es)?$/i.test(answer.trim());
+}
+
 const selfHostCommand = new Command("self-host")
   .description("Generate, validate, and run a Cloud-only self-host stack");
 
@@ -595,7 +621,7 @@ selfHostCommand
   .option("--force", "Overwrite generated docker-compose and README files")
   .option("--no-pull", "Skip docker compose pull")
   .option("--dry-run", "Print the deployment plan without running Docker")
-  .option("--yes", "Run non-interactively")
+  .option("--yes", "Start the Docker stack without asking for confirmation")
   .option("--profile <name>", "Save this endpoint as a Cloud profile when --token is provided")
   .option("--endpoint <url>", "Endpoint to save for --profile. Defaults to https://<domain>")
   .option("--token <token>", "API token to save with --profile after deploy")
@@ -630,6 +656,9 @@ selfHostCommand
       if (options.dryRun) {
         printSelfHostDeployPlan(plan);
         return;
+      }
+      if (!(await confirmSelfHostDeploy(target, options.yes))) {
+        throw new Error("Deploy cancelled. Re-run with --yes to start the stack without a prompt.");
       }
 
       for (const step of plan) {

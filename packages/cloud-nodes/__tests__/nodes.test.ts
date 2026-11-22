@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PublicKey,
   SystemProgram,
@@ -8,8 +8,14 @@ import {
 } from "@solana/web3.js";
 import { cloudNodeRegistry } from "../src/registry";
 import { registerBuiltinNodes } from "../src/index";
+import { setOutboundResolver } from "../src/security/outbound-url";
 
 registerBuiltinNodes();
+
+// No real DNS in unit tests: every hostname resolves to a public address.
+beforeEach(() => {
+  setOutboundResolver(async () => ["93.184.216.34"]);
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -262,6 +268,10 @@ describe("Action nodes", () => {
       "transactionBase64",
       "requestId",
       "lastValidBlockHeight",
+      "inputMint",
+      "outputMint",
+      "amount",
+      "slippageBps",
       "walletId",
       "credentialId",
     ]);
@@ -423,8 +433,12 @@ describe("Output nodes", () => {
 // ─── Execute functions work ─────────────────────────────────────────────────
 
 describe("Execute functions", () => {
-  const makeSerializedSwapTransaction = () => {
-    const payer = new PublicKey("11111111111111111111111111111111");
+  // An explicitly approved run (replay approval); wallet nodes fail closed without one.
+  const approvedSafety = { oneTimeApproval: true };
+
+  const makeSerializedSwapTransaction = (
+    payer = new PublicKey("BQ72nSv9f3PRyRKCBnHLVrerrv37CYTHm5h3s9VSGQDV"),
+  ) => {
     const message = new TransactionMessage({
       payerKey: payer,
       recentBlockhash: "11111111111111111111111111111111",
@@ -899,7 +913,7 @@ describe("Execute functions", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://example.com",
+      "https://example.com/",
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ hello: "world" }),
@@ -1854,6 +1868,7 @@ describe("Execute functions", () => {
         token: "SOL",
         walletId: "wallet-1",
       }),
+      safety: approvedSafety,
       wallet: {
         signAndSend,
         simulate,
@@ -1885,6 +1900,7 @@ describe("Execute functions", () => {
         token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         walletId: "wallet-1",
       }),
+      safety: approvedSafety,
       wallet: {
         signAndSend,
         getPublicKey: async () =>
@@ -2127,6 +2143,7 @@ describe("Execute functions", () => {
         slippageBps: 50,
         walletId: "wallet-1",
       }),
+      safety: approvedSafety,
       wallet: {
         signAndSend: async () => "unused",
         signTransaction,
@@ -2187,6 +2204,7 @@ describe("Execute functions", () => {
         requestId: "req-execute",
         walletId: "wallet-1",
       }),
+      safety: approvedSafety,
       wallet: {
         signAndSend: async () => "unused",
         signTransaction,
@@ -2243,6 +2261,7 @@ describe("Execute functions", () => {
           amount: 1000000,
           walletId: "wallet-1",
         }),
+        safety: approvedSafety,
         wallet: {
           signAndSend: async () => "sig",
           signTransaction: async (tx: unknown) => tx,

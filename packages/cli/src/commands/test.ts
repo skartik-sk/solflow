@@ -4,6 +4,9 @@ import { existsSync } from "fs";
 import { spawnSync } from "child_process";
 import { detectProjectType } from "../utils/detect";
 import { resolveFrameworkTestPlan, type CommandSpec } from "../utils/framework-adapters";
+import { missingToolMessage } from "../utils/tools";
+
+export { missingToolMessage };
 
 interface TestCommandOptions {
   json?: boolean;
@@ -11,6 +14,7 @@ interface TestCommandOptions {
 }
 
 interface CommandRunResult {
+  missingTool?: string;
   command: string;
   cwd: string;
   exitCode: number;
@@ -48,7 +52,10 @@ export const testCommand = new Command("test")
           ? null
           : runCommand(plan.testCommand, projectPath, live);
       const success = !!testResult && testResult.exitCode === 0;
+      const missing = [setupResult, testResult].find((r) => r?.missingTool)?.missingTool;
+      if (missing && live) console.error(`\n${missingToolMessage(missing)}`);
       const result = {
+        ...(missing ? { error: missingToolMessage(missing) } : {}),
         success,
         framework: projectType,
         runner: "local-cli",
@@ -83,12 +90,14 @@ function runCommand(spec: CommandSpec, fallbackCwd: string, live = false): Comma
     maxBuffer: 20 * 1024 * 1024,
     stdio: live ? "inherit" : "pipe",
   });
+  const notFound = (result.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
   return {
+    ...(notFound ? { missingTool: spec.cmd } : {}),
     command: formatCommand(spec),
     cwd,
-    exitCode: typeof result.status === "number" ? result.status : 1,
+    exitCode: notFound ? 127 : typeof result.status === "number" ? result.status : 1,
     stdout: result.stdout ?? "",
-    stderr: result.stderr ?? (result.error ? result.error.message : ""),
+    stderr: notFound ? missingToolMessage(spec.cmd) : result.stderr ?? (result.error ? result.error.message : ""),
     duration: Date.now() - started,
   };
 }

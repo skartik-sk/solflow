@@ -5,12 +5,12 @@
 import React, { useState } from "react";
 import { X, RotateCcw, RefreshCw, Keyboard, Workflow } from "lucide-react";
 import { toast } from "sonner";
-import { useSettingsStore, type DefaultFramework } from "@/store/settings-store";
-import { useUIStore, type Theme } from "@/store/ui-store";
+import { useSettingsStore, type DefaultNetwork } from "@/store/settings-store";
 import { useProjectStore } from "@/store/project-store";
 import { useBuildStore } from "@/store/build-store";
 import { useFlowStore } from "@/store/flow-store";
 import { getRFInstance } from "@/lib/rf-instance";
+import { RESET_DEPLOYER_PHRASE, isResetDeployerConfirmed } from "./deploy-actions";
 import { edBtn, edGhostBtn, edIconBtn, edKbd, edPrimaryBtn } from "@/components/ui-kit/editor-ui";
 
 type SettingsTab = "editor" | "defaults" | "build" | "shortcuts";
@@ -124,12 +124,10 @@ function EditorTab() {
   const setMinimapEnabled = useSettingsStore((s) => s.setMinimapEnabled);
   const wordWrap = useSettingsStore((s) => s.wordWrap);
   const setWordWrap = useSettingsStore((s) => s.setWordWrap);
-  const theme = useUIStore((s) => s.theme);
-  const setTheme = useUIStore((s) => s.setTheme);
 
   return (
     <div className="divide-y divide-white/[0.05]">
-      <Row label="Font Size" description="Editor text size (10–24)">
+      <Row label="Font Size" description="Code view text size (10–24)">
         <div className="flex items-center gap-2">
           <input
             type="range"
@@ -142,18 +140,7 @@ function EditorTab() {
           <span className="w-6 text-right text-[12px] text-muted-foreground font-mono">{fontSize}</span>
         </div>
       </Row>
-      <Row label="Theme">
-        <select
-          className={selectClass}
-          value={theme}
-          onChange={(e) => setTheme(e.target.value as Theme)}
-        >
-          <option value="dark">Dark</option>
-          <option value="light">Light</option>
-          <option value="system">System</option>
-        </select>
-      </Row>
-      <Row label="Line Numbers" description="Show line numbers in the editor">
+      <Row label="Line Numbers" description="Show line numbers in code views">
         <Toggle value={showLineNumbers} onChange={setShowLineNumbers} />
       </Row>
       <Row label="Minimap" description="Show code minimap on the right side">
@@ -169,8 +156,6 @@ function EditorTab() {
 // ─── Defaults Tab ────────────────────────────────────────────────────────────
 
 function DefaultsTab() {
-  const defaultFramework = useSettingsStore((s) => s.defaultFramework);
-  const setDefaultFramework = useSettingsStore((s) => s.setDefaultFramework);
   const defaultNetwork = useSettingsStore((s) => s.defaultNetwork);
   const setDefaultNetwork = useSettingsStore((s) => s.setDefaultNetwork);
   const autoSaveInterval = useSettingsStore((s) => s.autoSaveIntervalSec);
@@ -178,22 +163,11 @@ function DefaultsTab() {
 
   return (
     <div className="divide-y divide-white/[0.05]">
-      <Row label="Default Framework" description="Framework used when generating code">
-        <select
-          className={selectClass}
-          value={defaultFramework}
-          onChange={(e) => setDefaultFramework(e.target.value as DefaultFramework)}
-        >
-          <option value="anchor">Anchor</option>
-          <option value="pinocchio">Pinocchio</option>
-          <option value="quasar">Quasar</option>
-        </select>
-      </Row>
-      <Row label="Default Network" description="Network for RPC calls and deployments">
+      <Row label="Default Network" description="Network selected when a project opens">
         <select
           className={selectClass}
           value={defaultNetwork}
-          onChange={(e) => setDefaultNetwork(e.target.value as "devnet" | "mainnet" | "localnet")}
+          onChange={(e) => setDefaultNetwork(e.target.value as DefaultNetwork)}
         >
           <option value="devnet">Devnet</option>
           <option value="mainnet">Mainnet</option>
@@ -223,8 +197,6 @@ function DefaultsTab() {
 // ─── Build Tab ───────────────────────────────────────────────────────────────
 
 function BuildTab() {
-  const autoBuild = useSettingsStore((s) => s.autoBuildOnCodeChange);
-  const setAutoBuild = useSettingsStore((s) => s.setAutoBuildOnCodeChange);
   const showNotifications = useSettingsStore((s) => s.showBuildNotifications);
   const setShowNotifications = useSettingsStore((s) => s.setShowBuildNotifications);
   const projectId = useProjectStore((s) => s.projectId);
@@ -251,10 +223,7 @@ function BuildTab() {
 
   return (
     <div className="divide-y divide-white/[0.05]">
-      <Row label="Auto-build on Code Change" description="Automatically build when code is modified">
-        <Toggle value={autoBuild} onChange={setAutoBuild} />
-      </Row>
-      <Row label="Build Notifications" description="Show toast notifications for build status">
+      <Row label="Build Notifications" description="Show toasts when a compile or deploy finishes">
         <Toggle value={showNotifications} onChange={setShowNotifications} />
       </Row>
       <Row label="Reset Program Keypair" description="Generate a new program ID for fresh deploy with upgrade headroom">
@@ -267,6 +236,7 @@ function BuildTab() {
           Reset
         </button>
       </Row>
+      <ResetDeployerWallet disabled={isDeploying} />
       <Row label="Reset All Node Positions" description="Compact all nodes into a tight grid layout">
         <button
           onClick={() => {
@@ -284,6 +254,70 @@ function BuildTab() {
   );
 }
 
+// ─── Reset deployer wallet ────────────────────────────────────────────────────
+
+function ResetDeployerWallet({ disabled }: { disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const reset = async () => {
+    if (!isResetDeployerConfirmed(typed)) return;
+    setBusy(true);
+    try {
+      const { getVanillaClient } = await import("@/lib/trpc/client");
+      const { address } = await getVanillaClient().deploy.resetDeployerWallet.mutate({ confirm: true });
+      toast.success(`New deployer wallet: ${address.slice(0, 8)}… Fund it before deploying.`);
+      setOpen(false);
+      setTyped("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Reset failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="py-2">
+      <Row
+        label="Reset Deployer Wallet"
+        description="Only for a wallet that can no longer be decrypted (e.g. after a key rotation)"
+      >
+        <button onClick={() => setOpen((v) => !v)} disabled={disabled} className={edBtn}>
+          <RefreshCw size={11} />
+          Reset…
+        </button>
+      </Row>
+      {open && (
+        <div className="space-y-2 rounded-lg border border-red-500/30 bg-red-500/[0.06] p-3 text-[12px]">
+          <p className="font-semibold text-red-300">This can&apos;t be undone.</p>
+          <p className="text-red-200/90">
+            A new deployer wallet replaces the old one. Any SOL in the old wallet, and the upgrade
+            authority of every program it deployed, are lost for good unless you exported its key.
+            Programs it deployed can no longer be upgraded from SolStudio.
+          </p>
+          <label className="block text-muted-foreground">
+            Type <span className="font-mono text-foreground">{RESET_DEPLOYER_PHRASE}</span> to confirm
+            <input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              className="mt-1 h-7 w-full rounded-md border border-white/[0.08] bg-background/60 px-2 font-mono text-[12px] outline-none focus:border-red-400/70"
+              aria-label="Confirmation phrase"
+            />
+          </label>
+          <button
+            onClick={() => void reset()}
+            disabled={busy || !isResetDeployerConfirmed(typed)}
+            className="h-7 rounded-md bg-red-600 px-3 text-[12px] font-semibold text-white hover:bg-red-500 disabled:opacity-40"
+          >
+            {busy ? "Resetting…" : "Reset deployer wallet"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Shortcuts Tab ──────────────────────────────────────────────────────────────
 
 function ShortcutsTab() {
@@ -296,7 +330,7 @@ function ShortcutsTab() {
       <div className="space-y-0.5">
         <ShortcutRow keys="Ctrl+S" label="Save" />
         <ShortcutRow keys="Ctrl+Z" label="Undo" />
-        <ShortcutRow keys="Ctrl+Shift+Z" label="Redo" />
+        <ShortcutRow keys="Ctrl+Shift+Z / Ctrl+Y" label="Redo" />
         <ShortcutRow keys="Ctrl+F" label="Find node" />
         <ShortcutRow keys="Ctrl+C" label="Copy selected nodes" />
         <ShortcutRow keys="Ctrl+V" label="Paste copied nodes" />

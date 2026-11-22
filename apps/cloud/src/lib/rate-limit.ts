@@ -96,6 +96,11 @@ export function webhookRateLimit(path: string, ip: string): RateLimitResult {
   return check(`webhook:${path}:${ip}`, { limit: 120, windowMs: 60_000 });
 }
 
+/** 20 editor-assistant prompts per user (or IP) per minute (each one is a paid LLM call). */
+export function editorAssistantRateLimit(key: string): RateLimitResult {
+  return check(`editor-assistant:${key}`, { limit: 20, windowMs: 60_000 });
+}
+
 export function resetRateLimitStoreForTests(): void {
   if (process.env.NODE_ENV === "test") {
     store.clear();

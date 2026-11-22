@@ -10,7 +10,7 @@ It also includes `solstudio cloud` for the Cloud workflow platform. Use that nam
 npm install -g @solstudio/cli
 ```
 
-> **Requires** Node.js 18+ or Bun. After install the `solstudio` binary is available globally.
+> **Requires** Node.js 20+ (or Bun). After install the `solstudio` binary is available globally.
 
 Want practice instead of reference reading? Open the [CLI Learning Path](/docs/learn/cli) and learn the commands with short exercises.
 
@@ -20,10 +20,15 @@ Want practice instead of reference reading? Open the [CLI Learning Path](/docs/l
 
 | Job                             | Command           | Result                                                |
 | ------------------------------- | ----------------- | ----------------------------------------------------- |
-| Create local SolStudio metadata | `solstudio init`  | Writes `.solstudio/config.json`                       |
-| Open a local visualizer         | `solstudio view`  | Starts a local server and loads the graph UI          |
-| Parse Rust source               | `solstudio parse` | Emits nodes, edges, stats, warnings, and parse report |
-| Convert an IDL                  | `solstudio idl`   | Emits flow nodes and edges from IDL JSON              |
+| Create local SolStudio metadata | `solstudio init`   | Writes `.solstudio/config.json`, optionally scaffolds  |
+| Open a local visualizer         | `solstudio view`   | Starts a loopback-only server and loads the graph UI   |
+| Parse Rust source               | `solstudio parse`  | Emits nodes, edges, stats, warnings, and parse report  |
+| Convert an IDL                  | `solstudio idl`    | Emits flow nodes and edges from IDL JSON               |
+| Static audit                    | `solstudio audit`  | Summary, JSON, Markdown, or SARIF findings             |
+| Run framework tests             | `solstudio test`   | Runs the detected Anchor/Pinocchio/Quasar test command |
+| Check local tooling             | `solstudio doctor` | Reports Rust, Solana, Anchor, Surfpool availability    |
+| GitHub Actions workflow         | `solstudio ci`     | Prints or writes `.github/workflows/solstudio.yml`     |
+| Preview generated code          | `solstudio patch`  | A unified diff; never writes source files              |
 
 In this repo the examples use `bun run solstudio`. If the CLI is installed as a binary, use the same arguments after `solstudio`.
 
@@ -86,8 +91,8 @@ bun run solstudio init [path]
 
 | Option                        | Meaning                                                                          |
 | ----------------------------- | -------------------------------------------------------------------------------- |
-| `-f, --framework <framework>` | Force `anchor`, `pinocchio`, or `quasar` when detection is not enough            |
-| `--scaffold`                  | Create the directory and a minimal Anchor-style `src/lib.rs` if no source exists |
+| `-f, --framework <framework>` | Force `anchor`, `pinocchio`, or `quasar`. Any other value is an error. On an initialized project this updates the saved framework |
+| `--scaffold`                  | Create the directory and a minimal buildable program for the chosen framework (default `anchor`) if it has no Rust project yet |
 
 Examples:
 
@@ -95,7 +100,10 @@ Examples:
 bun run solstudio init .
 bun run solstudio init . --framework anchor
 bun run solstudio init ./new-program --scaffold
+bun run solstudio init ./new-pinocchio --scaffold --framework pinocchio
 ```
+
+`--scaffold` writes a workspace `Cargo.toml`, `programs/<name>/` (crate `Cargo.toml` and `src/`), `Anchor.toml` for Anchor, and a fresh program keypair in `target/deploy/<name>-keypair.json` whose address is used in `declare_id!`. Existing files are never overwritten.
 
 Use `init` when:
 
@@ -103,7 +111,7 @@ Use `init` when:
 - You want the CLI to remember the project mode.
 - You want a tiny scaffold for an empty folder.
 
-If the project is already initialized, `init` prints the existing framework, mode, and config path instead of overwriting the config.
+If the project is already initialized, `init` prints the existing framework, mode, and config path. Pass `--framework` to change the saved framework.
 
 ## `view`
 
@@ -116,6 +124,7 @@ bun run solstudio view [path]
 | Option              | Meaning                                                |
 | ------------------- | ------------------------------------------------------ |
 | `-p, --port <port>` | Start the server on a specific port. Default is `6139` |
+| `--host <host>`     | Loopback address to bind: `127.0.0.1` (default), `localhost`, or `::1`. Other addresses are refused |
 | `--no-open`         | Start the server without opening a browser             |
 
 Examples:
@@ -127,6 +136,10 @@ bun run solstudio view . --no-open
 ```
 
 `view` will create `.solstudio/config.json` if the project has not been initialized. When the server starts, it attempts an initial parse if no graph is saved yet, then serves the local UI.
+
+The server only listens on loopback and prints a URL like `http://127.0.0.1:6139/#token=...`. The token is new for every run; the UI sends it with every API call, and requests without it, from another Host name, or from another website's origin are refused. Open the printed URL rather than typing the port by hand, and don't share it.
+
+**Sync to source.** The UI's Sync button shows a diff of every file the generated code would create or overwrite and writes nothing until you confirm. Overwritten files are copied to `.solstudio/backups/<timestamp>/` first. Generated code replaces hand-written handler bodies in the files it touches, so review the diff.
 
 Use `view` when:
 
@@ -199,6 +212,74 @@ Use `idl` when:
 - You want instructions, accounts, errors, and events as graph nodes.
 - You do not have the original Rust source.
 
+## `audit`
+
+Run the static audit and deterministic stress checks.
+
+```bash
+solstudio audit [path]
+solstudio audit . --format sarif --output solstudio-audit.sarif
+solstudio audit . --generate-tests ./solstudio-generated-tests
+```
+
+| Option                           | Meaning                                                                 |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `-f, --format <format>`          | `summary` (default), `json`, `markdown`, or `sarif`                     |
+| `-o, --output <file>`            | Write to a file instead of stdout                                       |
+| `--generate-tests <dir>`         | Write smoke-test scaffolds: a stress-case table plus tests that check it. They do not call your program yet; turn each case into a real instruction test |
+| `--test-framework <framework>`   | `anchor`, `pinocchio`, `quasar`, `litesvm`, or `mollusk` for generated tests |
+| `--include-tests` etc.           | Same coverage flags as `parse`                                          |
+
+SARIF results use file paths relative to the current directory (or the project root when it is outside it) with line numbers, so GitHub code scanning can annotate the right lines. Exit codes: `0` no findings, `1` findings, `2` usage or tool error.
+
+## `test`
+
+Run the detected framework's test command (`anchor test`, or `cargo test` for Pinocchio and Quasar). On Linux, Anchor projects start Surfpool first unless you pass `--no-setup`.
+
+```bash
+solstudio test .
+solstudio test . --json
+solstudio test . --no-setup
+```
+
+If a required tool (`anchor`, `cargo`, `solana`, `surfpool`) is missing, the command exits with code `127` and prints where to install it.
+
+## `doctor`
+
+Check that Rust, the Solana CLI, Anchor, and Surfpool are installed, and what framework the project uses.
+
+```bash
+solstudio doctor .
+solstudio doctor . --json
+```
+
+## `ci`
+
+Print or write a GitHub Actions workflow that installs Rust, the Solana CLI and Anchor, parses and audits the project, uploads SARIF to code scanning, starts `solana-test-validator` for Anchor projects, and runs `solstudio test . --no-setup`. It uses `permissions: contents: read, security-events: write` and pins the CLI version.
+
+```bash
+solstudio ci                 # print
+solstudio ci --write         # .github/workflows/solstudio.yml
+solstudio ci --output ci.yml
+```
+
+The workflow assumes the Solana project is at the repository root.
+
+## `patch`
+
+Generate a unified diff of what SolStudio codegen would produce for the project, mapped onto the crate that exists on disk (a workspace member under `programs/` or a crate at the root). It never writes source files.
+
+```bash
+solstudio patch . --output solstudio.patch
+solstudio patch ./programs/vault/src/lib.rs
+git apply --check solstudio.patch
+```
+
+| Option                        | Meaning                                                  |
+| ----------------------------- | -------------------------------------------------------- |
+| `-f, --framework <framework>` | Target `anchor`, `pinocchio`, or `quasar` (default: detected) |
+| `-o, --output <file>`         | Write the patch to a file                                |
+
 ## Choosing The Right Command
 
 | Situation                             | Use                                                   |
@@ -243,7 +324,7 @@ solstudio cloud profile use local
 Self-host Cloud without the main IDE:
 
 ```bash
-solstudio cloud self-host deploy ./solstudio-cloud --domain cloud.example.com
+solstudio cloud self-host deploy ./solstudio-cloud --domain cloud.example.com --yes
 solstudio cloud self-host check ./solstudio-cloud
 solstudio cloud self-host status ./solstudio-cloud
 solstudio cloud self-host logs ./solstudio-cloud --tail 100
@@ -251,7 +332,9 @@ solstudio cloud self-host logs ./solstudio-cloud --tail 100
 
 The default self-host image is `ghcr.io/skartik-sk/solstudio-cloud:latest`. Pass `--image` if you mirror the image to another registry.
 
-Create API tokens from the Cloud app session with `POST /api/cli/token`, then store the returned token once with `cloud login`. New tokens are stored server-side as SHA-256 hashes.
+`self-host deploy` asks before starting Docker; pass `--yes` in scripts (without a terminal and without `--yes` it refuses). The generated `.env` is written with mode `0600` and contains a random `POSTGRES_PASSWORD`, which `docker-compose.yml` reads. If you created a stack with an older CLI, add `POSTGRES_PASSWORD=solstudio` (the old fixed password) to its `.env` before redeploying, then rotate it.
+
+Create CLI tokens in Cloud under **CLI tokens** (`/settings`): name it, pick an expiry, copy it once, and revoke it there when you no longer need it. Store it with `cloud login`. Tokens are stored server-side as SHA-256 hashes.
 
 ## Common Fixes
 
@@ -259,7 +342,8 @@ Create API tokens from the Cloud app session with `POST /api/cli/token`, then st
 | ---------------------------------------- | ----------------------------------------------------------------------- |
 | Port already in use                      | Run `solstudio view . --port 6140`                                      |
 | Invalid port                             | Use a number from `1` to `65535`                                        |
-| Framework detected as unknown            | Run `solstudio init . --framework anchor` or choose the right framework |
+| Framework detected as unknown            | Run `solstudio init . --framework anchor` (or `pinocchio` / `quasar`); this also updates an existing config |
+| Visualizer says "Missing or invalid session token" | Open the exact URL `solstudio view` printed (it includes `#token=...`) |
 | Directory does not exist                 | Use `solstudio init ./name --scaffold` if you want it created           |
 | Parse output is too large                | Run `solstudio parse . --format summary` first                          |
 | IDL warning about missing instructions   | Confirm the file is a Solana IDL and not client config JSON             |

@@ -16,12 +16,27 @@ interface EncryptedKey {
   salt: string;
 }
 
+/** Key used to ENCRYPT. Only ENCRYPTION_MASTER_KEY: AUTH_SECRET rotates with sessions and must not guard keys. */
 function getSecretMasterKey(): string {
-  const key = process.env.ENCRYPTION_MASTER_KEY ?? process.env.AUTH_SECRET;
+  const key = process.env.ENCRYPTION_MASTER_KEY;
   if (!key) {
-    throw new Error("ENCRYPTION_MASTER_KEY or AUTH_SECRET must be configured before storing deploy keys");
+    throw new Error("ENCRYPTION_MASTER_KEY must be configured before storing deploy keys");
   }
   return key;
+}
+
+/**
+ * Keys tried to DECRYPT, in order. AUTH_SECRET stays as a decrypt-only fallback
+ * so records written before ENCRYPTION_MASTER_KEY existed stay readable.
+ */
+function getDecryptionKeys(): string[] {
+  const keys = [process.env.ENCRYPTION_MASTER_KEY, process.env.AUTH_SECRET].filter(
+    (k): k is string => !!k,
+  );
+  if (keys.length === 0) {
+    throw new Error("ENCRYPTION_MASTER_KEY must be configured to read deploy keys");
+  }
+  return [...new Set(keys)];
 }
 
 function deriveKey(masterKey: string, salt: Buffer): Buffer {
@@ -81,7 +96,24 @@ export function decodeSecretKey(stored: string): Uint8Array {
   const encrypted = JSON.parse(
     Buffer.from(encoded, "base64url").toString("utf8"),
   ) as EncryptedKey;
-  return decryptSecretKey(encrypted, getSecretMasterKey());
+  let lastError: unknown;
+  for (const key of getDecryptionKeys()) {
+    try {
+      return decryptSecretKey(encrypted, key);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw new UnreadableSecretKeyError(lastError);
+}
+
+/** Thrown when a stored key can't be decrypted with any configured key (master key rotated or lost). */
+export class UnreadableSecretKeyError extends Error {
+  constructor(cause?: unknown) {
+    super("Stored key could not be decrypted with ENCRYPTION_MASTER_KEY (or the legacy AUTH_SECRET)");
+    this.name = "UnreadableSecretKeyError";
+    if (cause !== undefined) (this as { cause?: unknown }).cause = cause;
+  }
 }
 
 export function keypairFromStoredSecret(stored: string): Keypair {

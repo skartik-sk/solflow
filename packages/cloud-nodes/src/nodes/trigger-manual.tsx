@@ -40,6 +40,23 @@ export const manualTriggerDef: CloudNodeDefinition = {
   defaultData: {},
   component: ManualTriggerNode,
   async execute(ctx) {
-    return [{ json: { triggered: true, timestamp: Date.now() } }];
+    // Test data from the Run button / CLI arrives as the execution's trigger data.
+    const data = ctx.trigger?.triggerType === "manual" ? ctx.trigger.data : undefined;
+    const fields =
+      data === undefined || data === null
+        ? {}
+        : typeof data === "object" && !Array.isArray(data)
+          ? (data as Record<string, unknown>)
+          : { data };
+    return [
+      {
+        json: {
+          ...fields,
+          triggered: true,
+          triggerType: "manual",
+          timestamp: Date.now(),
+        },
+      },
+    ];
   },
 };

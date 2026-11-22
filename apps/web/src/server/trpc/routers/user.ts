@@ -3,7 +3,13 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure } from "../trpc";
-import { consumeNonce, verifyNonce } from "@solflow/auth";
+import {
+  allowedSiwsDomains,
+  consumeNonce,
+  requestHostFrom,
+  siwsDomainMatches,
+  verifyNonce,
+} from "@solflow/auth";
 import { PublicKey } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import bs58 from "bs58";
@@ -63,6 +69,9 @@ export const userRouter = router({
       }
       if (!messageHasLine(publicKey) || !messageHasLine(`Nonce: ${nonce}`)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Message mismatch" });
+      }
+      if (!siwsDomainMatches(message, allowedSiwsDomains(process.env, requestHostFrom(ctx.headers)))) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Message was signed for a different site" });
       }
 
       // Verify Ed25519 signature

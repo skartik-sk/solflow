@@ -5,7 +5,7 @@ import { Send } from "lucide-react";
 import type { CloudNodeDefinition, CloudFlowNodeData } from "../types";
 import { CATEGORY_COLORS } from "../types";
 import { CloudBaseNode } from "../components/cloud-base-node";
-import { assertSafeOutboundUrl, redactUrlSecrets } from "../security/outbound-url";
+import { redactUrlSecrets, safeOutboundFetch } from "../security/outbound-url";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 60_000;
@@ -215,21 +215,13 @@ export const webhookOutputDef: CloudNodeDefinition = {
       throw new Error("URL is required");
     }
 
-    assertSafeOutboundUrl(url);
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
-    ctx.signal.addEventListener("abort", () => controller.abort(), {
-      once: true,
-    });
-
     const canHaveBody = !["GET", "HEAD"].includes(method);
-    const response = await fetch(url, {
+    const response = await safeOutboundFetch(url, {
       method,
       headers,
       body: canHaveBody ? prepareRequestBody(body, headers) : undefined,
-      signal: controller.signal,
-    }).finally(() => clearTimeout(timeout));
+      signal: ctx.signal,
+    }, { timeoutMs });
 
     const contentType = response.headers.get("content-type") ?? "";
     const text = await response.text();

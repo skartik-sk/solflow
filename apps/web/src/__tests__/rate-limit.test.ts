@@ -5,6 +5,9 @@ import {
   nonceRateLimit,
   rateLimitHeaders,
   resetRateLimitStoreForTests,
+  editorAssistantRateLimit,
+  rpcProxyRateLimit,
+  testRunRateLimit,
 } from "../lib/rate-limit";
 
 describe("web rate limits", () => {
@@ -47,5 +50,17 @@ describe("web rate limits", () => {
       "X-RateLimit-Limit": "30",
       "X-RateLimit-Remaining": "0",
     });
+  });
+
+  it("limits test runs, assistant prompts and RPC proxy calls per user", () => {
+    for (let i = 0; i < 10; i += 1) expect(testRunRateLimit("u1").allowed).toBe(true);
+    expect(testRunRateLimit("u1").allowed).toBe(false);
+    expect(testRunRateLimit("u2").allowed).toBe(true);
+
+    for (let i = 0; i < 20; i += 1) expect(editorAssistantRateLimit("u1").allowed).toBe(true);
+    expect(editorAssistantRateLimit("u1").allowed).toBe(false);
+
+    for (let i = 0; i < 120; i += 1) expect(rpcProxyRateLimit("u1").allowed).toBe(true);
+    expect(rpcProxyRateLimit("u1").allowed).toBe(false);
   });
 });

@@ -135,6 +135,24 @@ export function deployRateLimit(userId: string): NamedLimiterResult {
   return withLimit(rateLimit(`deploy:${userId}`, { limit, windowMs: 10 * 60_000 }), limit);
 }
 
+/** 10 test runs per user per 5 minutes (each one is a CI run) */
+export function testRunRateLimit(userId: string): NamedLimiterResult {
+  const limit = 10;
+  return withLimit(rateLimit(`test-run:${userId}`, { limit, windowMs: 5 * 60_000 }), limit);
+}
+
+/** 20 editor-assistant prompts per user (or IP) per minute (each one is a paid LLM call) */
+export function editorAssistantRateLimit(key: string): NamedLimiterResult {
+  const limit = 20;
+  return withLimit(rateLimit(`editor-assistant:${key}`, { limit, windowMs: 60_000 }), limit);
+}
+
+/** 120 proxied read-only RPC calls per user per minute */
+export function rpcProxyRateLimit(userId: string): NamedLimiterResult {
+  const limit = 120;
+  return withLimit(rateLimit(`rpc-proxy:${userId}`, { limit, windowMs: 60_000 }), limit);
+}
+
 export function resetRateLimitStoreForTests(): void {
   if (process.env.NODE_ENV === "test") {
     store.clear();
